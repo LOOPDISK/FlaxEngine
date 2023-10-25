@@ -100,6 +100,11 @@ namespace FlaxEngine
         public static event Action Draw;
 
         /// <summary>
+        /// Occurs after physics update.
+        /// </summary>
+        public static event Action PhysicsUpdate;
+
+        /// <summary>
         /// Occurs when scripting engine is disposing. Engine is during closing and some services may be unavailable (eg. loading scenes). This may be called after the engine fatal error event.
         /// </summary>
         public static event Action Exit;
@@ -346,6 +351,10 @@ namespace FlaxEngine
         internal static void Internal_Draw()
         {
             Draw?.Invoke();
+        }
+        internal static void Internal_PhysicsUpdate()
+        {
+            PhysicsUpdate?.Invoke();
         }
 
         internal static void Internal_Exit()

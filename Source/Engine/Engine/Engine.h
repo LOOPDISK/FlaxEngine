@@ -14,7 +14,7 @@ class JsonAsset;
 /// </summary>
 API_CLASS(Static) class FLAXENGINE_API Engine
 {
-DECLARE_SCRIPTING_TYPE_NO_SPAWN(Engine);
+    DECLARE_SCRIPTING_TYPE_NO_SPAWN(Engine);
 public:
 
     /// <summary>
@@ -63,6 +63,11 @@ public:
     /// Event called during frame rendering and can be used to invoke custom rendering with GPUDevice.
     /// </summary>
     static Action Draw;
+
+    /// <summary>
+    /// Event called after physics update.
+    /// </summary>
+    static Action PhysicsUpdate;
 
     /// <summary>
     /// Event called during game loop when application gets paused (engine tick will be postponed until unpause). Used on platforms that support only one app on screen.
@@ -121,6 +126,11 @@ public:
     /// Draw callback.
     /// </summary>
     static void OnDraw();
+
+    /// <summary>
+    /// Physics update callback.
+    /// </summary>
+    static void OnPhysicsUpdate();
 
     /// <summary>
     /// Called when engine exists. Disposes engine services and shuts down the engine.

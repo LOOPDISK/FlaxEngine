@@ -81,12 +81,12 @@ namespace
             return Ptr;
         }
 
-        explicit operator ScriptingObject*()
+        explicit operator ScriptingObject* ()
         {
             return Ptr;
         }
 
-        operator ScriptingObject*() const
+        operator ScriptingObject* () const
         {
             return Ptr;
         }
@@ -511,7 +511,7 @@ bool Scripting::Load()
     }
 
     // Flax.Build outputs the <target>.Build.json with binary modules to use for game scripting
-    const Char *target, *platform, *architecture, *configuration;
+    const Char* target, * platform, * architecture, * configuration;
     ScriptsBuilder::GetBinariesConfiguration(target, platform, architecture, configuration);
     if (StringUtils::Length(target) == 0)
     {
@@ -1034,7 +1034,7 @@ void Scripting::RegisterObject(ScriptingObject* obj)
         _objectsDictionary.Remove(obj->GetID());
     }
 #else
-	ASSERT(!_objectsDictionary.ContainsKey(obj->_id));
+    ASSERT(!_objectsDictionary.ContainsKey(obj->_id));
 #endif
 
 #if USE_OBJECTS_DISPOSE_CRASHES_DEBUGGING

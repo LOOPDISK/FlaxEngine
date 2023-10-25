@@ -13,7 +13,7 @@ class DataContainer;
 /// <summary>
 /// The high-level network object role and authority. Used to define who owns the object and when it can be simulated or just replicated.
 /// </summary>
-API_ENUM(Namespace="FlaxEngine.Networking") enum class NetworkObjectRole : byte
+API_ENUM(Namespace = "FlaxEngine.Networking") enum class NetworkObjectRole : byte
 {
     // Not replicated object.
     None = 0,
@@ -79,7 +79,8 @@ public:
     /// <remarks>Does nothing if network is offline.</remarks>
     /// <param name="obj">The object to replicate.</param>
     /// <param name="parent">The parent of the object (eg. player that spawned it).</param>
-    API_FUNCTION() static void AddObject(ScriptingObject* obj, const ScriptingObject* parent = nullptr);
+    /// <param name="localId">An optional local identifer in the context of the parent, to help sync siblings of the same type.</param>
+    API_FUNCTION() static void AddObject(ScriptingObject* obj, const ScriptingObject* parent = nullptr, const uint16 localId = 0);
 
     /// <summary>
     /// Removes the object from the network replication system.
@@ -116,7 +117,7 @@ public:
     /// <param name="obj">The network object.</param>
     /// <returns>True if object exists in networking, otherwise false.</returns>
     API_FUNCTION() static bool HasObject(const ScriptingObject* obj);
-	
+
     /// <summary>
     /// Resolves foreign Guid into a local ScriptingObject
     /// </summary>
