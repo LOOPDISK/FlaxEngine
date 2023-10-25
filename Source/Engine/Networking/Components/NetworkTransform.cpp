@@ -22,7 +22,7 @@ PACK_STRUCT(struct Data
     });
 
 static_assert((int32)NetworkTransform::ReplicationComponents::All + 1 == 512, "Invalid ReplicationComponents bit count for Data.");
-
+// test comment
 namespace
 {
     // Percentage of local error that is acceptable (eg. 4 frames error)
