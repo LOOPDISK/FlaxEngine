@@ -719,6 +719,7 @@ void GetAssemblyName(void* assemblyHandle, StringAnsi& name, StringAnsi& fullnam
 
 DEFINE_INTERNAL_CALL(void) NativeInterop_CreateClass(NativeClassDefinitions* managedClass, void* assemblyHandle)
 {
+    ScopeLock lock(BinaryModule::Locker);
     MAssembly* assembly = GetAssembly(assemblyHandle);
     if (assembly == nullptr)
     {
@@ -732,7 +733,18 @@ DEFINE_INTERNAL_CALL(void) NativeInterop_CreateClass(NativeClassDefinitions* man
     MClass* klass = New<MClass>(assembly, managedClass->typeHandle, managedClass->name, managedClass->fullname, managedClass->namespace_, managedClass->typeAttributes);
     if (assembly != nullptr)
     {
-        const_cast<MAssembly::ClassesDictionary&>(assembly->GetClasses()).Add(klass->GetFullName(), klass);
+        auto& classes = const_cast<MAssembly::ClassesDictionary&>(assembly->GetClasses());
+        MClass* oldKlass;
+        if (classes.TryGet(klass->GetFullName(), oldKlass))
+        {
+            LOG(Warning, "Class '{0}' was already added to assembly '{1}'", String(klass->GetFullName()), String(assembly->GetName()));
+            Delete(klass);
+            klass = oldKlass;
+        }
+        else
+        {
+            classes.Add(klass->GetFullName(), klass);
+        }
     }
     managedClass->nativePointer = klass;
 }
@@ -873,7 +885,7 @@ MClass::MClass(const MAssembly* parentAssembly, void* handle, const char* name, 
     static void* TypeIsEnumPtr = GetStaticMethodPointer(TEXT("TypeIsEnum"));
     _isEnum = CallStaticMethod<bool, void*>(TypeIsEnumPtr, handle);
 
-    CachedClassHandles.Add(handle, this);
+    CachedClassHandles[handle] = this;
 }
 
 bool MAssembly::ResolveMissingFile(String& assemblyPath) const
@@ -1551,6 +1563,7 @@ const Array<MObject*>& MProperty::GetAttributes() const
 
 MAssembly* GetAssembly(void* assemblyHandle)
 {
+    ScopeLock lock(BinaryModule::Locker);
     MAssembly* assembly;
     if (CachedAssemblyHandles.TryGet(assemblyHandle, assembly))
         return assembly;
@@ -1559,6 +1572,7 @@ MAssembly* GetAssembly(void* assemblyHandle)
 
 MClass* GetClass(MType* typeHandle)
 {
+    ScopeLock lock(BinaryModule::Locker);
     MClass* klass = nullptr;
     CachedClassHandles.TryGet(typeHandle, klass);
     return nullptr;
@@ -1568,6 +1582,7 @@ MClass* GetOrCreateClass(MType* typeHandle)
 {
     if (!typeHandle)
         return nullptr;
+    ScopeLock lock(BinaryModule::Locker);
     MClass* klass;
     if (!CachedClassHandles.TryGet(typeHandle, klass))
     {
@@ -1579,7 +1594,12 @@ MClass* GetOrCreateClass(MType* typeHandle)
         klass = New<MClass>(assembly, classInfo.typeHandle, classInfo.name, classInfo.fullname, classInfo.namespace_, classInfo.typeAttributes);
         if (assembly != nullptr)
         {
-            const_cast<MAssembly::ClassesDictionary&>(assembly->GetClasses()).Add(klass->GetFullName(), klass);
+            auto& classes = const_cast<MAssembly::ClassesDictionary&>(assembly->GetClasses());
+            if (classes.ContainsKey(klass->GetFullName()))
+            {
+                LOG(Warning, "Class '{0}' was already added to assembly '{1}'", String(klass->GetFullName()), String(assembly->GetName()));
+            }
+            classes[klass->GetFullName()] = klass;
         }
 
         if (typeHandle != classInfo.typeHandle)
@@ -1630,9 +1650,9 @@ bool InitHostfxr()
     const ::String csharpLibraryPath = Globals::BinariesFolder / TEXT("FlaxEngine.CSharp.dll");
     const ::String csharpRuntimeConfigPath = Globals::BinariesFolder / TEXT("FlaxEngine.CSharp.runtimeconfig.json");
     if (!FileSystem::FileExists(csharpLibraryPath))
-        LOG(Fatal, "Failed to initialize managed runtime, missing file: {0}", csharpLibraryPath);
+        LOG(Fatal, "Failed to initialize .NET runtime, missing file: {0}", csharpLibraryPath);
     if (!FileSystem::FileExists(csharpRuntimeConfigPath))
-        LOG(Fatal, "Failed to initialize managed runtime, missing file: {0}", csharpRuntimeConfigPath);
+        LOG(Fatal, "Failed to initialize .NET runtime, missing file: {0}", csharpRuntimeConfigPath);
     const FLAX_CORECLR_STRING& libraryPath = FLAX_CORECLR_STRING(csharpLibraryPath);
 
     // Get path to hostfxr library
@@ -1683,9 +1703,9 @@ bool InitHostfxr()
         Platform::OpenUrl(TEXT("https://dotnet.microsoft.com/en-us/download/dotnet/7.0"));
 #endif
 #if USE_EDITOR
-        LOG(Fatal, "Missing .NET 7 SDK installation required to run Flax Editor.");
+        LOG(Fatal, "Missing .NET 7 or later SDK installation required to run Flax Editor.");
 #else
-        LOG(Fatal, "Missing .NET 7 Runtime installation required to run this application.");
+        LOG(Fatal, "Missing .NET 7 or later Runtime installation required to run this application.");
 #endif
         return true;
     }
@@ -1715,14 +1735,13 @@ bool InitHostfxr()
         return true;
     }
 
-    // TODO: Implement picking different version of hostfxr, currently prefers highest available version.
-    // Allow future and preview versions of .NET
-    String dotnetRollForward;
+    // TODO: Implement support for picking RC/beta updates of .NET runtime
+    // Uncomment for enabling support for upcoming .NET major release candidates
+#if 0
     String dotnetRollForwardPr;
-    if (Platform::GetEnvironmentVariable(TEXT("DOTNET_ROLL_FORWARD"), dotnetRollForward))
-        Platform::SetEnvironmentVariable(TEXT("DOTNET_ROLL_FORWARD"), TEXT("LatestMajor"));
     if (Platform::GetEnvironmentVariable(TEXT("DOTNET_ROLL_FORWARD_TO_PRERELEASE"), dotnetRollForwardPr))
         Platform::SetEnvironmentVariable(TEXT("DOTNET_ROLL_FORWARD_TO_PRERELEASE"), TEXT("1"));
+#endif
 
     // Initialize hosting component
     const char_t* argv[1] = { libraryPath.Get() };
