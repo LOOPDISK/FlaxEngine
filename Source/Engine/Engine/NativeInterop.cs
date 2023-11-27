@@ -1698,11 +1698,19 @@ namespace FlaxEngine.Interop
             }
 
             if (isCollectible)
-                managedTypesCollectible.Add(type, tuple);
+            {
+                if (!managedTypesCollectible.ContainsKey(type))
+                {
+                    managedTypesCollectible.Add(type, tuple);
+                }
+            }
             else
 #endif
             {
-                managedTypes.Add(type, tuple);
+                if (!managedTypes.ContainsKey(type))
+                {
+                    managedTypes.Add(type, tuple);
+                }
             }
 
             if (registerNativeType)
