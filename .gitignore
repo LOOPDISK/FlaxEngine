@@ -157,3 +157,4 @@ obj/
 .idea/
 *.code-workspace
 omnisharp.json
+/Source/Platforms/UWP/Binaries/.vs/Solution/v17/.suo
