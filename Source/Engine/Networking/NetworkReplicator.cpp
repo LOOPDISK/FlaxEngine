@@ -689,6 +689,25 @@ ReplicateItem* AddObjectReplicateItem(NetworkEvent& event, const MessageType& ms
     }
 
     // Copy part data
+    if (replicateItem->PartsLeft <= 0)
+    { // TODO: temporary debug error checking to figure out whats failing the assert
+        if (replicateItem->Object)
+        {
+            if (replicateItem->Object.Get())
+            {
+                auto name = replicateItem->Object.Get()->GetType().Fullname.ToString();
+                NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator:Custom Error] parts left < 0.  Object name: {0}", name);
+            }
+            else
+            {
+                NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator:Custom Error] parts left < 0. Invalid Object.");
+            }
+        }
+        else
+        {
+            NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator:Custom Error] parts left < 0.  No Object.");
+        }
+    }
     ASSERT(replicateItem->PartsLeft > 0);
     replicateItem->PartsLeft--;
     ASSERT(partStart + partSize <= replicateItem->Data.Count());
