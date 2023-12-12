@@ -1043,7 +1043,7 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
 
         break;
     }
-    // Blend Additive
+ // Blend Additive
     case 10:
     {
         const float alpha = Math::Saturate((float)tryGetValue(node->GetBox(3), node->Values[0]));
@@ -1058,8 +1058,8 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         {
             const auto valueA = tryGetValue(node->GetBox(1), Value::Null);
             const auto valueB = tryGetValue(node->GetBox(2), Value::Null);
-            //const auto valueC = tryGetValue(node->GetBox(3), Value::Null);
-
+            const auto valueC = tryGetValue(node->GetBox(4), Value::Null);
+            
             if (!ANIM_GRAPH_IS_VALID_PTR(valueA))
             {
                 value = Value::Null;
@@ -1068,65 +1068,43 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             {
                 value = valueA;
             }
-            //else if (!ANIM_GRAPH_IS_VALID_PTR(valueC))
-            //{
-            //    value = valueA;
-            //}
-            else
+            else if (!ANIM_GRAPH_IS_VALID_PTR(valueC))
             {
-                const auto nodes = node->GetNodes(this);
-                const auto nodesA = static_cast<AnimGraphImpulse*>(valueA.AsPointer);
-                const auto nodesB = static_cast<AnimGraphImpulse*>(valueB.AsPointer);
-                //const auto nodesC = static_cast<AnimGraphImpulse*>(valueC.AsPointer);
-                const auto& baseNodes = _graph.BaseModel.Get()->GetNodes();
-
-                Transform t, tA, tB, tC;
-                for (int32 i = 0; i < nodes->Nodes.Count(); i++)
-                {
-                    tA = nodesA->Nodes[i];
-                    tB = nodesB->Nodes[i];
-                    //tC = nodesC->Nodes[i];
-                    const auto& baseNode = baseNodes[i];
-
-                    t.Translation = tA.Translation + (tB.Translation - baseNode.LocalTransform.Translation) * alpha;
-
-  /*                auto m1 = Matrix::RotationQuaternion(tA.Orientation);
-                    auto m2 = Matrix::RotationQuaternion(alpha * tB.Orientation);
-                    auto m3 = Matrix::RotationQuaternion(alpha * baseNode.LocalTransform.Orientation);
-
-                    Matrix m4;
-                    Matrix::Subtract(m2, m3, m4);
-                    
-                    Matrix m5;
-                    Matrix::Add(m1, m4, m5);
-
-                    t.SetRotation(m5);
-                    t.Orientation.Normalize();*/
-
-                    // Assuming tA.Orientation is the base pose, tB.Orientation is the additive animation pose,
-                    // and baseNode.LocalTransform.Orientation is the reference (or T-pose) orientation:
-
-                    Quaternion referenceOrientationInverse = baseNode.LocalTransform.Orientation;
-                    referenceOrientationInverse.Invert(); // Invert the reference orientation in place
-                    Quaternion additiveDelta = referenceOrientationInverse * tB.Orientation; // Rotation from reference to additive pose
-                    Quaternion scaledAdditiveDelta;
-                    Quaternion::Slerp(Quaternion::Identity, additiveDelta, alpha, scaledAdditiveDelta); // Scale the additive delta by alpha
-
-                    Quaternion finalOrientation = tA.Orientation * scaledAdditiveDelta; // Apply the scaled additive delta to the base orientation
-                    finalOrientation.Normalize(); // Normalize the final orientation
-
-                    t.Orientation = finalOrientation; // Set the final orientation
-
-                    //t.Scale = tA.Scale * tB.Scale;
-                    t.Scale = Vector3::Lerp(tA.Scale,tB.Scale, alpha); // Lerp between base scale and combined scale
-
-                    //nodes->Nodes[i] = t;
-                    Transform::Lerp(tA, t, alpha, nodes->Nodes[i]);
-                }
-                Transform::Lerp(nodesA->RootMotion, nodesA->RootMotion + nodesB->RootMotion, alpha, nodes->RootMotion);
-                value = nodes;
-
+                value = valueA;
             }
+            else
+             {
+                 const auto nodes = node->GetNodes(this);
+                 const auto basePoseNodes = static_cast<AnimGraphImpulse*>(valueA.AsPointer);
+                 const auto additivePoseNodes = static_cast<AnimGraphImpulse*>(valueB.AsPointer);
+                 const auto idlePoseNodes = static_cast<AnimGraphImpulse*>(valueC.AsPointer);
+                 const auto& tposeNodes = _graph.BaseModel.Get()->GetNodes();
+
+                 for (int32 i = 0; i < nodes->Nodes.Count(); i++)
+                 {
+                     const Transform& basePoseTransform = basePoseNodes->Nodes[i];
+                     const Transform& additivePoseTransform = additivePoseNodes->Nodes[i];
+                     const Transform& idlePoseTransform = idlePoseNodes->Nodes[i];
+                     const Transform& tposeTransform = tposeNodes[i].LocalTransform;
+
+                     // Calculate the delta between the idle pose and the additive pose
+                     Quaternion rotationDelta = Quaternion::Invert(idlePoseTransform.Orientation) * additivePoseTransform.Orientation;
+
+                     // Calculate the final transformation
+                     Transform finalTransform;
+                     finalTransform.Translation = basePoseTransform.Translation + (additivePoseTransform.Translation - tposeTransform.Translation);
+                     finalTransform.Orientation = basePoseTransform.Orientation * rotationDelta;
+                     finalTransform.Scale = basePoseTransform.Scale + (additivePoseTransform.Scale - tposeTransform.Scale);
+
+                     // Apply alpha blending
+                     nodes->Nodes[i] = Transform::Lerp(basePoseTransform, finalTransform, alpha);
+                 }
+
+                 // Blend root motion if needed
+                 Transform blendedRootMotion = Transform::Lerp(basePoseNodes->RootMotion, additivePoseNodes->RootMotion, alpha);
+                 nodes->RootMotion = blendedRootMotion;
+                 value = nodes;
+             }
         }
 
         break;
