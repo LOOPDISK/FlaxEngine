@@ -504,6 +504,10 @@ namespace Flax.Build
             if (fileName == Assembler.CacheFileName || fileName == "BuilderRulesCache.dll")
                 return true;
 
+            // Skip System files needed for AWSGameLift plugin
+            if (fileName == "System.Core.dll" || fileName == "System.Runtime.Intrinsics.dll" || fileName == "System.Runtime.CompilerServices.Unsafe.dll")
+                return true;
+
             // Skip non-C# DLLs
             try
             {
