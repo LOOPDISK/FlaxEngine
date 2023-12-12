@@ -505,7 +505,11 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
                     NodeElementArchetype.Factory.Input(0, "Base Pose", true, typeof(void), 1),
                     NodeElementArchetype.Factory.Input(1, "Blend Pose", true, typeof(void), 2),
-                    NodeElementArchetype.Factory.Input(2, "Blend Alpha", true, typeof(float), 3, 0),
+                    
+                    NodeElementArchetype.Factory.Input(2, "Reference Pose", true, typeof(void), 4),
+
+                    NodeElementArchetype.Factory.Input(3, "Blend Alpha", true, typeof(float), 3, 0),
+
                 }
             },
             new NodeArchetype
