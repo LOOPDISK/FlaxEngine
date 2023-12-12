@@ -79,8 +79,7 @@ public:
     /// <remarks>Does nothing if network is offline.</remarks>
     /// <param name="obj">The object to replicate.</param>
     /// <param name="parent">The parent of the object (eg. player that spawned it).</param>
-    /// <param name="localId">An optional local identifer in the context of the parent, to help sync siblings of the same type.</param>
-    API_FUNCTION() static void AddObject(ScriptingObject* obj, const ScriptingObject* parent = nullptr, const uint16 localId = 0);
+    API_FUNCTION() static void AddObject(ScriptingObject* obj, const ScriptingObject* parent = nullptr);
 
     /// <summary>
     /// Removes the object from the network replication system.
