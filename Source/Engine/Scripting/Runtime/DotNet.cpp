@@ -836,7 +836,7 @@ bool MAssembly::UnloadImage(bool isReloading)
 MClass::MClass(const MAssembly* parentAssembly, void* handle, const char* name, const char* fullname, const char* namespace_, MTypeAttributes attributes)
     : _handle(handle)
     , _name(name)
-    , _namespace_(namespace_)
+    , _namespace(namespace_)
     , _assembly(parentAssembly)
     , _fullname(fullname)
     , _hasCachedProperties(false)
@@ -915,7 +915,7 @@ StringAnsiView MClass::GetName() const
 
 StringAnsiView MClass::GetNamespace() const
 {
-    return _namespace_;
+    return _namespace;
 }
 
 MType* MClass::GetType() const
@@ -1657,7 +1657,7 @@ bool InitHostfxr()
 
     // Get path to hostfxr library
     get_hostfxr_parameters get_hostfxr_params;
-    get_hostfxr_params.size = sizeof(hostfxr_initialize_parameters);
+    get_hostfxr_params.size = sizeof(get_hostfxr_parameters);
     get_hostfxr_params.assembly_path = libraryPath.Get();
 #if PLATFORM_MAC
     ::String macOSDotnetRoot = TEXT("/usr/local/share/dotnet");
@@ -1808,7 +1808,7 @@ void* GetStaticMethodPointer(const String& methodName)
     PROFILE_CPU();
     const int rc = get_function_pointer(NativeInteropTypeName, FLAX_CORECLR_STRING(methodName).Get(), UNMANAGEDCALLERSONLY_METHOD, nullptr, nullptr, &fun);
     if (rc != 0)
-        LOG(Fatal, "Failed to get unmanaged function pointer for method {0}: 0x{1:x}", methodName.Get(), (unsigned int)rc);
+        LOG(Fatal, "Failed to get unmanaged function pointer for method '{0}': 0x{1:x}", methodName, (unsigned int)rc);
     CachedFunctions.Add(methodName, fun);
     return fun;
 }
@@ -2207,7 +2207,7 @@ void* GetStaticMethodPointer(const String& methodName)
     {
         const unsigned short errorCode = mono_error_get_error_code(&error);
         const char* errorMessage = mono_error_get_message(&error);
-        LOG(Fatal, "mono_method_get_unmanaged_callers_only_ftnptr failed with error code 0x{0:x}, {1}", errorCode, String(errorMessage));
+        LOG(Fatal, "Failed to get unmanaged function pointer for method '{0}': 0x{1:x}, {2}", methodName, errorCode, String(errorMessage));
     }
     mono_error_cleanup(&error);
 
