@@ -148,6 +148,9 @@ void AnimGraphExecutor::ProcessAnimEvents(AnimGraphNode* node, bool loop, float 
     }
 }
 
+
+
+
 float GetAnimPos(float& timePos, float startTimePos, bool loop, float length)
 {
     // Apply animation offset and looping to calculate the animation sampling position within [0;length]
@@ -456,6 +459,8 @@ Variant AnimGraphExecutor::SampleAnimationsWithBlend(AnimGraphNode* node, bool l
     return nodes;
 }
 
+
+
 Variant AnimGraphExecutor::Blend(AnimGraphNode* node, const Value& poseA, const Value& poseB, float alpha, AlphaBlendMode alphaMode)
 {
     ANIM_GRAPH_PROFILE_EVENT("Blend Pose");
@@ -500,6 +505,32 @@ Variant AnimGraphExecutor::SampleState(AnimGraphNode* state)
 
     return result;
 }
+
+
+// // This function mimics Unreal's BlendFromIdentityAndAccumulate using Flax's math functions
+// void BlendFromIdentityAndAccumulate(Transform& FinalTransform, const Transform& SourceTransform, float BlendWeight)
+// {
+//     // Slerp from Identity to Source's orientation in-place
+//     Quaternion weightedSourceOrientation;
+//     Quaternion::Slerp(Quaternion::Identity, SourceTransform.Orientation, BlendWeight, weightedSourceOrientation);
+
+//     // Multiply rotation in-place
+//     Quaternion::Multiply(FinalTransform.Orientation, weightedSourceOrientation, FinalTransform.Orientation);
+//     FinalTransform.Orientation.Normalize();
+
+//     // Accumulate translation and scale
+//     FinalTransform.Translation += SourceTransform.Translation * BlendWeight;
+//     Vector3 scaleChange = (SourceTransform.Scale - Vector3::One) * BlendWeight;
+//     FinalTransform.Scale *= (Vector3::One + scaleChange);
+// }
+// Function to apply transformation based on parentTransform
+void ApplyParentTransform(Transform& parentTransform, Transform& pose) {
+    parentTransform.Orientation.Normalize();
+    Quaternion::Multiply(parentTransform.Orientation, pose.Orientation, pose.Orientation);
+    pose.Orientation.Normalize(); // Normalize after multiplication
+}
+
+
 
 void AnimGraphExecutor::UpdateStateTransitions(AnimGraphContext& context, const AnimGraphNode::StateMachineData& stateMachineData, AnimGraphInstanceData::StateMachineBucket& stateMachineBucket, const AnimGraphNode::StateBaseData& stateData)
 {
@@ -736,6 +767,14 @@ void AnimGraphExecutor::ProcessGroupTools(Box* box, Node* nodeBase, Value& value
         break;
     }
 }
+
+void FastLerp(Quaternion& result, const Quaternion& a, const Quaternion& b, float alpha) {
+    float dotResult = Quaternion::Dot(a, b);
+    float bias = dotResult >= 0.0f ? 1.0f : -1.0f;
+    result = (b * alpha) + (a * (bias * (1.0f - alpha)));
+}
+
+
 
 void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Value& value)
 {
@@ -1074,36 +1113,82 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             }
             else
              {
-                 const auto nodes = node->GetNodes(this);
-                 const auto basePoseNodes = static_cast<AnimGraphImpulse*>(valueA.AsPointer);
-                 const auto additivePoseNodes = static_cast<AnimGraphImpulse*>(valueB.AsPointer);
-                 const auto idlePoseNodes = static_cast<AnimGraphImpulse*>(valueC.AsPointer);
-                 const auto& tposeNodes = _graph.BaseModel.Get()->GetNodes();
+                const auto nodes = node->GetNodes(this);
+                const auto basePoseNodes = static_cast<AnimGraphImpulse*>(valueA.AsPointer);
+                const auto additivePoseNodes = static_cast<AnimGraphImpulse*>(valueB.AsPointer);
+                const auto idlePoseNodes = static_cast<AnimGraphImpulse*>(valueC.AsPointer);
 
-                 for (int32 i = 0; i < nodes->Nodes.Count(); i++)
-                 {
-                     const Transform& basePoseTransform = basePoseNodes->Nodes[i];
-                     const Transform& additivePoseTransform = additivePoseNodes->Nodes[i];
-                     const Transform& idlePoseTransform = idlePoseNodes->Nodes[i];
-                     const Transform& tposeTransform = tposeNodes[i].LocalTransform;
+                const auto& skeleton = _graph.BaseModel->Skeleton; // Assuming this is how you access the skeleton
 
-                     // Calculate the delta between the idle pose and the additive pose
-                     Quaternion rotationDelta = Quaternion::Invert(idlePoseTransform.Orientation) * additivePoseTransform.Orientation;
 
-                     // Calculate the final transformation
-                     Transform finalTransform;
-                     finalTransform.Translation = basePoseTransform.Translation + (additivePoseTransform.Translation - tposeTransform.Translation);
-                     finalTransform.Orientation = basePoseTransform.Orientation * rotationDelta;
-                     finalTransform.Scale = basePoseTransform.Scale + (additivePoseTransform.Scale - tposeTransform.Scale);
+                // Convert base pose to model space
+                for (int32 i = 0; i < basePoseNodes->Nodes.Count(); i++) {
+                    const int32 parentIndex = skeleton.Nodes[i].ParentIndex;
+                    if (parentIndex != -1) {
+                        Transform baseParentTransform = basePoseNodes->Nodes[parentIndex];
+                        Transform addParentTransform = additivePoseNodes->Nodes[parentIndex];
+                        Transform idleParentTransform = idlePoseNodes->Nodes[parentIndex];
 
-                     // Apply alpha blending
-                     nodes->Nodes[i] = Transform::Lerp(basePoseTransform, finalTransform, alpha);
-                 }
+                        ApplyParentTransform(baseParentTransform, basePoseNodes->Nodes[i]);
+                        ApplyParentTransform(addParentTransform, additivePoseNodes->Nodes[i]);
+                        ApplyParentTransform(idleParentTransform, idlePoseNodes->Nodes[i]);
+                    }
+                }
 
-                 // Blend root motion if needed
-                 Transform blendedRootMotion = Transform::Lerp(basePoseNodes->RootMotion, additivePoseNodes->RootMotion, alpha);
-                 nodes->RootMotion = blendedRootMotion;
-                 value = nodes;
+                // Apply the additive blending in model space
+                for (int32 i = 0; i < basePoseNodes->Nodes.Count(); i++) {
+                    Transform& basePoseTransform = basePoseNodes->Nodes[i];
+                    const Transform& additivePoseTransform = additivePoseNodes->Nodes[i];
+                    const Transform& idlePoseTransform = idlePoseNodes->Nodes[i];
+
+                    // Calculate the delta from the reference (idle) pose
+                    Transform deltaPose;
+                    deltaPose.Translation = additivePoseTransform.Translation - idlePoseTransform.Translation;
+                    deltaPose.Scale = additivePoseTransform.Scale / idlePoseTransform.Scale; // Assuming uniform scaling
+
+                    Quaternion inverseIdleOrientation = idlePoseTransform.Orientation;
+                    inverseIdleOrientation.Invert();
+                    Quaternion deltaOrientation;
+                    Quaternion::Multiply(inverseIdleOrientation, additivePoseTransform.Orientation, deltaOrientation);
+
+                    // Apply the weighted delta to the base pose in model space
+                    Quaternion weightedSourceOrientation;
+                    FastLerp(weightedSourceOrientation, Quaternion::Identity, deltaOrientation, alpha);
+
+                    // Multiply rotation in-place
+                    Quaternion::Multiply(basePoseTransform.Orientation, weightedSourceOrientation, basePoseTransform.Orientation);
+                    basePoseTransform.Orientation.Normalize();
+
+                    // Accumulate translation and scale
+                    basePoseTransform.Translation += deltaPose.Translation * alpha;
+                    Vector3 scaleChange = (deltaPose.Scale - Vector3::One) * alpha;
+                    basePoseTransform.Scale *= (Vector3::One + scaleChange);
+                }
+
+                // Convert the result back to local space
+                for (int32 i = basePoseNodes->Nodes.Count() - 1; i >= 0; i--)
+                {
+                    Transform& basePose = basePoseNodes->Nodes[i];
+                    const int32 parentIndex = skeleton.Nodes[i].ParentIndex;
+                    if (parentIndex != -1)
+                    {
+                        const Transform& parentTransform = basePoseNodes->Nodes[parentIndex];
+                        Quaternion inverseParentOrientation = parentTransform.Orientation;
+                        inverseParentOrientation.Invert();
+                        Quaternion::Multiply(inverseParentOrientation, basePose.Orientation, basePose.Orientation);
+                        // Normalize if necessary
+                        basePose.Orientation.Normalize();
+
+                        
+                    }
+                    nodes->Nodes[i] = basePose;
+                }
+
+
+                // Blend root motion if needed
+                Transform blendedRootMotion = Transform::Lerp(basePoseNodes->RootMotion, additivePoseNodes->RootMotion, alpha);
+                nodes->RootMotion = blendedRootMotion;
+                value = nodes;
              }
         }
 
