@@ -1041,60 +1041,6 @@ namespace FlaxEditor.Surface.Archetypes
                     Utils.GetEmptyArray<byte>(),
                 },
             },
-            new NodeArchetype
-            {
-                TypeID = 35,
-                Title = "track to bone Node",
-                Description = "Copies the skeleton node transformation data (in local space)",
-                Flags = NodeFlags.AnimGraph,
-                Size = new Float2(260, 140),
-                DefaultValues = new object[]
-                {
-                    string.Empty,
-                    string.Empty,
-                    1.0,
-
-                },
-                Elements = new[]
-                {
-                    NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
-                    NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 1),
-                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 1, 120, 0),
-                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 2, 120, 1),
-                    //NodeElementArchetype.Factory.Input(3, "up", true, typeof(Vector3), 2),
-                    NodeElementArchetype.Factory.Input(4, "weight", true, typeof(float), 2),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Source Node:"),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
-                }
-            },
-
-             new NodeArchetype
-            {
-                TypeID = 36,
-                Title = "locked track Node",
-                Description = "Copies the skeleton node transformation data (in local space)",
-                Flags = NodeFlags.AnimGraph,
-                Size = new Float2(260, 140),
-                DefaultValues = new object[]
-                {
-                    string.Empty,
-                    string.Empty,
-                    1.0,
-
-                },
-                Elements = new[]
-                {
-                    NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
-                    NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 1),
-                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 1, 120, 0),
-                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 2, 120, 1),
-                    NodeElementArchetype.Factory.Input(3, "weight", true, typeof(float), 2),
-                    NodeElementArchetype.Factory.Input(4, "up", true, typeof(Vector3), 3),
-                    NodeElementArchetype.Factory.Input(5, "forward", true, typeof(Vector3), 4),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Source Node:"),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
-                }
-            },
         };
     }
 }
