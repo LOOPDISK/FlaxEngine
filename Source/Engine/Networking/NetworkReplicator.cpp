@@ -51,7 +51,6 @@ PACK_STRUCT(struct NetworkMessageObjectReplicate
     uint32 OwnerFrame;
     Guid ObjectId; // TODO: introduce networked-ids to synchronize unique ids as ushort (less data over network)
     Guid ParentId;
-    uint16 LocalId;
     char ObjectTypeName[128]; // TODO: introduce networked-name to synchronize unique names as ushort (less data over network)
     uint16 DataSize;
     uint16 PartsCount;
@@ -89,7 +88,6 @@ PACK_STRUCT(struct NetworkMessageObjectSpawnItem
 {
     Guid ObjectId;
     Guid ParentId;
-    uint16 LocalId;
     Guid PrefabObjectID;
     char ObjectTypeName[128]; // TODO: introduce networked-name to synchronize unique names as ushort (less data over network)
 });
@@ -112,7 +110,6 @@ PACK_STRUCT(struct NetworkMessageObjectRpc
     NetworkMessageIDs ID = NetworkMessageIDs::ObjectRpc;
     Guid ObjectId;
     Guid ParentId;
-    uint16 LocalId;
     char ObjectTypeName[128]; // TODO: introduce networked-name to synchronize unique names as ushort (less data over network)
     char RpcTypeName[128]; // TODO: introduce networked-name to synchronize unique names as ushort (less data over network)
     char RpcName[128]; // TODO: introduce networked-name to synchronize unique names as ushort (less data over network)
@@ -124,7 +121,6 @@ struct NetworkReplicatedObject
     ScriptingObjectReference<ScriptingObject> Object;
     Guid ObjectId;
     Guid ParentId;
-    uint16 LocalId = 0;
     uint32 OwnerClientId;
     uint32 LastOwnerFrame = 0;
     NetworkObjectRole Role;
@@ -298,13 +294,12 @@ NetworkReplicatedObject* ResolveObject(Guid objectId)
     return it != Objects.End() ? &it->Item : nullptr;
 }
 
-NetworkReplicatedObject* ResolveObject(Guid objectId, Guid parentId, const char objectTypeName[128], uint16 localId)
+NetworkReplicatedObject* ResolveObject(Guid objectId, Guid parentId, const char objectTypeName[128])
 {
     // Lookup object
     NetworkReplicatedObject* obj = ResolveObject(objectId);
     if (obj)
         return obj;
-    NETWORK_REPLICATOR_LOG(Warning, "Couldn't find object {} {}, looking in parent {} for local ID={}", objectId.ToString(), String(objectTypeName), parentId.ToString(), localId);
 
     // Try to find the object within the same parent (eg. spawned locally on both client and server)
     IdsRemappingTable.TryGet(parentId, parentId);
@@ -317,7 +312,6 @@ NetworkReplicatedObject* ResolveObject(Guid objectId, Guid parentId, const char 
         const ScriptingObject* obj = item.Object.Get();
         if (item.LastOwnerFrame == 0 &&
             item.ParentId == parentId &&
-            item.LocalId == localId &&
             obj &&
             obj->GetTypeHandle() == objectType &&
             !IdsRemappingTable.ContainsValue(item.ObjectId))
@@ -325,7 +319,7 @@ NetworkReplicatedObject* ResolveObject(Guid objectId, Guid parentId, const char 
             if (NetworkManager::IsClient())
             {
                 // Boost future lookups by using indirection
-                NETWORK_REPLICATOR_LOG(Info, "[NetworkReplicator] 2. Remap object ID={} into object {}:{}:{}", objectId, item.ToString(), obj->GetType().ToString(), item.LocalId);
+                NETWORK_REPLICATOR_LOG(Info, "[NetworkReplicator] Remap object ID={} into object {}:{}", objectId, item.ToString(), obj->GetType().ToString());
                 IdsRemappingTable.Add(objectId, item.ObjectId);
             }
 
@@ -450,7 +444,6 @@ void SetupObjectSpawnMessageItem(SpawnItem* e, NetworkMessage& msg)
     NetworkMessageObjectSpawnItem msgDataItem;
     msgDataItem.ObjectId = item.ObjectId;
     msgDataItem.ParentId = item.ParentId;
-    msgDataItem.LocalId = item.LocalId;
     if (NetworkManager::IsClient())
     {
         // Remap local client object ids into server ids
@@ -748,14 +741,14 @@ void InvokeObjectSpawn(const NetworkMessageObjectSpawn& msgData, const NetworkMe
 
     // Check if that object has been already spawned
     auto& rootItem = msgDataItems[0];
-    NetworkReplicatedObject* root = ResolveObject(rootItem.ObjectId, rootItem.ParentId, rootItem.ObjectTypeName, rootItem.LocalId);
+    NetworkReplicatedObject* root = ResolveObject(rootItem.ObjectId, rootItem.ParentId, rootItem.ObjectTypeName);
     if (root)
     {
         // Object already exists locally so just synchronize the ownership (and mark as spawned)
         for (int32 i = 0; i < msgData.ItemsCount; i++)
         {
             auto& msgDataItem = msgDataItems[i];
-            NetworkReplicatedObject* e = ResolveObject(msgDataItem.ObjectId, msgDataItem.ParentId, msgDataItem.ObjectTypeName, msgDataItem.LocalId);
+            NetworkReplicatedObject* e = ResolveObject(msgDataItem.ObjectId, msgDataItem.ParentId, msgDataItem.ObjectTypeName);
             auto& item = *e;
             item.Spawned = true;
             if (NetworkManager::IsClient())
@@ -824,7 +817,7 @@ void InvokeObjectSpawn(const NetworkMessageObjectSpawn& msgData, const NetworkMe
                 NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator] Failed to find prefab {}", msgData.PrefabId.ToString());
                 return;
             }
-            prefabInstance = PrefabManager::SpawnPrefab(prefab, Transform::Identity, nullptr, nullptr);
+            prefabInstance = PrefabManager::SpawnPrefab(prefab, nullptr, nullptr);
             if (!prefabInstance)
             {
                 NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator] Failed to spawn object type {}", msgData.PrefabId.ToString());
@@ -840,7 +833,7 @@ void InvokeObjectSpawn(const NetworkMessageObjectSpawn& msgData, const NetworkMe
             ScriptingObject* obj = FindPrefabObject(prefabInstance, msgDataItem.PrefabObjectID);
             if (!obj)
             {
-                NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator] Failed to find object {}:{} in prefab {} {}", msgDataItem.PrefabObjectID.ToString(), String(msgDataItem.ObjectTypeName), msgData.PrefabId.ToString(), prefabInstance->GetName().ToString());
+                NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator] Failed to find object {} in prefab {}", msgDataItem.PrefabObjectID.ToString(), msgData.PrefabId.ToString());
                 Delete(prefabInstance);
                 return;
             }
@@ -912,7 +905,6 @@ void InvokeObjectSpawn(const NetworkMessageObjectSpawn& msgData, const NetworkMe
         item.AsNetworkObject = ScriptingObject::ToInterface<INetworkObject>(obj);
         item.ObjectId = obj->GetID();
         item.ParentId = parent ? parent->ObjectId : Guid::Empty;
-        item.LocalId = msgDataItem.LocalId;
         item.OwnerClientId = msgData.OwnerClientId;
         item.Role = NetworkObjectRole::Replicated;
         if (item.OwnerClientId == NetworkManager::LocalClientId)
@@ -921,13 +913,13 @@ void InvokeObjectSpawn(const NetworkMessageObjectSpawn& msgData, const NetworkMe
             item.Role = NetworkObjectRole::OwnedAuthoritative;
         }
         item.Spawned = true;
-        NETWORK_REPLICATOR_LOG(Info, "[NetworkReplicator] 1. Add new object {}:{}:{}, parent {}:{}", item.ToString(), obj->GetType().ToString(), item.LocalId, item.ParentId.ToString(), parent ? parent->Object->GetType().ToString() : String::Empty);
+        NETWORK_REPLICATOR_LOG(Info, "[NetworkReplicator] Add new object {}:{}, parent {}:{}", item.ToString(), obj->GetType().ToString(), item.ParentId.ToString(), parent ? parent->Object->GetType().ToString() : String::Empty);
         Objects.Add(MoveTemp(item));
         if (Hierarchy && item.Role == NetworkObjectRole::OwnedAuthoritative)
             Hierarchy->AddObject(obj);
 
         // Boost future lookups by using indirection
-        NETWORK_REPLICATOR_LOG(Info, "[NetworkReplicator] 1. Remap object ID={} into object {}:{}", msgDataItem.ObjectId, item.ToString(), obj->GetType().ToString());
+        NETWORK_REPLICATOR_LOG(Info, "[NetworkReplicator] Remap object ID={} into object {}:{}", msgDataItem.ObjectId, item.ToString(), obj->GetType().ToString());
         IdsRemappingTable.Add(msgDataItem.ObjectId, item.ObjectId);
     }
 
@@ -950,22 +942,19 @@ void InvokeObjectSpawn(const NetworkMessageObjectSpawn& msgData, const NetworkMe
                 sceneObject->SetParent(parentActor);
             else if (msgDataItem.ParentId.IsValid())
             {
-                if (msgDataItem.ParentId != msgDataItem.ObjectId)
-                {
 #if USE_NETWORK_REPLICATOR_LOG
-                    // Ignore case when parent object in a message was a scene (eg. that is already unloaded on a client)
-                    AssetInfo assetInfo;
-                    if (!Content::GetAssetInfo(msgDataItem.ParentId, assetInfo) || assetInfo.TypeName != TEXT("FlaxEngine.SceneAsset"))
-                    {
-                        NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator] Failed to find object {} as parent to spawned scene object {}:{}", msgDataItem.ParentId.ToString(), msgDataItem.ObjectId.ToString(), String(msgDataItem.ObjectTypeName));
-                    }
-#endif
+                // Ignore case when parent object in a message was a scene (eg. that is already unloaded on a client)
+                AssetInfo assetInfo;
+                if (!Content::GetAssetInfo(msgDataItem.ParentId, assetInfo) || assetInfo.TypeName != TEXT("FlaxEngine.SceneAsset"))
+                {
+                    NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator] Failed to find object {} as parent to spawned object", msgDataItem.ParentId.ToString());
                 }
+#endif
             }
         }
         else if (!parent && msgDataItem.ParentId.IsValid())
         {
-            NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator] Failed to find object {} as parent to spawned object {}:{}", msgDataItem.ParentId.ToString(), msgDataItem.ObjectId.ToString(), String(msgDataItem.ObjectTypeName));
+            NETWORK_REPLICATOR_LOG(Error, "[NetworkReplicator] Failed to find object {} as parent to spawned object", msgDataItem.ParentId.ToString());
         }
 
         if (item.AsNetworkObject)
@@ -1121,7 +1110,7 @@ bool NetworkReplicator::InvokeSerializer(const ScriptingTypeHandle& typeHandle, 
     return false;
 }
 
-void NetworkReplicator::AddObject(ScriptingObject* obj, const ScriptingObject* parent, const uint16 localId)
+void NetworkReplicator::AddObject(ScriptingObject* obj, const ScriptingObject* parent)
 {
     if (!obj || NetworkManager::IsOffline())
         return;
@@ -1147,10 +1136,9 @@ void NetworkReplicator::AddObject(ScriptingObject* obj, const ScriptingObject* p
     item.AsNetworkObject = ScriptingObject::ToInterface<INetworkObject>(obj);
     item.ObjectId = obj->GetID();
     item.ParentId = parent ? parent->GetID() : Guid::Empty;
-    item.LocalId = localId;
     item.OwnerClientId = NetworkManager::ServerClientId; // Server owns objects by default
     item.Role = NetworkManager::IsClient() ? NetworkObjectRole::Replicated : NetworkObjectRole::OwnedAuthoritative;
-    NETWORK_REPLICATOR_LOG(Info, "[NetworkReplicator] 2. Add new object {}:{}:{}, parent {}:{}", item.ToString(), obj->GetType().ToString(), item.LocalId, item.ParentId.ToString(), parent ? parent->GetType().ToString() : String::Empty);
+    NETWORK_REPLICATOR_LOG(Info, "[NetworkReplicator] Add new object {}:{}, parent {}:{}", item.ToString(), obj->GetType().ToString(), item.ParentId.ToString(), parent ? parent->GetType().ToString() : String::Empty);
     for (const SpawnItem& spawnItem : SpawnQueue)
     {
         if (spawnItem.HasOwnership && spawnItem.HierarchicalOwnership)
@@ -1820,7 +1808,6 @@ void NetworkInternal::NetworkReplicatorUpdate()
             msgData.OwnerFrame = NetworkManager::Frame;
             msgData.ObjectId = item.ObjectId;
             msgData.ParentId = item.ParentId;
-            msgData.LocalId = item.LocalId;
             if (isClient)
             {
                 // Remap local client object ids into server ids
@@ -1918,7 +1905,6 @@ void NetworkInternal::NetworkReplicatorUpdate()
             NetworkMessageObjectRpc msgData;
             msgData.ObjectId = item.ObjectId;
             msgData.ParentId = item.ParentId;
-            msgData.LocalId = item.LocalId;
             if (isClient)
             {
                 // Remap local client object ids into server ids
@@ -1979,7 +1965,7 @@ void NetworkInternal::OnNetworkMessageObjectReplicate(NetworkEvent& event, Netwo
     ScopeLock lock(ObjectsLock);
     if (DespawnedObjects.Contains(msgData.ObjectId))
         return; // Skip replicating not-existing objects
-    NetworkReplicatedObject* e = ResolveObject(msgData.ObjectId, msgData.ParentId, msgData.ObjectTypeName, msgData.LocalId);
+    NetworkReplicatedObject* e = ResolveObject(msgData.ObjectId, msgData.ParentId, msgData.ObjectTypeName);
     if (!e)
         return;
     auto& item = *e;
@@ -2165,7 +2151,7 @@ void NetworkInternal::OnNetworkMessageObjectRpc(NetworkEvent& event, NetworkClie
     NetworkMessageObjectRpc msgData;
     event.Message.ReadStructure(msgData);
     ScopeLock lock(ObjectsLock);
-    NetworkReplicatedObject* e = ResolveObject(msgData.ObjectId, msgData.ParentId, msgData.ObjectTypeName, msgData.LocalId);
+    NetworkReplicatedObject* e = ResolveObject(msgData.ObjectId, msgData.ParentId, msgData.ObjectTypeName);
     if (e)
     {
         auto& item = *e;

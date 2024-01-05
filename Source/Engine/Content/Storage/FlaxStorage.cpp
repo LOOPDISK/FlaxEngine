@@ -963,6 +963,7 @@ bool FlaxStorage::Create(WriteStream* stream, const AssetInitData* data, int32 d
         // Asset Dependencies
         stream->WriteInt32(header.Dependencies.Count());
         stream->WriteBytes(header.Dependencies.Get(), header.Dependencies.Count() * sizeof(Pair<Guid, DateTime>));
+        static_assert(sizeof(Pair<Guid, DateTime>) == sizeof(Guid) + sizeof(DateTime), "Invalid data size.");
     }
 
 #if ASSETS_LOADING_EXTRA_VERIFICATION
@@ -1305,6 +1306,8 @@ FileReadStream* FlaxStorage::OpenFile()
 
 bool FlaxStorage::CloseFileHandles()
 {
+    PROFILE_CPU();
+
     // Note: this is usually called by the content manager when this file is not used or on exit
     // In those situations all the async tasks using this storage should be cancelled externally
 

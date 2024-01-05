@@ -1709,11 +1709,20 @@ namespace FlaxEngine.Interop
             }
 
             if (isCollectible)
-                managedTypesCollectible.Add(type, tuple);
+            { // HACK: this guard was added as a workaround to this issue:
+              // https://github.com/FlaxEngine/FlaxEngine/issues/1983
+                if (!managedTypesCollectible.ContainsKey(type))
+                {
+                    managedTypesCollectible.Add(type, tuple);
+                }
+            }
             else
 #endif
-            {
-                managedTypes.Add(type, tuple);
+            { // HACK: same here. see above
+                if (!managedTypes.ContainsKey(type))
+                {
+                    managedTypes.Add(type, tuple);
+                }
             }
 
             if (registerNativeType)

@@ -368,7 +368,7 @@ namespace FlaxEditor.Windows.Assets
                 actor.Layer = parentActor.Layer;
 
                 // Rename actor to identify it easily
-                actor.Name = Utilities.Utils.IncrementNameNumber(actor.GetType().Name, x => parentActor.GetChild(x) == null);
+                actor.Name = Utilities.Utils.IncrementNameNumber(actor.Name, x => parentActor.GetChild(x) == null);
             }
 
             // Spawn it
@@ -386,6 +386,7 @@ namespace FlaxEditor.Windows.Assets
 
             // Spawn it
             Spawn(actor);
+            Rename();
         }
 
         /// <summary>
@@ -415,6 +416,7 @@ namespace FlaxEditor.Windows.Assets
             // Create undo action
             var action = new CustomDeleteActorsAction(new List<SceneGraphNode>(1) { actorNode }, true);
             Undo.AddAction(action);
+            Select(actorNode);
         }
 
         private void OnTreeRightClick(TreeNode node, Float2 location)
