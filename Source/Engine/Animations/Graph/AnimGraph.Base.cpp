@@ -140,21 +140,21 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
     // Check if this node needs a state container
     switch (n->GroupID)
     {
-    // Tools
+        // Tools
     case 7:
         switch (n->TypeID)
         {
-        // Time
+            // Time
         case 5:
             ADD_BUCKET(AnimationBucketInit);
             break;
         }
         break;
-    // Animation
+        // Animation
     case 9:
         switch (n->TypeID)
         {
-        // Output
+            // Output
         case 1:
             _rootNode = n;
             if (_rootNode->Values.Count() < 1)
@@ -163,16 +163,16 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
                 _rootNode->Values[0] = (int32)RootMotionMode::NoExtraction;
             }
             break;
-        // Animation
+            // Animation
         case 2:
             ADD_BUCKET(AnimationBucketInit);
             n->Assets[0] = (Asset*)Content::LoadAsync<Animation>((Guid)n->Values[0]);
             break;
-        // Blend with Mask
+            // Blend with Mask
         case 11:
             n->Assets[0] = (Asset*)Content::LoadAsync<SkeletonMask>((Guid)n->Values[1]);
             break;
-        // Multi Blend 1D
+            // Multi Blend 1D
         case 12:
         {
             ADD_BUCKET(MultiBlendBucketInit);
@@ -350,21 +350,53 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
             }
             break;
         }
+        // track to Node
+        case 35:
+        {
+            auto& data = n->Data.CopyNode;
+            if (_graph->BaseModel && !_graph->BaseModel->WaitForLoaded())
+            {
+                data.SrcNodeIndex = _graph->BaseModel->FindNode((StringView)n->Values[0]);
+                data.DstNodeIndex = _graph->BaseModel->FindNode((StringView)n->Values[1]);
+            }
+            else
+            {
+                data.SrcNodeIndex = -1;
+                data.DstNodeIndex = -1;
+            }
+            break;
+        }
+        // locked track Node
+        case 36:
+        {
+            auto& data = n->Data.CopyNode;
+            if (_graph->BaseModel && !_graph->BaseModel->WaitForLoaded())
+            {
+                data.SrcNodeIndex = _graph->BaseModel->FindNode((StringView)n->Values[0]);
+                data.DstNodeIndex = _graph->BaseModel->FindNode((StringView)n->Values[1]);
+            }
+            else
+            {
+                data.SrcNodeIndex = -1;
+                data.DstNodeIndex = -1;
+            }
+            break;
+        }
         // Animation Slot
         case 32:
             ADD_BUCKET(SlotBucketInit);
             break;
-        // Animation Instance Data
+            // Animation Instance Data
         case 33:
             ADD_BUCKET(InstanceDataBucketInit);
             break;
-        // Any State
+            // Any State
         case 34:
             LoadStateTransitions(n->Data.AnyState, n->Values[0]);
             break;
         }
         break;
-    // Custom
+        // Custom
     case 13:
     {
         // Clear data

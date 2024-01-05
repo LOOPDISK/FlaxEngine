@@ -79,7 +79,7 @@ void AnimGraphExecutor::ProcessAnimEvents(AnimGraphNode* node, bool loop, float 
     auto& context = Context.Get();
     float eventTimeMin = animPrevPos;
     float eventTimeMax = animPos;
-    if (loop && context.DeltaTime * speed < 0)
+    if (loop&& context.DeltaTime* speed < 0)
     {
         // Check if animation looped (for anim events shooting during backwards playback)
         //const float posNotLooped = startTimePos + oldTimePos;
@@ -147,6 +147,9 @@ void AnimGraphExecutor::ProcessAnimEvents(AnimGraphNode* node, bool loop, float 
         }
     }
 }
+
+
+
 
 float GetAnimPos(float& timePos, float startTimePos, bool loop, float length)
 {
@@ -456,6 +459,8 @@ Variant AnimGraphExecutor::SampleAnimationsWithBlend(AnimGraphNode* node, bool l
     return nodes;
 }
 
+
+
 Variant AnimGraphExecutor::Blend(AnimGraphNode* node, const Value& poseA, const Value& poseB, float alpha, AlphaBlendMode alphaMode)
 {
     ANIM_GRAPH_PROFILE_EVENT("Blend Pose");
@@ -500,6 +505,32 @@ Variant AnimGraphExecutor::SampleState(AnimGraphNode* state)
 
     return result;
 }
+
+
+// // This function mimics Unreal's BlendFromIdentityAndAccumulate using Flax's math functions
+// void BlendFromIdentityAndAccumulate(Transform& FinalTransform, const Transform& SourceTransform, float BlendWeight)
+// {
+//     // Slerp from Identity to Source's orientation in-place
+//     Quaternion weightedSourceOrientation;
+//     Quaternion::Slerp(Quaternion::Identity, SourceTransform.Orientation, BlendWeight, weightedSourceOrientation);
+
+//     // Multiply rotation in-place
+//     Quaternion::Multiply(FinalTransform.Orientation, weightedSourceOrientation, FinalTransform.Orientation);
+//     FinalTransform.Orientation.Normalize();
+
+//     // Accumulate translation and scale
+//     FinalTransform.Translation += SourceTransform.Translation * BlendWeight;
+//     Vector3 scaleChange = (SourceTransform.Scale - Vector3::One) * BlendWeight;
+//     FinalTransform.Scale *= (Vector3::One + scaleChange);
+// }
+// Function to apply transformation based on parentTransform
+void ApplyParentTransform(Transform& parentTransform, Transform& pose) {
+    parentTransform.Orientation.Normalize();
+    Quaternion::Multiply(parentTransform.Orientation, pose.Orientation, pose.Orientation);
+    pose.Orientation.Normalize(); // Normalize after multiplication
+}
+
+
 
 void AnimGraphExecutor::UpdateStateTransitions(AnimGraphContext& context, const AnimGraphNode::StateMachineData& stateMachineData, AnimGraphInstanceData::StateMachineBucket& stateMachineBucket, const AnimGraphNode::StateBaseData& stateData)
 {
@@ -607,7 +638,7 @@ void AnimGraphExecutor::ProcessGroupParameters(Box* box, Node* node, Value& valu
     auto& context = Context.Get();
     switch (node->TypeID)
     {
-    // Get
+        // Get
     case 1:
     {
         // Get parameter
@@ -719,7 +750,7 @@ void AnimGraphExecutor::ProcessGroupTools(Box* box, Node* nodeBase, Value& value
     auto node = (AnimGraphNode*)nodeBase;
     switch (node->TypeID)
     {
-    // Time
+        // Time
     case 5:
     {
         auto& bucket = context.Data->State[node->BucketIndex].Animation;
@@ -737,6 +768,14 @@ void AnimGraphExecutor::ProcessGroupTools(Box* box, Node* nodeBase, Value& value
     }
 }
 
+void FastLerp(Quaternion& result, const Quaternion& a, const Quaternion& b, float alpha) {
+    float dotResult = Quaternion::Dot(a, b);
+    float bias = dotResult >= 0.0f ? 1.0f : -1.0f;
+    result = (b * alpha) + (a * (bias * (1.0f - alpha)));
+}
+
+
+
 void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Value& value)
 {
     auto& context = Context.Get();
@@ -746,11 +785,11 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
     auto node = (AnimGraphNode*)nodeBase;
     switch (node->TypeID)
     {
-    // Animation Output
+        // Animation Output
     case 1:
         value = tryGetValue(box, Value::Null);
         break;
-    // Animation
+        // Animation
     case 2:
     {
         auto anim = node->Assets[0].As<Animation>();
@@ -765,7 +804,7 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
 
         switch (box->ID)
         {
-        // Animation
+            // Animation
         case 0:
         {
             ANIM_GRAPH_PROFILE_EVENT("Animation");
@@ -809,7 +848,7 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         case 3:
             value = anim ? anim->GetLength() : 0.0f;
             break;
-        // Is Playing
+            // Is Playing
         case 4:
             // If anim was updated during this or a previous frame
             value = bucket.LastUpdateFrame >= context.CurrentFrameIndex - 1;
@@ -1058,6 +1097,7 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         {
             const auto valueA = tryGetValue(node->GetBox(1), Value::Null);
             const auto valueB = tryGetValue(node->GetBox(2), Value::Null);
+            const auto valueC = tryGetValue(node->GetBox(4), Value::Null);
 
             if (!ANIM_GRAPH_IS_VALID_PTR(valueA))
             {
@@ -1067,41 +1107,87 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             {
                 value = valueA;
             }
+            else if (!ANIM_GRAPH_IS_VALID_PTR(valueC))
+            {
+                value = valueA;
+            }
             else
             {
                 const auto nodes = node->GetNodes(this);
-                const auto nodesA = static_cast<AnimGraphImpulse*>(valueA.AsPointer);
-                const auto nodesB = static_cast<AnimGraphImpulse*>(valueB.AsPointer);
-                const auto& baseNodes = _graph.BaseModel.Get()->GetNodes();
-                Transform t, tA, tB;
-                for (int32 i = 0; i < nodes->Nodes.Count(); i++)
-                {
-                    tA = nodesA->Nodes[i];
-                    tB = nodesB->Nodes[i];
-                    const auto& baseNode = baseNodes[i];
+                const auto basePoseNodes = static_cast<AnimGraphImpulse*>(valueA.AsPointer);
+                const auto additivePoseNodes = static_cast<AnimGraphImpulse*>(valueB.AsPointer);
+                const auto idlePoseNodes = static_cast<AnimGraphImpulse*>(valueC.AsPointer);
 
-                    t.Translation = tA.Translation + (tB.Translation - baseNode.LocalTransform.Translation) * alpha;
+                const auto& skeleton = _graph.BaseModel->Skeleton; // Assuming this is how you access the skeleton
 
-                    //auto baseOrientation = tA.Orientation;
-                    //Quaternion additiveOrientation = alpha * (tB.Orientation - baseNode.LocalTransform.Orientation);
-                    //t.Orientation = baseOrientation + additiveOrientation;
-                    auto m1 = Matrix::RotationQuaternion(tA.Orientation);
-                    auto m2 = Matrix::RotationQuaternion(alpha * tB.Orientation);
-                    auto m3 = Matrix::RotationQuaternion(alpha * baseNode.LocalTransform.Orientation);
-                    Matrix m4;
-                    Matrix::Subtract(m2, m3, m4);
-                    Matrix m5;
-                    Matrix::Add(m1, m4, m5);
 
-                    t.SetRotation(m5);
-                    t.Orientation.Normalize();
+                // Convert base pose to model space
+                for (int32 i = 0; i < basePoseNodes->Nodes.Count(); i++) {
+                    const int32 parentIndex = skeleton.Nodes[i].ParentIndex;
+                    if (parentIndex != -1) {
+                        Transform baseParentTransform = basePoseNodes->Nodes[parentIndex];
+                        Transform addParentTransform = additivePoseNodes->Nodes[parentIndex];
+                        Transform idleParentTransform = idlePoseNodes->Nodes[parentIndex];
 
-                    t.Scale = tA.Scale * tB.Scale;
-                    
-                    //nodes->Nodes[i] = t;
-                    Transform::Lerp(tA, t, alpha, nodes->Nodes[i]);
+                        ApplyParentTransform(baseParentTransform, basePoseNodes->Nodes[i]);
+                        ApplyParentTransform(addParentTransform, additivePoseNodes->Nodes[i]);
+                        ApplyParentTransform(idleParentTransform, idlePoseNodes->Nodes[i]);
+                    }
                 }
-                Transform::Lerp(nodesA->RootMotion, nodesA->RootMotion + nodesB->RootMotion, alpha, nodes->RootMotion);
+
+                // Apply the additive blending in model space
+                for (int32 i = 0; i < basePoseNodes->Nodes.Count(); i++) {
+                    Transform& basePoseTransform = basePoseNodes->Nodes[i];
+                    const Transform& additivePoseTransform = additivePoseNodes->Nodes[i];
+                    const Transform& idlePoseTransform = idlePoseNodes->Nodes[i];
+
+                    // Calculate the delta from the reference (idle) pose
+                    Transform deltaPose;
+                    deltaPose.Translation = additivePoseTransform.Translation - idlePoseTransform.Translation;
+                    deltaPose.Scale = additivePoseTransform.Scale / idlePoseTransform.Scale; // Assuming uniform scaling
+
+                    Quaternion inverseIdleOrientation = idlePoseTransform.Orientation;
+                    inverseIdleOrientation.Invert();
+                    Quaternion deltaOrientation;
+                    Quaternion::Multiply(inverseIdleOrientation, additivePoseTransform.Orientation, deltaOrientation);
+
+                    // Apply the weighted delta to the base pose in model space
+                    Quaternion weightedSourceOrientation;
+                    FastLerp(weightedSourceOrientation, Quaternion::Identity, deltaOrientation, alpha);
+
+                    // Multiply rotation in-place
+                    Quaternion::Multiply(basePoseTransform.Orientation, weightedSourceOrientation, basePoseTransform.Orientation);
+                    basePoseTransform.Orientation.Normalize();
+
+                    // Accumulate translation and scale
+                    basePoseTransform.Translation += deltaPose.Translation * alpha;
+                    Vector3 scaleChange = (deltaPose.Scale - Vector3::One) * alpha;
+                    basePoseTransform.Scale *= (Vector3::One + scaleChange);
+                }
+
+                // Convert the result back to local space
+                for (int32 i = basePoseNodes->Nodes.Count() - 1; i >= 0; i--)
+                {
+                    Transform& basePose = basePoseNodes->Nodes[i];
+                    const int32 parentIndex = skeleton.Nodes[i].ParentIndex;
+                    if (parentIndex != -1)
+                    {
+                        const Transform& parentTransform = basePoseNodes->Nodes[parentIndex];
+                        Quaternion inverseParentOrientation = parentTransform.Orientation;
+                        inverseParentOrientation.Invert();
+                        Quaternion::Multiply(inverseParentOrientation, basePose.Orientation, basePose.Orientation);
+                        // Normalize if necessary
+                        basePose.Orientation.Normalize();
+
+
+                    }
+                    nodes->Nodes[i] = basePose;
+                }
+
+
+                // Blend root motion if needed
+                Transform blendedRootMotion = Transform::Lerp(basePoseNodes->RootMotion, additivePoseNodes->RootMotion, alpha);
+                nodes->RootMotion = blendedRootMotion;
                 value = nodes;
             }
         }
@@ -1732,9 +1818,9 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
     }
     // Entry
     case 19:
-    // State
+        // State
     case 20:
-    // Any State
+        // Any State
     case 34:
     {
         // Not used
@@ -1743,33 +1829,33 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
     }
     // State Output
     case 21:
-    // Rule Output
+        // Rule Output
     case 22:
         value = box->HasConnection() ? eatBox(nodeBase, box->FirstConnection()) : Value::Null;
         break;
-    // Transition Source State Anim
+        // Transition Source State Anim
     case 23:
     {
         const AnimGraphTransitionData& transitionsData = context.TransitionData;
         switch (box->ID)
         {
-        // Length
+            // Length
         case 0:
             value = transitionsData.Length;
             break;
-        // Time
+            // Time
         case 1:
             value = transitionsData.Position;
             break;
-        // Normalized Time
+            // Normalized Time
         case 2:
             value = transitionsData.Position / transitionsData.Length;
             break;
-        // Remaining Time
+            // Remaining Time
         case 3:
             value = transitionsData.Length - transitionsData.Position;
             break;
-        // Remaining Normalized Time
+            // Remaining Normalized Time
         case 4:
             value = 1.0f - (transitionsData.Position / transitionsData.Length);
             break;
@@ -2167,6 +2253,210 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         value = *(Float4*)bucket.Data;
         break;
     }
+    //// track bone to bone Node
+    //case 35:
+    //{
+    //    // Get input
+    //    auto input = tryGetValue(node->GetBox(1), Value::Null);
+    //    const auto nodes = node->GetNodes(this);
+    //    if (ANIM_GRAPH_IS_VALID_PTR(input))
+    //    {
+    //        // Use input nodes
+    //        CopyNodes(nodes, input);
+    //    }
+    //    else
+    //    {
+    //        // Use default nodes
+    //        InitNodes(nodes);
+    //        input = nodes;
+    //    }
+
+    //    // Fetch the settings
+    //    const auto srcNodeIndex = node->Data.CopyNode.SrcNodeIndex;
+    //    const auto dstNodeIndex = node->Data.CopyNode.DstNodeIndex;
+    //    const auto copyTranslation = (bool)node->Values[2];
+    //    const auto copyRotation = (bool)node->Values[3];
+    //    const auto copyScale = (bool)node->Values[4];
+
+    //    // Skip if no change will be performed
+    //    if (srcNodeIndex < 0 || srcNodeIndex >= _skeletonNodesCount ||
+    //        dstNodeIndex < 0 || dstNodeIndex >= _skeletonNodesCount ||
+    //        !(copyTranslation || copyRotation || copyScale))
+    //    {
+    //        // Pass through the input
+    //        value = input;
+    //        context.ValueCache.Add(boxBase, value);
+    //        return;
+    //    }
+
+    //    // Copy bone data
+    //    Transform& srcTransform = nodes->Nodes[srcNodeIndex];
+    //    Transform& dstTransform = nodes->Nodes[dstNodeIndex];
+    //    if (copyTranslation)
+    //        dstTransform.Translation = srcTransform.Translation;
+    //    if (copyRotation)
+    //        dstTransform.Orientation = srcTransform.Orientation;
+    //    if (copyScale)
+    //        dstTransform.Scale = srcTransform.Scale;
+
+    //    value = nodes;
+    //    break;
+    //}
+    // Track To Bone Node
+// Track To Bone Node
+// Track To Bone Node
+    case 35:
+    {
+        // Get input
+        auto input = tryGetValue(node->GetBox(1), Value::Null);
+        const auto nodes = node->GetNodes(this);
+        if (ANIM_GRAPH_IS_VALID_PTR(input))
+        {
+            // Use input nodes
+            CopyNodes(nodes, input);
+        }
+        else
+        {
+            // Use default nodes
+            InitNodes(nodes);
+            input = nodes;
+        }
+
+
+
+        // Fetch the settings
+        const auto srcNodeIndex = node->Data.CopyNode.SrcNodeIndex;
+        const auto dstNodeIndex = node->Data.CopyNode.DstNodeIndex;
+        //Vector3 up = (Vector3)tryGetValue(node->GetBox(2), Vector3::Zero);
+        const float weight = (float)tryGetValue(node->GetBox(2), node->Values[2]);
+
+        // Validate node indices and weight
+        if (srcNodeIndex < 0 || srcNodeIndex >= _skeletonNodesCount ||
+            dstNodeIndex < 0 || dstNodeIndex >= _skeletonNodesCount
+            )
+        {
+            // Pass through the input
+            value = input;
+            break;
+        }
+
+        // Get source and destination node's model space transformation
+        Transform srcNodeModelTransform = nodes->GetNodeModelTransformation(_graph.BaseModel->Skeleton, srcNodeIndex);
+        Transform dstNodeModelTransform = nodes->GetNodeModelTransformation(_graph.BaseModel->Skeleton, dstNodeIndex);
+
+        // Calculate the model space position of the target relative to the source node
+        Vector3 targetModelPos = dstNodeModelTransform.Translation;
+
+        // Solve Aim IK to get the rotation needed to look at the target
+        Quaternion nodeCorrection;
+
+        Vector3 toTarget = targetModelPos - srcNodeModelTransform.Translation;
+        toTarget.Normalize();
+        const Vector3 fromNode = Vector3::Up;
+        Quaternion::FindBetween(fromNode, toTarget, nodeCorrection);
+
+        Quaternion weightedRotation;
+        FastLerp(weightedRotation, srcNodeModelTransform.Orientation, nodeCorrection, weight);
+        weightedRotation.Normalize(); // Normalize the result
+
+
+        // Apply the blended rotation to the source node
+        srcNodeModelTransform.Orientation = weightedRotation;
+        nodes->SetNodeModelTransformation(_graph.BaseModel->Skeleton, srcNodeIndex, srcNodeModelTransform);
+
+        value = nodes;
+        break;
+    }
+
+    //locked track
+    case 36:
+    {
+        // Get input
+        auto input = tryGetValue(node->GetBox(1), Value::Null);
+        const auto nodes = node->GetNodes(this);
+        if (ANIM_GRAPH_IS_VALID_PTR(input))
+        {
+            // Use input nodes
+            CopyNodes(nodes, input);
+        }
+        else
+        {
+            // Use default nodes
+            InitNodes(nodes);
+            input = nodes;
+        }
+
+        // Fetch the settings
+        const auto srcNodeIndex = node->Data.CopyNode.SrcNodeIndex;
+        const auto dstNodeIndex = node->Data.CopyNode.DstNodeIndex;
+
+        const float weight = (float)tryGetValue(node->GetBox(2), node->Values[2]);
+        Vector3 up = (Vector3)tryGetValue(node->GetBox(3), Vector3::Up);
+        Vector3 perpendicular = (Vector3)tryGetValue(node->GetBox(4), Vector3::Up);
+        //Vector3 up = Vector3::Up;
+
+        // Validate node indices and weight
+        if (srcNodeIndex < 0 || srcNodeIndex >= _skeletonNodesCount ||
+            dstNodeIndex < 0 || dstNodeIndex >= _skeletonNodesCount
+            )
+        {
+            // Pass through the input
+            value = input;
+            break;
+        }
+
+        // Validate the up vector
+        if (up.LengthSquared() < 0.01) // VECTOR_EPSILON is a small value like 1e-4
+        {
+            up = Vector3::Up; // Default up direction if the provided up vector is too small
+        }
+        else
+        {
+            Vector3::Normalize(up);
+        }
+
+        // Validate the up vector
+        if (perpendicular.LengthSquared() < 0.01) // VECTOR_EPSILON is a small value like 1e-4
+        {
+            perpendicular = Vector3::Up; // Default up direction if the provided up vector is too small
+        }
+        else
+        {
+            Vector3::Normalize(up);
+        }
+
+
+        // Get source and destination node's model space transformation
+        Transform srcNodeTransform = nodes->GetNodeModelTransformation(_graph.BaseModel->Skeleton, srcNodeIndex);
+        Transform dstNodeTransform = nodes->GetNodeModelTransformation(_graph.BaseModel->Skeleton, dstNodeIndex);
+
+        // Calculate direction to target in bone's local space
+        Vector3 localTargetDirection = srcNodeTransform.WorldToLocal(dstNodeTransform.Translation).GetNormalized();
+
+        // Project vector on the plane
+        Vector3 planeNormal = Vector3::UnitY; // Assuming Y-axis as the lock axis
+        Vector3 projectedVec = localTargetDirection - Vector3::Dot(localTargetDirection, planeNormal) * planeNormal;
+        projectedVec.Normalize();
+
+        // Calculate the perpendicular vector on the plane
+        Vector3 perpVec = Vector3::Cross(planeNormal, projectedVec);
+        perpVec.Normalize();
+
+        // Calculate the rotation required
+        Quaternion rotationToTarget = Quaternion::LookRotation(projectedVec, perpVec);
+
+        // Blend the rotation with the current bone's orientation
+        Quaternion finalRotation;
+        FastLerp(finalRotation, srcNodeTransform.Orientation, rotationToTarget * srcNodeTransform.Orientation, weight);
+
+        // Apply the final rotation to the bone
+        srcNodeTransform.Orientation = finalRotation;
+        nodes->SetNodeModelTransformation(_graph.BaseModel->Skeleton, srcNodeIndex, srcNodeTransform);
+
+        value = nodes;
+        break;
+    }
+
     default:
         break;
     }
@@ -2180,7 +2470,7 @@ void AnimGraphExecutor::ProcessGroupFunction(Box* boxBase, Node* node, Value& va
         return;
     switch (node->TypeID)
     {
-    // Function Input
+        // Function Input
     case 1:
     {
         // Find the function call

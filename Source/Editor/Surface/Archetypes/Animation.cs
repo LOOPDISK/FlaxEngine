@@ -75,7 +75,7 @@ namespace FlaxEditor.Surface.Archetypes
                     Title = _assetBox.HasAnyConnection || asset == null ? "Animation" : asset.ShortName;
                 else
                     Title = asset?.ShortName ?? "Animation";
-                
+
                 var style = Style.Current;
                 Resize(Mathf.Max(230, style.FontLarge.MeasureText(Title).X + 30), 160);
             }
@@ -493,7 +493,15 @@ namespace FlaxEditor.Surface.Archetypes
             {
                 TypeID = 10,
                 Title = "Blend Additive",
-                Description = "Blend animation poses (with additive mode)",
+                Description =
+                "Blend animation poses (with additive mode)" +
+                "\n" +
+                "\nNote: " +
+                "\nOrder of nodes matters, because Additive animation is appplayed on top of curent frame." +
+                "\n" +
+                "\nTip for blender users:" +
+                "\nInside NLA the the order is bottom (first node in flax) to the top (last node in flax)" +
+                "\n​u need to place it in this order to get correct resoults",
                 Flags = NodeFlags.AnimGraph,
                 Size = new Float2(170, 80),
                 DefaultValues = new object[]
@@ -505,7 +513,11 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
                     NodeElementArchetype.Factory.Input(0, "Base Pose", true, typeof(void), 1),
                     NodeElementArchetype.Factory.Input(1, "Blend Pose", true, typeof(void), 2),
-                    NodeElementArchetype.Factory.Input(2, "Blend Alpha", true, typeof(float), 3, 0),
+
+                    NodeElementArchetype.Factory.Input(2, "Reference Pose", true, typeof(void), 4),
+
+                    NodeElementArchetype.Factory.Input(3, "Blend Alpha", true, typeof(float), 3, 0),
+
                 }
             },
             new NodeArchetype
@@ -1028,6 +1040,60 @@ namespace FlaxEditor.Surface.Archetypes
                 {
                     Utils.GetEmptyArray<byte>(),
                 },
+            },
+            new NodeArchetype
+            {
+                TypeID = 35,
+                Title = "track to bone Node",
+                Description = "Copies the skeleton node transformation data (in local space)",
+                Flags = NodeFlags.AnimGraph,
+                Size = new Float2(260, 140),
+                DefaultValues = new object[]
+                {
+                    string.Empty,
+                    string.Empty,
+                    1.0,
+
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
+                    NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 1),
+                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 1, 120, 0),
+                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 2, 120, 1),
+                    //NodeElementArchetype.Factory.Input(3, "up", true, typeof(Vector3), 2),
+                    NodeElementArchetype.Factory.Input(4, "weight", true, typeof(float), 2),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Source Node:"),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
+                }
+            },
+
+             new NodeArchetype
+            {
+                TypeID = 36,
+                Title = "locked track Node",
+                Description = "Copies the skeleton node transformation data (in local space)",
+                Flags = NodeFlags.AnimGraph,
+                Size = new Float2(260, 140),
+                DefaultValues = new object[]
+                {
+                    string.Empty,
+                    string.Empty,
+                    1.0,
+
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
+                    NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 1),
+                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 1, 120, 0),
+                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 2, 120, 1),
+                    NodeElementArchetype.Factory.Input(3, "weight", true, typeof(float), 2),
+                    NodeElementArchetype.Factory.Input(4, "up", true, typeof(Vector3), 3),
+                    NodeElementArchetype.Factory.Input(5, "forward", true, typeof(Vector3), 4),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Source Node:"),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
+                }
             },
         };
     }
