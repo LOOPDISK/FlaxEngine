@@ -67,6 +67,7 @@ TaskGraph* Engine::UpdateGraph = nullptr;
 Action Engine::LateUpdate;
 Action Engine::LateFixedUpdate;
 Action Engine::Draw;
+Action Engine::PhysicsUpdate;
 Action Engine::Pause;
 Action Engine::Unpause;
 Window* Engine::MainWindow = nullptr;
@@ -216,7 +217,7 @@ int32 Engine::Main(const Char* cmdLine)
         }
 
         // Collect physics simulation results (does nothing if Simulate hasn't been called in the previous loop step)
-        Physics::CollectResults();
+        OnPhysicsUpdate();
     }
 
     // Call on exit event
@@ -376,6 +377,12 @@ void Engine::OnDraw()
         LOG_FLUSH();
     }
 #endif
+}
+
+void Engine::OnPhysicsUpdate()
+{
+    PROFILE_CPU_NAMED("Physics Update");
+    Physics::CollectResults();
 }
 
 bool Engine::IsHeadless()
@@ -579,7 +586,7 @@ void EngineImpl::InitPaths()
 #elif PLATFORM_MAC
     Globals::MonoPath = Globals::StartupFolder / TEXT("Source/Platforms/Editor/Mac/Mono");
 #else
-    #error "Please specify the Mono data location for Editor on this platform."
+#error "Please specify the Mono data location for Editor on this platform."
 #endif
 #endif
 #else

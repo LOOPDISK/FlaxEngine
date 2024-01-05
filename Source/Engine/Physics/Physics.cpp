@@ -6,6 +6,7 @@
 #include "PhysicalMaterial.h"
 #include "PhysicsSettings.h"
 #include "PhysicsStatistics.h"
+#include "Engine/Engine/Engine.h"
 #include "Engine/Engine/Time.h"
 #include "Engine/Engine/EngineService.h"
 #include "Engine/Profiler/ProfilerCPU.h"
@@ -476,6 +477,8 @@ void PhysicsScene::CollectResults()
     ASSERT(IsInMainThread());
     PhysicsBackend::EndSimulateScene(_scene);
     _isDuringSimulation = false;
+    Engine::PhysicsUpdate();
+    EngineService::OnPhysicsUpdate();
 }
 
 bool PhysicsScene::LineCast(const Vector3& start, const Vector3& end, uint32 layerMask, bool hitTriggers)

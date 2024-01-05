@@ -46,7 +46,7 @@ Dictionary<Pair<ScriptingTypeHandle, StringAnsiView>, NetworkInternal::ProfilerE
 #endif
 
 PACK_STRUCT(struct NetworkMessageObjectReplicate
-    {
+{
     NetworkMessageIDs ID = NetworkMessageIDs::ObjectReplicate;
     uint32 OwnerFrame;
     Guid ObjectId; // TODO: introduce networked-ids to synchronize unique ids as ushort (less data over network)
@@ -54,10 +54,10 @@ PACK_STRUCT(struct NetworkMessageObjectReplicate
     char ObjectTypeName[128]; // TODO: introduce networked-name to synchronize unique names as ushort (less data over network)
     uint16 DataSize;
     uint16 PartsCount;
-    });
+});
 
 PACK_STRUCT(struct NetworkMessageObjectReplicatePart
-    {
+{
     NetworkMessageIDs ID = NetworkMessageIDs::ObjectReplicatePart;
     uint32 OwnerFrame;
     uint16 DataSize;
@@ -65,48 +65,48 @@ PACK_STRUCT(struct NetworkMessageObjectReplicatePart
     uint16 PartStart;
     uint16 PartSize;
     Guid ObjectId; // TODO: introduce networked-ids to synchronize unique ids as ushort (less data over network)
-    });
+});
 
 PACK_STRUCT(struct NetworkMessageObjectSpawn
-    {
+{
     NetworkMessageIDs ID = NetworkMessageIDs::ObjectSpawn;
     uint32 OwnerClientId;
     uint32 OwnerSpawnId; // Unique for peer who spawned it and matches OwnerSpawnId inside following part messages
     Guid PrefabId;
     uint16 ItemsCount; // Total items count
     uint8 UseParts : 1; // True if spawn message is header-only and all items come in the separate parts
-    });
+});
 
 PACK_STRUCT(struct NetworkMessageObjectSpawnPart
-    {
+{
     NetworkMessageIDs ID = NetworkMessageIDs::ObjectSpawnPart;
     uint32 OwnerClientId;
     uint32 OwnerSpawnId;
-    });
+});
 
 PACK_STRUCT(struct NetworkMessageObjectSpawnItem
-    {
+{
     Guid ObjectId;
     Guid ParentId;
     Guid PrefabObjectID;
     char ObjectTypeName[128]; // TODO: introduce networked-name to synchronize unique names as ushort (less data over network)
-    });
+});
 
 PACK_STRUCT(struct NetworkMessageObjectDespawn
-    {
+{
     NetworkMessageIDs ID = NetworkMessageIDs::ObjectDespawn;
     Guid ObjectId;
-    });
+});
 
 PACK_STRUCT(struct NetworkMessageObjectRole
-    {
+{
     NetworkMessageIDs ID = NetworkMessageIDs::ObjectRole;
     Guid ObjectId;
     uint32 OwnerClientId;
-    });
+});
 
 PACK_STRUCT(struct NetworkMessageObjectRpc
-    {
+{
     NetworkMessageIDs ID = NetworkMessageIDs::ObjectRpc;
     Guid ObjectId;
     Guid ParentId;
@@ -114,7 +114,7 @@ PACK_STRUCT(struct NetworkMessageObjectRpc
     char RpcTypeName[128]; // TODO: introduce networked-name to synchronize unique names as ushort (less data over network)
     char RpcName[128]; // TODO: introduce networked-name to synchronize unique names as ushort (less data over network)
     uint16 ArgsSize;
-    });
+});
 
 struct NetworkReplicatedObject
 {

@@ -13,7 +13,7 @@ class DataContainer;
 /// <summary>
 /// The high-level network object role and authority. Used to define who owns the object and when it can be simulated or just replicated.
 /// </summary>
-API_ENUM(Namespace="FlaxEngine.Networking") enum class NetworkObjectRole : byte
+API_ENUM(Namespace = "FlaxEngine.Networking") enum class NetworkObjectRole : byte
 {
     // Not replicated object.
     None = 0,
@@ -116,7 +116,7 @@ public:
     /// <param name="obj">The network object.</param>
     /// <returns>True if object exists in networking, otherwise false.</returns>
     API_FUNCTION() static bool HasObject(const ScriptingObject* obj);
-	
+
     /// <summary>
     /// Resolves foreign Guid into a local ScriptingObject
     /// </summary>
