@@ -2438,16 +2438,20 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         Vector3 projectedVec = localTargetDirection - Vector3::Dot(localTargetDirection, planeNormal) * planeNormal;
         projectedVec.Normalize();
 
-        // Calculate the perpendicular vector on the plane
-        Vector3 perpVec = Vector3::Cross(planeNormal, projectedVec);
-        perpVec.Normalize();
+        //// Calculate the perpendicular vector on the plane
+        //Vector3 perpVec = Vector3::Cross(planeNormal, projectedVec);
+        //perpVec.Normalize();
 
-        // Calculate the rotation required
-        Quaternion rotationToTarget = Quaternion::LookRotation(projectedVec, perpVec);
+        //// Calculate the rotation required
+        //Quaternion rotationToTarget = Quaternion::LookRotation(projectedVec, perpVec);
 
+        Vector3 srcToDst = (dstNodeTransform.Translation - srcNodeTransform.Translation).GetNormalized();
+        Vector3 fwd = Vector3::Cross(srcToDst, Vector3::Cross(srcToDst, dstNodeTransform.GetUp())).GetNormalized();
+        Quaternion rotationToTarget = Quaternion::LookRotation(fwd, srcToDst);
+       
         // Blend the rotation with the current bone's orientation
         Quaternion finalRotation;
-        FastLerp(finalRotation, srcNodeTransform.Orientation, rotationToTarget * srcNodeTransform.Orientation, weight);
+        FastLerp(finalRotation, srcNodeTransform.Orientation, rotationToTarget, weight);
 
         // Apply the final rotation to the bone
         srcNodeTransform.Orientation = finalRotation;
