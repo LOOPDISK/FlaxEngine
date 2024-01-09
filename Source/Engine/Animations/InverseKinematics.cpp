@@ -11,44 +11,6 @@ void InverseKinematics::SolveAimIK(const Transform& node, const Vector3& target,
 }
 
 
-Vector3 InverseKinematics::ProjectOntoPlane(const Vector3& vector, const Vector3& planeNormal)
-{
-    return vector - Vector3::Dot(vector, planeNormal) * planeNormal;
-}
-
-float InverseKinematics::CalculateAngleBetweenVectors(const Vector3& vec1, const Vector3& vec2, const Vector3& normal)
-{
-    Vector3 crossProduct = Vector3::Cross(vec1, vec2);
-    float dotProduct = Vector3::Dot(vec1, vec2);
-    float angle = static_cast<float>(atan2(crossProduct.Length(), dotProduct));
-    return Vector3::Dot(crossProduct, normal) < 0.0f ? -angle : angle;
-}
-
-
-
-void InverseKinematics::ApplyTwistRotation(Transform& bone, const Vector3& rootPosition, const Vector3& jointPosition, const Vector3& targetPosition, const Vector3& poleTarget)
-{
-    // Calculate the plane normal using the three IK points
-    Vector3 rootToJoint = jointPosition - rootPosition;
-    Vector3 rootToTarget = targetPosition - rootPosition;
-    Vector3 planeNormal = Vector3::Cross(rootToJoint, rootToTarget).GetNormalized();
-
-    // Align the bone's Y-axis towards the desired up direction (pole target direction)
-    Vector3 desiredUp = poleTarget - jointPosition;
-    Vector3 desiredUpProjected = ProjectOntoPlane(desiredUp, planeNormal);
-    Quaternion upRotation;
-    Quaternion::RotationAxis(rootToJoint.GetNormalized(), CalculateAngleBetweenVectors(bone.Orientation * Vector3::UnitY, desiredUpProjected, rootToJoint), upRotation);
-    Quaternion newOrientation = upRotation * bone.Orientation;
-
-    // Adjust the bone's Z-axis to be perpendicular to the plane
-    Vector3 newForward = Vector3::Cross(planeNormal, newOrientation * Vector3::UnitY).GetNormalized();
-    Quaternion forwardRotation;
-    Quaternion::RotationAxis(newOrientation * Vector3::UnitY, CalculateAngleBetweenVectors(newOrientation * Vector3::Forward, newForward, newOrientation * Vector3::UnitY), forwardRotation);
-    newOrientation = forwardRotation * newOrientation;
-
-    // Set the new orientation to the bone
-    bone.Orientation = newOrientation;
-}
 
 
 
@@ -150,30 +112,40 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootNode, Transform& jointNode
         resultJointPos = rootNode.Translation + projJointDist * desiredDir + jointLineDist * jointBendDir;
     }
 
-    // Apply twist rotation to root bone
-    ApplyTwistRotation(rootNode, rootNode.Translation, jointNode.Translation, targetNode.Translation, jointTarget);
-
-    // Apply twist rotation to joint bone
-    ApplyTwistRotation(jointNode, rootNode.Translation, jointNode.Translation, targetNode.Translation, jointTarget);
-
-
+    // Calculate the rotation for the root bone
     {
-        const Vector3 oldDir = (jointPos - rootNode.Translation).GetNormalized();
-        const Vector3 newDir = (resultJointPos - rootNode.Translation).GetNormalized();
-        const Quaternion deltaRotation = Quaternion::FindBetween(oldDir, newDir);
-        rootNode.Orientation = deltaRotation * rootNode.Orientation;
+        Vector3 rootToJoint = resultJointPos - rootPos;
+        Vector3 rootToTarget = resultEndPos - rootPos;
+        Vector3 planeNormal = Vector3::Cross(rootToJoint, rootToTarget).GetNormalized();
+        Vector3 desiredYAxis = (jointTarget - rootPos).GetNormalized();
+        Vector3 xAxis = Vector3::Cross(desiredYAxis, planeNormal).GetNormalized();
+
+        Matrix rootRotationMatrix;
+        rootRotationMatrix.SetColumn1(Vector4(xAxis, 0));
+        rootRotationMatrix.SetColumn2(Vector4(desiredYAxis, 0));
+        rootRotationMatrix.SetColumn3(Vector4(planeNormal, 0));
+        rootRotationMatrix.SetColumn4(Vector4(rootPos, 1));
+
+        rootNode.SetRotation(rootRotationMatrix);
     }
 
+    // Calculate the rotation for the joint bone
     {
-        const Vector3 oldDir = (targetNode.Translation - jointPos).GetNormalized();
-        const Vector3 newDir = (resultEndPos - resultJointPos).GetNormalized();
-        const Quaternion deltaRotation = Quaternion::FindBetween(oldDir, newDir);
-        jointNode.Orientation = deltaRotation * jointNode.Orientation;
-        jointNode.Translation = resultJointPos;
+        Vector3 jointToTarget = resultEndPos - resultJointPos;
+        Vector3 planeNormal = Vector3::Cross(jointToTarget, (jointTarget - resultJointPos)).GetNormalized();
+        Vector3 desiredYAxis = (jointTarget - resultJointPos).GetNormalized();
+        Vector3 xAxis = Vector3::Cross(desiredYAxis, planeNormal).GetNormalized();
+
+        Matrix jointRotationMatrix;
+        jointRotationMatrix.SetColumn1(Vector4(xAxis, 0));
+        jointRotationMatrix.SetColumn2(Vector4(desiredYAxis, 0));
+        jointRotationMatrix.SetColumn3(Vector4(planeNormal, 0));
+        jointRotationMatrix.SetColumn4(Vector4(resultJointPos, 1));
+
+        jointNode.SetRotation(jointRotationMatrix);
     }
 
-
-
+    jointNode.Translation = resultJointPos;
 
     targetNode.Translation = resultEndPos;
 }

@@ -14,8 +14,8 @@ namespace FlaxEditor.Viewport.Previews
     public class AnimatedModelPreview : AssetPreview
     {
         private AnimatedModel _previewModel;
-        private ContextMenuButton _showNodesButton, _showBoundsButton, _showFloorButton, _showNodesNamesButton;
-        private bool _showNodes, _showBounds, _showFloor, _showNodesNames;
+        private ContextMenuButton _showNodesButton, _showNodesAxisButton, _showBoundsButton, _showFloorButton, _showNodesNamesButton;
+        private bool _showNodes, _showBounds, _showFloor, _showNodesNames, _showNodesAxis;
         private StaticModel _floorModel;
         private bool _playAnimation, _playAnimationOnce;
         private float _playSpeed = 1.0f;
@@ -113,6 +113,22 @@ namespace FlaxEditor.Viewport.Previews
             }
         }
 
+
+        public bool ShowNodesAxis
+        {
+            get => _showNodesAxis;
+            set
+            {
+                if (_showNodesAxis == value)
+                    return;
+                _showNodesAxis = value;
+                if (value)
+                    ShowDebugDraw = true;
+                if (_showNodesAxisButton != null)
+                    _showNodesAxisButton.Checked = value;
+            }
+        }
+
         /// <summary>
         /// Gets or sets a value indicating whether show animated model bounding box debug view.
         /// </summary>
@@ -199,6 +215,11 @@ namespace FlaxEditor.Viewport.Previews
                 // Show Skeleton
                 _showNodesButton = ViewWidgetShowMenu.AddButton("Skeleton", () => ShowNodes = !ShowNodes);
                 _showNodesButton.CloseMenuOnClick = false;
+
+
+                // Show Skeleton
+                _showNodesAxisButton = ViewWidgetShowMenu.AddButton("Skeleton Axis", () => ShowNodesAxis = !ShowNodesAxis);
+                _showNodesAxisButton.CloseMenuOnClick = false;
 
                 // Show Skeleton Names
                 _showNodesNamesButton = ViewWidgetShowMenu.AddButton("Skeleton Names", () => ShowNodesNames = !ShowNodesNames);
@@ -326,7 +347,7 @@ namespace FlaxEditor.Viewport.Previews
             base.OnDebugDraw(context, ref renderContext);
 
             // Draw skeleton nodes
-            if (_showNodes || _showNodesNames)
+            if (_showNodes || _showNodesNames || _showNodesAxis)
             {
                 _previewModel.GetCurrentPose(out var pose, true);
                 var nodes = _previewModel.SkinnedModel?.Nodes;
@@ -371,6 +392,37 @@ namespace FlaxEditor.Viewport.Previews
                                 continue;
                             //var t = new Transform(pose[nodeIndex].TranslationVector, Quaternion.Identity, new Float3(0.1f));
                             DebugDraw.DrawText(nodes[nodeIndex].Name, pose[nodeIndex].TranslationVector, Color.White, 20, 0.0f, 0.1f);
+                        }
+                    }
+
+                    if (_showNodesAxis)
+                    {
+                        // Axis lengths
+                        const float axisLength = 2.0f;
+
+                        // Draw axis for each node
+                        for (int nodeIndex = 0; nodeIndex < pose.Length; nodeIndex++)
+                        {
+                            if (nodesMask != null && !nodesMask[nodeIndex])
+                                continue;
+
+                            var transform = pose[nodeIndex];
+                            var position = transform.TranslationVector;
+                            var right = Vector3.TransformNormal(Vector3.Right, transform) * axisLength;
+                            var up = Vector3.TransformNormal(Vector3.Up, transform) * axisLength;
+                            var forward = Vector3.TransformNormal(Vector3.Forward, transform) * axisLength;
+
+                            // Draw right (X) axis in red
+                            DebugDraw.DrawLine(position, position + right, Color.Red, 0, false);
+                            DebugDraw.DrawText("X", position + right, Color.Red, 20, 0.0f, 0.1f);
+
+                            // Draw up (Y) axis in green
+                            DebugDraw.DrawLine(position, position + up, Color.YellowGreen, 0, false);
+                            DebugDraw.DrawText("Y", position + up, Color.YellowGreen, 20, 0.0f, 0.1f);
+
+                            // Draw forward (Z) axis in blue
+                            DebugDraw.DrawLine(position, position + forward, Color.Blue, 0, false);
+                            DebugDraw.DrawText("Z", position + forward, Color.Blue, 20, 0.0f, 0.1f);
                         }
                     }
                 }
@@ -437,6 +489,7 @@ namespace FlaxEditor.Viewport.Previews
             _showBoundsButton = null;
             _showFloorButton = null;
             _showNodesNamesButton = null;
+            _showNodesAxisButton = null;
 
             base.OnDestroy();
         }

@@ -1091,6 +1091,8 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
                 }
             },
+
+
         };
     }
 }

@@ -382,6 +382,7 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
             }
             break;
         }
+
         // Animation Slot
         case 32:
             ADD_BUCKET(SlotBucketInit);

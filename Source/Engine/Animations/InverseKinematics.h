@@ -34,10 +34,4 @@ public:
     /// <param name="maxStretchScale">The maximum scale when stretching bones. Used only if allowStretching is true.</param>
     static void SolveTwoBoneIK(Transform& rootNode, Transform& jointNode, Transform& targetNode, const Vector3& target, const Vector3& jointTarget, bool allowStretching = false, float maxStretchScale = 1.5f);
 
-    static void ApplyTwistRotation(Transform& bone, const Vector3& rootPosition, const Vector3& jointPosition, const Vector3& targetPosition, const Vector3& poleTarget);
-
-    static Vector3 InverseKinematics::ProjectOntoPlane(const Vector3& vector, const Vector3& planeNormal);
-
-
-    static float InverseKinematics::CalculateAngleBetweenVectors(const Vector3& vec1, const Vector3& vec2, const Vector3& normal);
 };
