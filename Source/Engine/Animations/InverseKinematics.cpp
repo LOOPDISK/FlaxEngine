@@ -10,24 +10,72 @@ void InverseKinematics::SolveAimIK(const Transform& node, const Vector3& target,
     Quaternion::FindBetween(fromNode, toTarget, outNodeCorrection);
 }
 
+
+Vector3 InverseKinematics::ProjectOntoPlane(const Vector3& vector, const Vector3& planeNormal)
+{
+    return vector - Vector3::Dot(vector, planeNormal) * planeNormal;
+}
+
+float InverseKinematics::CalculateAngleBetweenVectors(const Vector3& vec1, const Vector3& vec2, const Vector3& normal)
+{
+    Vector3 crossProduct = Vector3::Cross(vec1, vec2);
+    float dotProduct = Vector3::Dot(vec1, vec2);
+    float angle = static_cast<float>(atan2(crossProduct.Length(), dotProduct));
+    return Vector3::Dot(crossProduct, normal) < 0.0f ? -angle : angle;
+}
+
+
+
+void InverseKinematics::ApplyTwistRotation(Transform& bone, const Vector3& rootPosition, const Vector3& jointPosition, const Vector3& targetPosition, const Vector3& poleTarget)
+{
+    // Calculate the plane normal using the three IK points
+    Vector3 rootToJoint = jointPosition - rootPosition;
+    Vector3 rootToTarget = targetPosition - rootPosition;
+    Vector3 planeNormal = Vector3::Cross(rootToJoint, rootToTarget).GetNormalized();
+
+    // Align the bone's Y-axis towards the desired up direction (pole target direction)
+    Vector3 desiredUp = poleTarget - jointPosition;
+    Vector3 desiredUpProjected = ProjectOntoPlane(desiredUp, planeNormal);
+    Quaternion upRotation;
+    Quaternion::RotationAxis(rootToJoint.GetNormalized(), CalculateAngleBetweenVectors(bone.Orientation * Vector3::UnitY, desiredUpProjected, rootToJoint), upRotation);
+    Quaternion newOrientation = upRotation * bone.Orientation;
+
+    // Adjust the bone's Z-axis to be perpendicular to the plane
+    Vector3 newForward = Vector3::Cross(planeNormal, newOrientation * Vector3::UnitY).GetNormalized();
+    Quaternion forwardRotation;
+    Quaternion::RotationAxis(newOrientation * Vector3::UnitY, CalculateAngleBetweenVectors(newOrientation * Vector3::Forward, newForward, newOrientation * Vector3::UnitY), forwardRotation);
+    newOrientation = forwardRotation * newOrientation;
+
+    // Set the new orientation to the bone
+    bone.Orientation = newOrientation;
+}
+
+
+
+
+
 void InverseKinematics::SolveTwoBoneIK(Transform& rootNode, Transform& jointNode, Transform& targetNode, const Vector3& target, const Vector3& jointTarget, bool allowStretching, float maxStretchScale)
 {
-
-    // Calculate the lengths of the upper and lower limbs.
     Real lowerLimbLength = (targetNode.Translation - jointNode.Translation).Length();
     Real upperLimbLength = (jointNode.Translation - rootNode.Translation).Length();
-
-    // Current position of the joint (e.g., the elbow).
     Vector3 jointPos = jointNode.Translation;
 
-    // Desired direction from the root to the target.
+    //MZ EDIT
+    Vector3 rootPos = rootNode.Translation;
+    Vector3 poleTargetPos = jointTarget;
+    //MZ EDIT END
+
     Vector3 desiredDelta = target - rootNode.Translation;
     Real desiredLength = desiredDelta.Length();
-
-    // The sum of the lengths of the upper and lower limbs.
     Real limbLengthLimit = lowerLimbLength + upperLimbLength;
 
-    // Normalize the desired direction or set it to a default if too close.
+    //MZ EDIT
+    Vector3 rootToJoint = jointPos - rootPos;
+    Vector3 rootToPole = poleTargetPos - rootPos;
+    Vector3 projectedPoleTarget = poleTargetPos - Vector3::Dot(rootToPole, rootToJoint.GetNormalized()) * rootToJoint.GetNormalized();
+    Vector3 desiredUpDirection = (projectedPoleTarget - jointPos).GetNormalized();
+    //MZ EDIT END
+
     Vector3 desiredDir;
     if (desiredLength < ZeroTolerance)
     {
@@ -39,11 +87,9 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootNode, Transform& jointNode
         desiredDir = desiredDelta.GetNormalized();
     }
 
-    // Determine if the joint should bend and in which direction.
     Vector3 jointTargetDelta = jointTarget - rootNode.Translation;
     const Real jointTargetLengthSqr = jointTargetDelta.LengthSquared();
 
-    // Plane normal and bending direction.
     Vector3 jointPlaneNormal, jointBendDir;
     if (jointTargetLengthSqr < ZeroTolerance * ZeroTolerance)
     {
@@ -65,7 +111,6 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootNode, Transform& jointNode
         }
     }
 
-    // Handle bone stretching if allowed.
     if (allowStretching)
     {
         const Real initialStretchRatio = 1.0f;
@@ -83,11 +128,9 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootNode, Transform& jointNode
         }
     }
 
-    // Calculate the new positions for the end effector and the joint.
-    Vector3 resultEndPos = target; // The final position of the end effector.
-    Vector3 resultJointPos = jointPos; // The final position of the joint.
+    Vector3 resultEndPos = target;
+    Vector3 resultJointPos = jointPos;
 
-    // If the target is out of reach, set the end effector and joint positions directly in line with the target.
     if (desiredLength >= limbLengthLimit)
     {
         resultEndPos = rootNode.Translation + limbLengthLimit * desiredDir;
@@ -95,7 +138,6 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootNode, Transform& jointNode
     }
     else
     {
-        // Perform the actual IK calculations to find the new joint position.
         const Real twoAb = 2.0f * upperLimbLength * desiredLength;
         const Real cosAngle = twoAb > ZeroTolerance ? (upperLimbLength * upperLimbLength + desiredLength * desiredLength - lowerLimbLength * lowerLimbLength) / twoAb : 0.0f;
         const bool reverseUpperBone = cosAngle < 0.0f;
@@ -108,7 +150,13 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootNode, Transform& jointNode
         resultJointPos = rootNode.Translation + projJointDist * desiredDir + jointLineDist * jointBendDir;
     }
 
-    // Apply the rotations calculated by the IK to the root and joint nodes.
+    // Apply twist rotation to root bone
+    ApplyTwistRotation(rootNode, rootNode.Translation, jointNode.Translation, targetNode.Translation, jointTarget);
+
+    // Apply twist rotation to joint bone
+    ApplyTwistRotation(jointNode, rootNode.Translation, jointNode.Translation, targetNode.Translation, jointTarget);
+
+
     {
         const Vector3 oldDir = (jointPos - rootNode.Translation).GetNormalized();
         const Vector3 newDir = (resultJointPos - rootNode.Translation).GetNormalized();
@@ -123,6 +171,9 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootNode, Transform& jointNode
         jointNode.Orientation = deltaRotation * jointNode.Orientation;
         jointNode.Translation = resultJointPos;
     }
+
+
+
 
     targetNode.Translation = resultEndPos;
 }
