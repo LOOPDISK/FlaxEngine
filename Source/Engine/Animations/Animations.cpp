@@ -47,9 +47,6 @@ namespace
 #endif
                 && animGraph->Graph.IsReady();
     }
-
-
-
 }
 
 AnimationsService AnimationManagerInstance;
@@ -115,8 +112,6 @@ void AnimationsSystem::Job(int32 index)
     }
 }
 
-
-
 void AnimationsSystem::Execute(TaskGraph* graph)
 {
     if (AnimationManagerInstance.UpdateList.Count() == 0)
@@ -169,5 +164,3 @@ void Animations::RemoveFromUpdate(AnimatedModel* obj)
 {
     AnimationManagerInstance.UpdateList.Remove(obj);
 }
-
-

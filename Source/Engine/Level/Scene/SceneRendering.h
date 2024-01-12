@@ -65,8 +65,6 @@ class FLAXENGINE_API SceneRendering
 {
 #if USE_EDITOR
     typedef Function<void(RenderView&)> PhysicsDebugCallback;
-    typedef Function<void(RenderView&)> SkeletonDebugCallback;
-    typedef Function<void(RenderView&)> SkeletonAxisDebugCallback;
     typedef Function<void(RenderView&)> LightsDebugCallback;
     friend class ViewportIconsRendererService;
 #endif
@@ -98,8 +96,6 @@ public:
 private:
 #if USE_EDITOR
     Array<PhysicsDebugCallback> PhysicsDebug;
-    Array<SkeletonDebugCallback> SkeletonDebug;
-    Array<SkeletonAxisDebugCallback> SkeletonAxisDebug;
     Array<LightsDebugCallback> LightsDebug;
     Array<Actor*> ViewportIcons;
 #endif
@@ -158,24 +154,6 @@ public:
         f.Bind<T, Method>(obj);
         PhysicsDebug.Remove(f);
     }
-
-    template<class T, void(T::* Method)(RenderView&)>
-    FORCE_INLINE void AddSkeletonDebug(T* obj)
-    {
-        SkeletonDebugCallback f;
-        f.Bind<T, Method>(obj);
-        SkeletonDebug.Add(f);
-    }
-
-    template<class T, void(T::* Method)(RenderView&)>
-    void RemoveSkeletonDebug(T* obj)
-    {
-        SkeletonDebugCallback f;
-        f.Bind<T, Method>(obj);
-        SkeletonDebug.Remove(f);
-    }
-
-
 
     template<class T, void(T::*Method)(RenderView&)>
     FORCE_INLINE void AddLightsDebug(T* obj)

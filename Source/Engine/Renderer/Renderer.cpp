@@ -199,8 +199,6 @@ void Renderer::Render(SceneRenderTask* task)
             | ViewFlags::MotionBlur
             | ViewFlags::Fog
             | ViewFlags::PhysicsDebug
-            | ViewFlags::SkeletonDebug
-            | ViewFlags::SkeletonAxisDebug
             | ViewFlags::Decals
             | ViewFlags::GI
             | ViewFlags::DebugDraw

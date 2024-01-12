@@ -1982,8 +1982,6 @@ namespace FlaxEditor.Viewport
             new ViewFlagOptions(ViewFlags.ContactShadows, "Contact Shadows"),
             new ViewFlagOptions(ViewFlags.PhysicsDebug, "Physics Debug"),
             new ViewFlagOptions(ViewFlags.LightsDebug, "Lights Debug"),
-            new ViewFlagOptions(ViewFlags.SkeletonDebug, "Skeleton Debug"),
-            new ViewFlagOptions(ViewFlags.SkeletonAxisDebug, "Skeleton Axis Debug"),
             new ViewFlagOptions(ViewFlags.DebugDraw, "Debug Draw"),
         };
 

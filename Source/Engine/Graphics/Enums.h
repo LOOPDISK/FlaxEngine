@@ -1036,17 +1036,6 @@ API_ENUM(Attributes="Flags") enum class ViewFlags : uint64
     /// </summary>
     LightsDebug = 1 << 27,
 
-
-    /// <summary>
-    /// Shows/hides light debug shapes.
-    /// </summary>
-    SkeletonDebug = 1 << 28,
-
-    /// <summary>
-    /// Shows/hides light debug shapes.
-    /// </summary>
-    SkeletonAxisDebug = 1 << 29,
-    
     /// <summary>
     /// Default flags for Game.
     /// </summary>

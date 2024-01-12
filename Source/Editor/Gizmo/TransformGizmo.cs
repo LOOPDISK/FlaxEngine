@@ -156,7 +156,6 @@ namespace FlaxEditor.Gizmo
             var view = new Ray(Owner.ViewPosition, Owner.ViewDirection);
             var renderView = Owner.RenderTask.View;
             bool selectColliders = (renderView.Flags & ViewFlags.PhysicsDebug) == ViewFlags.PhysicsDebug || renderView.Mode == ViewMode.PhysicsColliders;
-
             SceneGraphNode.RayCastData.FlagTypes rayCastFlags = SceneGraphNode.RayCastData.FlagTypes.None;
             if (!selectColliders)
                 rayCastFlags |= SceneGraphNode.RayCastData.FlagTypes.SkipColliders;
