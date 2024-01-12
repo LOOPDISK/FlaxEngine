@@ -97,6 +97,22 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
             }
         }
 
+        // Draw skeletons 
+        if (EnumHasAnyFlags(view.Flags, ViewFlags::SkeletonDebug))
+        {
+            const SkeletonDebugCallback* skeletonDebugData = SkeletonDebug.Get();
+            for (int32 i = 0; i < SkeletonDebug.Count(); i++)
+            {
+                SkeletonDebug[i](view);
+            }
+        }
+
+        // Draw skeletons Axis
+        if (EnumHasAnyFlags(view.Flags, ViewFlags::SkeletonAxisDebug))
+        {
+
+        }
+
         // Draw light shapes
         if (EnumHasAnyFlags(view.Flags, ViewFlags::LightsDebug))
         {

@@ -26,6 +26,11 @@ API_CLASS(Static) class FLAXENGINE_API Animations
     API_EVENT() static Delegate<Asset*, ScriptingObject*, uint32, uint32> DebugFlow;
 #endif
 
+#if USE_EDITOR
+    virtual void DrawSkeletonDebug(RenderView& view);
+    //virtual void DrawSkeletonAxisDebug(RenderView& view);
+#endif
+
     /// <summary>
     /// Adds an animated model to update.
     /// </summary>
