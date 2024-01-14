@@ -550,8 +550,7 @@ void ApplyParentTransform(Transform& parentTransform, Transform& pose) {
 }
 
 
-
-void AnimGraphExecutor::UpdateStateTransitions(AnimGraphContext& context, const AnimGraphNode::StateMachineData& stateMachineData, AnimGraphInstanceData::StateMachineBucket& stateMachineBucket, const AnimGraphNode::StateBaseData& stateData)
+AnimGraphStateTransition* AnimGraphExecutor::UpdateStateTransitions(AnimGraphContext& context, const AnimGraphNode::StateMachineData& stateMachineData, AnimGraphNode* state, AnimGraphNode* ignoreState)
 {
     int32 transitionIndex = 0;
     const AnimGraphNode::StateBaseData& stateData = state->Data.State;
