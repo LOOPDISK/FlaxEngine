@@ -36,6 +36,7 @@ namespace FlaxEditor.Surface.Archetypes
         {
             private AssetSelect _assetSelect;
             private Box _assetBox;
+            private ProgressBar _playbackPos;
 
             /// <inheritdoc />
             public Sample(uint id, VisjectSurfaceContext context, NodeArchetype nodeArch, GroupArchetype groupArch)
@@ -92,6 +93,36 @@ namespace FlaxEditor.Surface.Archetypes
 
                 _assetSelect.Visible = !box.HasAnyConnection;
                 UpdateTitle();
+            }
+
+            /// <inheritdoc />
+            public override void Update(float deltaTime)
+            {
+                // Debug current playback position
+                if (((AnimGraphSurface)Surface).TryGetTraceEvent(this, out var traceEvent) && traceEvent.Asset is FlaxEngine.Animation anim)
+                {
+                    if (_playbackPos == null)
+                    {
+                        _playbackPos = new ProgressBar
+                        {
+                            SmoothingScale = 0.0f,
+                            Offsets = Margin.Zero,
+                            AnchorPreset = AnchorPresets.HorizontalStretchBottom,
+                            Parent = this,
+                            Height = 12.0f,
+                        };
+                        _playbackPos.Y -= 16.0f;
+                    }
+                    _playbackPos.Visible = true;
+                    _playbackPos.Maximum = anim.Duration;
+                    _playbackPos.Value = traceEvent.Value; // AnimGraph reports position in animation frames, not time
+                }
+                else if (_playbackPos != null)
+                {
+                    _playbackPos.Visible = false;
+                }
+
+                base.Update(deltaTime);
             }
         }
 
@@ -513,7 +544,11 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
                     NodeElementArchetype.Factory.Input(0, "Base Pose", true, typeof(void), 1),
                     NodeElementArchetype.Factory.Input(1, "Blend Pose", true, typeof(void), 2),
-                    NodeElementArchetype.Factory.Input(2, "Blend Alpha", true, typeof(float), 3, 0),
+
+                    NodeElementArchetype.Factory.Input(2, "Reference Pose", true, typeof(void), 4),
+
+                    NodeElementArchetype.Factory.Input(3, "Blend Alpha", true, typeof(float), 3, 0),
+
                 }
             },
             new NodeArchetype
@@ -1067,7 +1102,7 @@ namespace FlaxEditor.Surface.Archetypes
              new NodeArchetype
             {
                 TypeID = 36,
-                Title = "locked track Z Node",
+                Title = "locked track Node",
                 Description = "Copies the skeleton node transformation data (in local space)",
                 Flags = NodeFlags.AnimGraph,
                 Size = new Float2(260, 140),
@@ -1075,7 +1110,7 @@ namespace FlaxEditor.Surface.Archetypes
                 {
                     string.Empty,
                     string.Empty,
-                    true,
+                    1.0,
 
                 },
                 Elements = new[]
@@ -1085,14 +1120,12 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 1, 120, 0),
                     NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 2, 120, 1),
                     NodeElementArchetype.Factory.Input(3, "weight", true, typeof(float), 2),
-                    //NodeElementArchetype.Factory.Input(4, "up", true, typeof(Vector3), 3),
-                    NodeElementArchetype.Factory.Input(4, "flip", true, typeof(bool), 3),
+                    NodeElementArchetype.Factory.Input(4, "up", true, typeof(Vector3), 3),
+                    NodeElementArchetype.Factory.Input(5, "forward", true, typeof(Vector3), 4),
                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Source Node:"),
                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
                 }
             },
-
-
         };
     }
 }
