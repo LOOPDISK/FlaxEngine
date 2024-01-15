@@ -1562,7 +1562,7 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         bucket.LastUpdateFrame = context.CurrentFrameIndex;
 
         break;
-    }
+    } 
     // Blend Pose
     case 14:
     {

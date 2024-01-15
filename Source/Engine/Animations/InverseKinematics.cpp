@@ -142,14 +142,6 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootTransform, Transform& midJ
         Vector3 rootToMid = (newMidJointPos - rootTransform.Translation).GetNormalized();
         Vector3 planeNormal = Vector3::Cross(rootToMid, midToEnd).GetNormalized();
 
-        //// Calculate the local X-axis direction, should be perpendicular to the Y and Z axes
-        //Vector3 localX = Vector3::Cross(planeNormal, midToEnd).GetNormalized();
-
-        //// The local Y-axis direction is already calculated (midToEnd)
-
-        //// Now we need to correct the plane normal to be the new local Z-axis, which is perpendicular to the direction of the bone
-        //// The bone's direction is from the mid joint to the root joint, so take the cross product of localX and midToEnd to get the new Z-axis
-        //Vector3 localZ = Vector3::Cross(localX, midToEnd).GetNormalized();
 
         // Vector from mid joint to end effector (local Y-axis direction)
         Vector3 localY = (newEndEffectorPos - newMidJointPos).GetNormalized();
@@ -157,7 +149,7 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootTransform, Transform& midJ
         // Calculate the plane normal using the root, mid joint, and end effector positions (local Z-axis direction)
         Vector3 localZ = Vector3::Cross(rootToMid, localY).GetNormalized();
 
-        // Calculate the local X-axis direction, should be perpendicular to the Y and Z axes
+        //// Calculate the local X-axis direction, should be perpendicular to the Y and Z axes
         Vector3 localX = Vector3::Cross(localY, localZ).GetNormalized();
 
         // Correct the local Z-axis direction based on the cross product of X and Y to ensure orthogonality
