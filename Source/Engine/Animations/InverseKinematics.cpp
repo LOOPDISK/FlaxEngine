@@ -87,11 +87,24 @@ void InverseKinematics::SolveTwoBoneIK(Transform& rootTransform, Transform& midJ
     Vector3 newEndEffectorPos = targetPosition;
     Vector3 newMidJointPos = midJointPos;
 
-    if (toTargetLength >= totalLimbLength)
-    {
+    if (toTargetLength >= totalLimbLength) {
         // Target is beyond the reach of the limb
-        newEndEffectorPos = rootTransform.Translation + totalLimbLength * toTargetDir;
-        newMidJointPos = rootTransform.Translation + upperLimbLength * toTargetDir;
+        Vector3 rootToEnd = (targetPosition - rootTransform.Translation).GetNormalized();
+
+        // Calculate the slight offset towards the pole vector
+        Vector3 rootToPole = (poleVector - rootTransform.Translation).GetNormalized();
+        Vector3 slightBendDirection = Vector3::Cross(rootToEnd, rootToPole);
+        if (slightBendDirection.LengthSquared() < ZeroTolerance * ZeroTolerance) {
+            slightBendDirection = Vector3::Up;
+        }
+        else {
+            slightBendDirection.Normalize();
+        }
+
+        // Calculate the direction from root to mid joint with a slight offset towards the pole vector
+        Vector3 midJointDirection = Vector3::Cross(slightBendDirection, rootToEnd).GetNormalized();
+        Real slightOffset = upperLimbLength * 0.01f; // Small percentage of the limb length for slight offset
+        newMidJointPos = rootTransform.Translation + rootToEnd * (upperLimbLength - slightOffset) + midJointDirection * slightOffset;
     }
     else
     {

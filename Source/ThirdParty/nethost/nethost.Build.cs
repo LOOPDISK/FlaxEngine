@@ -31,8 +31,7 @@ public class nethost : ThirdPartyModule
 
         // Get .NET SDK runtime host
         var dotnetSdk = DotNetSdk.Instance;
-        if (!dotnetSdk.IsValid)
-            throw new DotNetSdk.MissingException();
+
         if (!dotnetSdk.GetHostRuntime(options.Platform.Target, options.Architecture, out var hostRuntime))
         {
             if (options.Target.IsPreBuilt)

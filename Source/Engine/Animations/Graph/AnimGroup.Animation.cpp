@@ -2464,9 +2464,8 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         const auto dstNodeIndex = node->Data.CopyNode.DstNodeIndex;
 
         const float weight = (float)tryGetValue(node->GetBox(2), node->Values[2]);
-        Vector3 up = (Vector3)tryGetValue(node->GetBox(3), Vector3::Up);
-        Vector3 perpendicular = (Vector3)tryGetValue(node->GetBox(4), Vector3::Up);
-        //Vector3 up = Vector3::Up;
+        Vector3 flipZ = (Vector3)tryGetValue(node->GetBox(3), true);
+
 
         // Validate node indices and weight
         if (srcNodeIndex < 0 || srcNodeIndex >= _skeletonNodesCount ||
@@ -2478,53 +2477,28 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             break;
         }
 
-        // Validate the up vector
-        if (up.LengthSquared() < 0.01) // VECTOR_EPSILON is a small value like 1e-4
-        {
-            up = Vector3::Up; // Default up direction if the provided up vector is too small
-        }
-        else
-        {
-            Vector3::Normalize(up);
-        }
-
-        // Validate the up vector
-        if (perpendicular.LengthSquared() < 0.01) // VECTOR_EPSILON is a small value like 1e-4
-        {
-            perpendicular = Vector3::Up; // Default up direction if the provided up vector is too small
-        }
-        else
-        {
-            Vector3::Normalize(up);
-        }
-
-
         // Get source and destination node's model space transformation
         Transform srcNodeTransform = nodes->GetNodeModelTransformation(_graph.BaseModel->Skeleton, srcNodeIndex);
         Transform dstNodeTransform = nodes->GetNodeModelTransformation(_graph.BaseModel->Skeleton, dstNodeIndex);
 
-        // Calculate direction to target in bone's local space
-        Vector3 localTargetDirection = srcNodeTransform.WorldToLocal(dstNodeTransform.Translation).GetNormalized();
+        // Calculate direction to target in world space
+        Vector3 worldDirectionToTarget = (dstNodeTransform.Translation - srcNodeTransform.Translation).GetNormalized();
 
-        // Project vector on the plane
-        Vector3 planeNormal = Vector3::UnitY; // Assuming Y-axis as the lock axis
-        Vector3 projectedVec = localTargetDirection - Vector3::Dot(localTargetDirection, planeNormal) * planeNormal;
-        projectedVec.Normalize();
+        // Project this direction onto the plane orthogonal to the Y-axis (lockedAxis) of srcNodeTransform
+        Vector3 lockedAxis = srcNodeTransform.Orientation * Vector3::UnitY; // Adjust this if your locked axis is different
+        Vector3 projection = Vector3::Dot(worldDirectionToTarget, lockedAxis) * lockedAxis;
+        Vector3 directionOnPlane = worldDirectionToTarget - projection;
+        directionOnPlane.Normalize();
+        if (flipZ == true) {
+            directionOnPlane = -directionOnPlane;
+        }
 
-        //// Calculate the perpendicular vector on the plane
-        //Vector3 perpVec = Vector3::Cross(planeNormal, projectedVec);
-        //perpVec.Normalize();
+        // Calculate rotation needed to align Z-axis with directionOnPlane while keeping Y-axis locked
+        Quaternion targetRotation = Quaternion::LookRotation(directionOnPlane, lockedAxis);
 
-        //// Calculate the rotation required
-        //Quaternion rotationToTarget = Quaternion::LookRotation(projectedVec, perpVec);
-
-        Vector3 srcToDst = (dstNodeTransform.Translation - srcNodeTransform.Translation).GetNormalized();
-        Vector3 fwd = Vector3::Cross(srcToDst, Vector3::Cross(srcToDst, dstNodeTransform.GetUp())).GetNormalized();
-        Quaternion rotationToTarget = Quaternion::LookRotation(fwd, srcToDst);
-       
         // Blend the rotation with the current bone's orientation
         Quaternion finalRotation;
-        FastLerp(finalRotation, srcNodeTransform.Orientation, rotationToTarget, weight);
+        Quaternion::Slerp(srcNodeTransform.Orientation, targetRotation, weight, finalRotation);
 
         // Apply the final rotation to the bone
         srcNodeTransform.Orientation = finalRotation;
