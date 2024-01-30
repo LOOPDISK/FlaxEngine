@@ -1126,6 +1126,44 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
                 }
             },
-        };
+
+            //             new NodeArchetype
+            //{
+            //    TypeID = 28,
+            //    Title = "Get Node Transform (model space)",
+            //    Description = "Samples the skeleton node transformation (in model space)",
+            //    Flags = NodeFlags.AnimGraph,
+            //    Size = new Float2(324, 40),
+            //    DefaultValues = new object[]
+            //    {
+            //        string.Empty,
+            //    },
+            //    Elements = new[]
+            //    {
+            //        NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 0),
+            //        NodeElementArchetype.Factory.SkeletonNodeNameSelect(40, Surface.Constants.LayoutOffsetY * 1, 160, 0),
+            //        NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Node:"),
+            //        NodeElementArchetype.Factory.Output(0, "Transform", typeof(Transform), 1),
+            //    }
+            //},
+
+            new NodeArchetype
+            {
+                TypeID = 37,
+                Title = "Transform Vector",
+                Description = "Applies a Transform to a Vector3",
+                Flags = NodeFlags.AnimGraph, // Adjust the flags as needed
+                Size = new Float2(170, 60), // Adjust the size as needed
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Input(0, "Transform", true, typeof(Transform), 0),
+                    NodeElementArchetype.Factory.Input(1, "Vector", true, typeof(Vector3), 1),
+                    NodeElementArchetype.Factory.Output(0, "Result", typeof(Vector3), 2)
+                }
+            }
+
+
+
+    };
     }
 }
