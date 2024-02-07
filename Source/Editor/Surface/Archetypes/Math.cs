@@ -448,6 +448,23 @@ namespace FlaxEditor.Surface.Archetypes
                 },
             },
             Op2(51, "Step", "Compares two values, returning 0 or 1 based on which value is greater."),
+
+            // MZ:: Unfinisheds
+            //new NodeArchetype
+            //{
+            //    TypeID = 52,
+            //    Title = "Fast Lerp",
+            //    Description = "Performs a linear interpolation between two quaternions",
+            //    Flags = NodeFlags.AllGraphs,
+            //    Size = new Float2(110, 60),
+            //    Elements = new[]
+            //    {
+            //        NodeElementArchetype.Factory.Input(0, "Quaternion", true, typeof(Quaternion), 0),
+            //        NodeElementArchetype.Factory.Input(1, "Quaternion", true, typeof(Quaternion), 1),
+            //        NodeElementArchetype.Factory.Input(2, "Alpha", true, typeof(float), 2, 2),
+            //        NodeElementArchetype.Factory.Output(3, "Orientation", typeof(Quaternion), 3),
+            //    }
+            //},
         };
     }
 }

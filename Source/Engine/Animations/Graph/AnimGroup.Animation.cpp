@@ -2508,6 +2508,32 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         break;
     }
 
+
+    // Transform Vector
+    case 37:
+    {
+        // Get inputs: Transform and Vector
+        const Transform transformInput = (Transform)tryGetValue(node->GetBox(0), Variant::Zero);
+        const Vector3 inputVector = (Vector3)tryGetValue(node->GetBox(1), Vector3::Zero);
+
+        // Validate inputs
+        //if (!transformInput.IsValid() || !vectorInput.IsValid())
+        //{
+        //    // Pass through the default value if inputs are invalid
+        //    value = Vector3::Zero;
+        //    break;
+        //}
+
+
+        // Apply the transformation to the vector
+        Vector3 transformedVector = transformInput.LocalToWorldVector(inputVector);
+
+        // Set the output value to the transformed vector
+        value = transformedVector;
+        break;
+    }
+
+
     default:
         break;
     }
