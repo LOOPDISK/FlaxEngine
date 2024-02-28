@@ -4,8 +4,6 @@
 
 #include "Engine/Core/Math/Vector3.h"
 #include "Engine/Core/Math/Quaternion.h"
-#include "Engine/Core/Math/Matrix3x3.h"
-#include "Engine/Core/Math/Matrix.h"
 #include "Engine/Core/Math/Transform.h"
 
 /// <summary>
@@ -33,5 +31,4 @@ public:
     /// <param name="allowStretching">True if allow bones stretching, otherwise bone lengths will be preserved when trying to reach the target.</param>
     /// <param name="maxStretchScale">The maximum scale when stretching bones. Used only if allowStretching is true.</param>
     static void SolveTwoBoneIK(Transform& rootNode, Transform& jointNode, Transform& targetNode, const Vector3& target, const Vector3& jointTarget, bool allowStretching = false, float maxStretchScale = 1.5f);
-
 };

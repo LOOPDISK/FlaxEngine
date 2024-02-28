@@ -430,6 +430,28 @@ void ShaderGenerator::ProcessGroupMath(Box* box, Node* node, Value& value)
         value = writeFunction2(node, v1, v2, TEXT("step"));
         break;
     }
+
+
+    // MZ: unfinished
+    //// Fast Slerp (Lerp)
+    //case 52:
+    //{
+    //    // Extract quaternions and alpha value from input boxes
+    //    Quaternion a = tryGetValue(node->GetBox(0), Value::Zero).AsQuaternion();
+    //    Quaternion b = tryGetValue(node->GetBox(1), Value::One).AsQuaternion();
+    //    float alpha = tryGetValue(node->GetBox(2), Value::Zero).AsFloat();
+
+    //    // Inline FastLerp logic
+    //    float dotResult = Quaternion::Dot(a, b);
+    //    float bias = dotResult >= 0.0f ? 1.0f : -1.0f;
+    //    Quaternion result = (b * alpha) + (a * (bias * (1.0f - alpha)));
+
+
+    //    // Convert the result quaternion to Value and set as output
+    //    value = Value::Create(result);
+    //    break;
+    //}
+
     default:
         break;
     }

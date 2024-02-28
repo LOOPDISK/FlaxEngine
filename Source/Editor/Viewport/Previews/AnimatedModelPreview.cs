@@ -398,7 +398,7 @@ namespace FlaxEditor.Viewport.Previews
                     if (_showNodesAxis)
                     {
                         // Axis lengths
-                        const float axisLength = 2.0f;
+                        const float axisLength = 0.2f;
 
                         // Draw axis for each node
                         for (int nodeIndex = 0; nodeIndex < pose.Length; nodeIndex++)

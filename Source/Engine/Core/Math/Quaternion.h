@@ -578,18 +578,6 @@ public:
     /// <param name="fallbackAxis">The fallback axis.</param>
     static void GetRotationFromTo(const Float3& from, const Float3& to, Quaternion& result, const Float3& fallbackAxis);
 
-
-    /// <summary>
-/// Creates a quaternion from three orthogonal normalized vectors which represent axes.
-/// </summary>
-/// <param name="xAxis">The X-axis of the space.</param>
-/// <param name="yAxis">The Y-axis of the space.</param>
-/// <param name="zAxis">The Z-axis of the space.</param>
-/// <returns>The quaternion representing the rotation.</returns>
-    static Quaternion FromAxes(const Float3& xAxis, const Float3& yAxis, const Float3& zAxis);
-
-
-
     /// <summary>
     /// Gets the shortest arc quaternion to rotate this vector to the destination vector.
     /// </summary>
