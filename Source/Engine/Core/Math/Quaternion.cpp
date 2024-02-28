@@ -162,21 +162,6 @@ void Quaternion::RotationCosAxis(const Float3& axis, float cos, Quaternion& resu
     result.W = cosHalf;
 }
 
-
-Quaternion Quaternion::FromAxes(const Float3& xAxis, const Float3& yAxis, const Float3& zAxis)
-{
-    // Your implementation goes here
-    Matrix3x3 rotationMatrix;
-    rotationMatrix.SetColumn1(xAxis); // Set X-axis
-    rotationMatrix.SetColumn2(yAxis); // Set Y-axis
-    rotationMatrix.SetColumn3(zAxis); // Set Z-axis
-
-    Quaternion rotation;
-    Quaternion::RotationMatrix(rotationMatrix, rotation);
-
-    return rotation;
-}
-
 void Quaternion::RotationMatrix(const Matrix& matrix, Quaternion& result)
 {
     float sqrtV;

@@ -505,8 +505,7 @@ namespace Flax.Build
                 return true;
 
             // Skip System files needed for AWSGameLift plugin
-            string[] awsGameliftAssemblyFiles = { "System.Core.dll", "System.Runtime.Intrinsics.dll", "System.Runtime.CompilerServices.Unsafe.dll", "System.Configuration.dll" };
-            if (awsGameliftAssemblyFiles.Contains(fileName))
+            if (fileName == "System.Core.dll" || fileName == "System.Runtime.Intrinsics.dll" || fileName == "System.Runtime.CompilerServices.Unsafe.dll")
                 return true;
 
             // Skip non-C# DLLs
