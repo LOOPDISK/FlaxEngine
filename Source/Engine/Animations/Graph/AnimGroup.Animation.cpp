@@ -2133,15 +2133,12 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             value = input;
             break;
         }
-
         Transform rootTransformLocalSpace = nodes->Nodes[rootNodeIndex];
         Transform jointTransformLocalSpace = nodes->Nodes[jointNodeIndex];
         Transform nodeTransformLocalSpace = nodes->Nodes[nodeIndex];
         Transform rootTransformModelSpace = nodes->GetNodeModelTransformation(_graph.BaseModel->Skeleton, rootNodeIndex);
         Transform jointTransformModelSpace = rootTransformModelSpace.LocalToWorld(jointTransformLocalSpace);
         Transform targetTransformModelSpace = jointTransformModelSpace.LocalToWorld(nodeTransformLocalSpace);
-
-
         InverseKinematics::SolveTwoBoneIK(rootTransformModelSpace, jointTransformModelSpace, targetTransformModelSpace, target, jointTarget, allowStretching, maxStretchScale);
 
         // Apply IK
