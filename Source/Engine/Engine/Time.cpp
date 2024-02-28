@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2023 Wojciech Figat. All rights reserved.
+// Copyright (c) 2012-2024 Wojciech Figat. All rights reserved.
 
 #include "Time.h"
 #include "EngineService.h"
@@ -67,7 +67,7 @@ void Time::TickData::OnBeforeRun(float targetFps, double currentTime)
 {
     Time = UnscaledTime = TimeSpan::Zero();
     DeltaTime = UnscaledDeltaTime = targetFps > ZeroTolerance ? TimeSpan::FromSeconds(1.0f / targetFps) : TimeSpan::Zero();
-    LastLength = static_cast<double>(DeltaTime.Ticks) / Constants::TicksPerSecond;
+    LastLength = static_cast<double>(DeltaTime.Ticks) / TimeSpan::TicksPerSecond;
     LastBegin = currentTime - LastLength;
     LastEnd = currentTime;
     NextBegin = targetFps > ZeroTolerance ? LastBegin + (1.0f / targetFps) : 0.0;
@@ -76,7 +76,7 @@ void Time::TickData::OnBeforeRun(float targetFps, double currentTime)
 void Time::TickData::OnReset(float targetFps, double currentTime)
 {
     DeltaTime = UnscaledDeltaTime = targetFps > ZeroTolerance ? TimeSpan::FromSeconds(1.0f / targetFps) : TimeSpan::Zero();
-    LastLength = static_cast<double>(DeltaTime.Ticks) / Constants::TicksPerSecond;
+    LastLength = static_cast<double>(DeltaTime.Ticks) / TimeSpan::TicksPerSecond;
     LastBegin = currentTime - LastLength;
     LastEnd = currentTime;
 }

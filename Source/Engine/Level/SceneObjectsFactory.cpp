@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2023 Wojciech Figat. All rights reserved.
+// Copyright (c) 2012-2024 Wojciech Figat. All rights reserved.
 
 #include "SceneObjectsFactory.h"
 #include "Engine/Level/Actor.h"
@@ -63,7 +63,7 @@ SceneObjectsFactory::Context::~Context()
 {
     if (Async)
     {
-        Array<ISerializeModifier*, FixedAllocation<PLATFORM_THREADS_LIMIT>> modifiers;
+        Array<ISerializeModifier*, InlinedAllocation<PLATFORM_THREADS_LIMIT>> modifiers;
         Modifiers.GetValues(modifiers);
         for (ISerializeModifier* e : modifiers)
         {
@@ -325,7 +325,7 @@ void SceneObjectsFactory::HandleObjectDeserializationError(const ISerializable::
                 dummyScript->Data = MoveTemp(bufferStr);
             }
 #endif
-            LOG(Warning, "Parent actor of the missing object: {0}", parent->GetName());
+            LOG(Warning, "Parent actor of the missing object: '{0}' ({1})", parent->GetNamePath(), String(parent->GetType().Fullname));
         }
     }
 #endif
@@ -475,7 +475,7 @@ void SceneObjectsFactory::SetupPrefabInstances(Context& context, const PrefabSyn
         const ISerializable::DeserializeStream* prefabData;
         if (prefab->ObjectsDataCache.TryGet(prefabObjectId, prefabData) && JsonTools::GetGuidIfValid(prefabObjectId, *prefabData, "PrefabObjectID"))
         {
-            prefabId = JsonTools::GetGuid(stream, "PrefabID");
+            prefabId = JsonTools::GetGuid(*prefabData, "PrefabID");
             prefab = Content::LoadAsync<Prefab>(prefabId);
             if (prefab && !prefab->WaitForLoaded())
             {
