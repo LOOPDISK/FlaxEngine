@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2023 Wojciech Figat. All rights reserved.
+// Copyright (c) 2012-2024 Wojciech Figat. All rights reserved.
 
 #include "Physics.h"
 #include "PhysicsScene.h"
@@ -77,11 +77,6 @@ void PhysicsSettings::Deserialize(DeserializeStream& stream, ISerializeModifier*
             LayerMasks[i] = layersArray[i].GetUint();
         }
     }
-}
-
-PhysicalMaterial::PhysicalMaterial()
-    : _material(nullptr)
-{
 }
 
 PhysicalMaterial::~PhysicalMaterial()
@@ -204,8 +199,11 @@ void Physics::Simulate(float dt)
 
 void Physics::CollectResults()
 {
-    if (DefaultScene)
-        DefaultScene->CollectResults();
+    for (PhysicsScene* scene : Scenes)
+    {
+        if (scene->GetAutoSimulation())
+            scene->CollectResults();
+    }
 }
 
 bool Physics::IsDuringSimulation()

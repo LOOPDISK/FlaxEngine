@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2023 Wojciech Figat. All rights reserved.
+// Copyright (c) 2012-2024 Wojciech Figat. All rights reserved.
 
 using System;
 using System.Collections.Generic;
@@ -20,9 +20,7 @@ namespace FlaxEngine
                 get
                 {
                     fixed (short* name = Name0)
-                    {
                         return new string((char*)name);
-                    }
                 }
             }
 
@@ -31,9 +29,7 @@ namespace FlaxEngine
                 fixed (short* name = Name0)
                 {
                     fixed (char* p = prefix)
-                    {
                         return Utils.MemoryCompare(new IntPtr(name), new IntPtr(p), (ulong)(prefix.Length * 2)) == 0;
-                    }
                 }
             }
         }
