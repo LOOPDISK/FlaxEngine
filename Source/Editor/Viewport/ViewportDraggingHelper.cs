@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2023 Wojciech Figat. All rights reserved.
+// Copyright (c) 2012-2024 Wojciech Figat. All rights reserved.
 
 using System;
 using System.Linq;
@@ -110,7 +110,6 @@ namespace FlaxEditor.Viewport
                 foreach (var scripItem in _dragScriptItem.Objects)
                     Spawn(scripItem, hit, ref location, ref hitLocation, ref hitNormal);
             }
-            Debug.Log("Hit");
             OnDragDrop(new DragDropEventArgs { Hit = hit, HitLocation = hitLocation });
 
             return result;
@@ -235,7 +234,6 @@ namespace FlaxEditor.Viewport
                         LocalOrientation = RootNode.RaycastNormalRotation(ref hitNormal),
                         Name = item.ShortName
                     };
-                    DebugDraw.DrawWireArrow(PostProcessSpawnedActorLocation(actor, ref hitNormal), actor.LocalOrientation, 1.0f, Color.Red, 1000000);
                     Spawn(actor, ref hitLocation, ref hitNormal);
                 }
                 else if (hit is StaticModelNode staticModelNode)

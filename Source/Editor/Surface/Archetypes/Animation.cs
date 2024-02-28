@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2023 Wojciech Figat. All rights reserved.
+// Copyright (c) 2012-2024 Wojciech Figat. All rights reserved.
 
 using System;
 using System.Collections.Generic;
@@ -25,6 +25,51 @@ namespace FlaxEditor.Surface.Archetypes
             public Output(uint id, VisjectSurfaceContext context, NodeArchetype nodeArch, GroupArchetype groupArch)
             : base(id, context, nodeArch, groupArch)
             {
+            }
+        }
+
+        /// <summary>
+        /// Customized <see cref="SurfaceNode"/> for Blend with Mask node.
+        /// </summary>
+        public class SkeletonMaskSample : SurfaceNode
+        {
+            private AssetSelect _assetSelect;
+            private Box _assetBox;
+
+            /// <inheritdoc />
+            public SkeletonMaskSample(uint id, VisjectSurfaceContext context, NodeArchetype nodeArch, GroupArchetype groupArch)
+            : base(id, context, nodeArch, groupArch)
+            {
+            }
+
+            /// <inheritdoc />
+            public override void OnSurfaceLoaded(SurfaceNodeActions action)
+            {
+                base.OnSurfaceLoaded(action);
+
+                if (Surface != null)
+                {
+                    _assetSelect = GetChild<AssetSelect>();
+
+                    // 4 is the id of skeleton mask parameter node.
+                    if (TryGetBox(4, out var box))
+                    {
+                        _assetBox = box;
+                        _assetSelect.Visible = !_assetBox.HasAnyConnection;
+                    }
+                }
+            }
+
+            /// <inheritdoc />
+            public override void ConnectionTick(Box box)
+            {
+                base.ConnectionTick(box);
+
+                if (_assetBox == null)
+                    return;
+                if (box.ID != _assetBox.ID)
+                    return;
+                _assetSelect.Visible = !box.HasAnyConnection;
             }
         }
 
@@ -556,6 +601,7 @@ namespace FlaxEditor.Surface.Archetypes
                 TypeID = 11,
                 Title = "Blend with Mask",
                 Description = "Blend animation poses using skeleton mask",
+                Create = (id, context, arch, groupArch) => new SkeletonMaskSample(id, context, arch, groupArch),
                 Flags = NodeFlags.AnimGraph,
                 Size = new Float2(180, 140),
                 DefaultValues = new object[]
@@ -569,7 +615,8 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(0, "Pose A", true, typeof(void), 1),
                     NodeElementArchetype.Factory.Input(1, "Pose B", true, typeof(void), 2),
                     NodeElementArchetype.Factory.Input(2, "Alpha", true, typeof(float), 3, 0),
-                    NodeElementArchetype.Factory.Asset(0, 70, 1, typeof(SkeletonMask)),
+                    NodeElementArchetype.Factory.Input(3, "Skeleton Mask Asset", true, typeof(SkeletonMask), 4),
+                    NodeElementArchetype.Factory.Asset(0, Surface.Constants.LayoutOffsetY * 4, 1, typeof(SkeletonMask)),
                 }
             },
             new NodeArchetype

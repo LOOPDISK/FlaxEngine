@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2023 Wojciech Figat. All rights reserved.
+// Copyright (c) 2012-2024 Wojciech Figat. All rights reserved.
 
 using System;
 using System.Collections.Generic;
@@ -725,9 +725,7 @@ namespace FlaxEditor.Modules
             for (int i = 0; i < Windows.Count; i++)
             {
                 if (string.Equals(Windows[i].SerializationTypename, typename, StringComparison.OrdinalIgnoreCase))
-                {
                     return Windows[i];
-                }
             }
 
             // Check if it's an asset ID

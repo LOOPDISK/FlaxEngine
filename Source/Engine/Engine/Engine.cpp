@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2023 Wojciech Figat. All rights reserved.
+// Copyright (c) 2012-2024 Wojciech Figat. All rights reserved.
 
 #include "Engine.h"
 #include "Game.h"
@@ -215,9 +215,6 @@ int32 Engine::Main(const Char* cmdLine)
             Time::OnEndDraw();
             FrameMark;
         }
-
-        // Collect physics simulation results (does nothing if Simulate hasn't been called in the previous loop step)
-        OnPhysicsUpdate();
     }
 
     // Call on exit event
@@ -245,6 +242,8 @@ void Engine::Exit(int32 exitCode)
 
 void Engine::RequestExit(int32 exitCode)
 {
+    if (Globals::IsRequestingExit)
+        return;
 #if USE_EDITOR
     // Send to editor (will leave play mode if need to)
     if (Editor::Managed->OnAppExit())
@@ -289,6 +288,9 @@ void Engine::OnLateFixedUpdate()
 
     // Update services
     EngineService::OnLateFixedUpdate();
+
+    // Collect physics simulation results (does nothing if Simulate hasn't been called in the previous loop step)
+    Physics::CollectResults();
 }
 
 void Engine::OnUpdate()
@@ -377,12 +379,6 @@ void Engine::OnDraw()
         LOG_FLUSH();
     }
 #endif
-}
-
-void Engine::OnPhysicsUpdate()
-{
-    PROFILE_CPU_NAMED("Physics Update");
-    Physics::CollectResults();
 }
 
 bool Engine::IsHeadless()
@@ -586,7 +582,7 @@ void EngineImpl::InitPaths()
 #elif PLATFORM_MAC
     Globals::MonoPath = Globals::StartupFolder / TEXT("Source/Platforms/Editor/Mac/Mono");
 #else
-#error "Please specify the Mono data location for Editor on this platform."
+    #error "Please specify the Mono data location for Editor on this platform."
 #endif
 #endif
 #else
