@@ -298,8 +298,12 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     ////////////////////////////////////////////////////////////////////////////////////
     // Bloom
 
+
     auto tempDesc = GPUTextureDescription::New2D(w2, h2, 0, output->Format(), GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
+
+
     auto bloomTmp1 = RenderTargetPool::Get(tempDesc);
+
     RENDER_TARGET_POOL_SET_NAME(bloomTmp1, "PostProcessing.Bloom");
     // TODO: bloomTmp2 could be quarter res because we don't use it's first mip
     auto bloomTmp2 = RenderTargetPool::Get(tempDesc);
@@ -316,72 +320,100 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         context->DrawFullscreenTriangle();
         context->ResetRenderTarget();
 
-        // Downscale to 1/4
-        context->SetRenderTarget(bloomTmp1->View(0, 1));
-        context->SetViewportAndScissors((float)w4, (float)h4);
-        context->BindSR(0, bloomTmp1->View(0, 0));
-        context->SetState(_psScale);
-        context->DrawFullscreenTriangle();
-        context->ResetRenderTarget();
-
-        // Downscale to 1/8
-        context->SetRenderTarget(bloomTmp1->View(0, 2));
-        context->SetViewportAndScissors((float)w8, (float)h8);
-        context->BindSR(0, bloomTmp1->View(0, 1));
-        context->SetState(_psScale);
-        context->DrawFullscreenTriangle();
-        context->ResetRenderTarget();
-
-        // TODO: perform blur when downscaling (13 tap) and when upscaling? (9 tap)
-
-        // Gaussian Blur
-        GB_ComputeKernel(data.BloomBlurSigma, static_cast<float>(w8), static_cast<float>(h8));
-        //int32 blurStages = (int)Rendering.Quality + 1;
-        int32 blurStages = 2;
-        for (int32 i = 0; i < blurStages; i++)
+        // Generate mip levels for the bloom texture
+        int32 mipLevels = bloomTmp1->MipLevels();
+        for (int32 i = 1; i < mipLevels; i++)
         {
-            // Horizontal Bloom Blur
-            Platform::MemoryCopy(_gbData.GaussianBlurCache, GaussianBlurCacheH, sizeof(GaussianBlurCacheH));
-            context->UpdateCB(cb1, &_gbData);
-            context->BindCB(1, cb1);
-            //
-            context->SetRenderTarget(bloomTmp2->View(0, 2));
-            context->BindSR(0, bloomTmp1->View(0, 2));
-            context->SetState(_psBlurH);
+            int32 mipWidth = std::max(1, w2 >> i);
+            int32 mipHeight = std::max(1, h2 >> i);
+
+            context->SetRenderTarget(bloomTmp1->View(0, i));
+            context->SetViewportAndScissors((float)(w2 >> i), (float)(h2 >> i));
+            context->BindSR(0, bloomTmp1->View(0, i - 1));
+            context->SetState(_psScale);
             context->DrawFullscreenTriangle();
             context->ResetRenderTarget();
 
-            // Vertical Bloom Blur
-            Platform::MemoryCopy(_gbData.GaussianBlurCache, GaussianBlurCacheV, sizeof(GaussianBlurCacheV));
-            context->UpdateCB(cb1, &_gbData);
-            context->BindCB(1, cb1);
-            //
-            context->SetRenderTarget(bloomTmp1->View(0, 2));
-            context->BindSR(0, bloomTmp2->View(0, 2));
-            context->SetState(_psBlurV);
-            context->DrawFullscreenTriangle();
-            context->ResetRenderTarget();
         }
 
-        // Upscale to 1/4 (use second tmp target to cache that downscale thress data for lens flares)
-        context->SetRenderTarget(bloomTmp2->View(0, 1));
-        context->SetViewportAndScissors((float)w4, (float)h4);
-        context->BindSR(0, bloomTmp1->View(0, 2));
-        context->SetState(_psScale);
-        context->DrawFullscreenTriangle();
-        context->ResetRenderTarget();
+        // Set bloom texture
+        context->BindSR(2, bloomTmp1);
+    
 
-        // Upscale to 1/2
-        context->SetRenderTarget(bloomTmp1->View(0, 0));
-        context->SetViewportAndScissors((float)w2, (float)h2);
-        context->BindSR(0, bloomTmp2->View(0, 1));
-        context->SetState(_psScale);
-        context->DrawFullscreenTriangle();
-        context->ResetRenderTarget();
+        //// Bloom Threshold and downscale to 1/2
+        //context->SetRenderTarget(bloomTmp1->View(0, 0));
+        //context->SetViewportAndScissors((float)w2, (float)h2);
+        //context->BindSR(0, input->View());
+        //context->SetState(_psThreshold);
+        //context->DrawFullscreenTriangle();
+        //context->ResetRenderTarget();
 
-        // Set bloom
-        context->UnBindSR(0);
-        context->BindSR(2, bloomTmp1->View(0, 0));
+        //// Downscale to 1/4
+        //context->SetRenderTarget(bloomTmp1->View(0, 1));
+        //context->SetViewportAndScissors((float)w4, (float)h4);
+        //context->BindSR(0, bloomTmp1->View(0, 0));
+        //context->SetState(_psScale);
+        //context->DrawFullscreenTriangle();
+        //context->ResetRenderTarget();
+
+        //// Downscale to 1/8
+        //context->SetRenderTarget(bloomTmp1->View(0, 2));
+        //context->SetViewportAndScissors((float)w8, (float)h8);
+        //context->BindSR(0, bloomTmp1->View(0, 1));
+        //context->SetState(_psScale);
+        //context->DrawFullscreenTriangle();
+        //context->ResetRenderTarget();
+
+        //// TODO: perform blur when downscaling (13 tap) and when upscaling? (9 tap)
+
+        //// Gaussian Blur
+        //GB_ComputeKernel(data.BloomBlurSigma, static_cast<float>(w8), static_cast<float>(h8));
+        ////int32 blurStages = (int)Rendering.Quality + 1;
+        //int32 blurStages = 2;
+        //for (int32 i = 0; i < blurStages; i++)
+        //{
+        //    // Horizontal Bloom Blur
+        //    Platform::MemoryCopy(_gbData.GaussianBlurCache, GaussianBlurCacheH, sizeof(GaussianBlurCacheH));
+        //    context->UpdateCB(cb1, &_gbData);
+        //    context->BindCB(1, cb1);
+        //    //
+        //    context->SetRenderTarget(bloomTmp2->View(0, 2));
+        //    context->BindSR(0, bloomTmp1->View(0, 2));
+        //    context->SetState(_psBlurH);
+        //    context->DrawFullscreenTriangle();
+        //    context->ResetRenderTarget();
+
+        //    // Vertical Bloom Blur
+        //    Platform::MemoryCopy(_gbData.GaussianBlurCache, GaussianBlurCacheV, sizeof(GaussianBlurCacheV));
+        //    context->UpdateCB(cb1, &_gbData);
+        //    context->BindCB(1, cb1);
+        //    //
+        //    context->SetRenderTarget(bloomTmp1->View(0, 2));
+        //    context->BindSR(0, bloomTmp2->View(0, 2));
+        //    context->SetState(_psBlurV);
+        //    context->DrawFullscreenTriangle();
+        //    context->ResetRenderTarget();
+        //}
+
+        //// Upscale to 1/4 (use second tmp target to cache that downscale thress data for lens flares)
+        //context->SetRenderTarget(bloomTmp2->View(0, 1));
+        //context->SetViewportAndScissors((float)w4, (float)h4);
+        //context->BindSR(0, bloomTmp1->View(0, 2));
+        //context->SetState(_psScale);
+        //context->DrawFullscreenTriangle();
+        //context->ResetRenderTarget();
+
+        //// Upscale to 1/2
+        //context->SetRenderTarget(bloomTmp1->View(0, 0));
+        //context->SetViewportAndScissors((float)w2, (float)h2);
+        //context->BindSR(0, bloomTmp2->View(0, 1));
+        //context->SetState(_psScale);
+        //context->DrawFullscreenTriangle();
+        //context->ResetRenderTarget();
+
+        //// Set bloom
+        //context->UnBindSR(0);
+        //context->BindSR(2, bloomTmp1->View(0, 0));
     }
     else
     {

@@ -119,10 +119,12 @@ sampler SamplerLinearClamp : register(s0);
 sampler SamplerPointClamp : register(s1);
 sampler SamplerLinearWrap : register(s2);
 sampler SamplerPointWrap : register(s3);
+sampler SamplerCubicClamp : register(s6);
 
 // TODO: use custom pipeline layouts and bind different sampler during shadows rendering
 SamplerComparisonState ShadowSampler : register(s4);
 SamplerComparisonState ShadowSamplerPCF : register(s5);
+
 
 #endif
 

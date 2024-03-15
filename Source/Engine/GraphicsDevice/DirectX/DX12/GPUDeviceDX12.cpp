@@ -582,6 +582,10 @@ bool GPUDeviceDX12::Init()
         staticSamplers[0].ShaderRegister = 0;
         staticSamplers[0].RegisterSpace = 0;
         staticSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+
+
+
         // Point Clamp
         staticSamplers[1].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
         staticSamplers[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -649,6 +653,21 @@ bool GPUDeviceDX12::Init()
         staticSamplers[5].ShaderRegister = 5;
         staticSamplers[5].RegisterSpace = 0;
         staticSamplers[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+        // Cubic Clamp
+        staticSamplers[6].Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
+        staticSamplers[6].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        staticSamplers[6].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        staticSamplers[6].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        staticSamplers[6].MipLODBias = 0.0f;
+        staticSamplers[6].MaxAnisotropy = 1;
+        staticSamplers[6].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+        staticSamplers[6].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
+        staticSamplers[6].MinLOD = 0;
+        staticSamplers[6].MaxLOD = D3D12_FLOAT32_MAX;
+        staticSamplers[6].ShaderRegister = 6;
+        staticSamplers[6].RegisterSpace = 0;
+        staticSamplers[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
         // TODO: static samplers for the shadow pass change into bindable samplers or sth?
 

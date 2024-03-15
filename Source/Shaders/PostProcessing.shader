@@ -253,20 +253,28 @@ float2 coordRot(in float2 tc, in float angle)
 }
 
 // Uses a lower exposure to produce a value suitable for a bloom pass
+//META_PS(true, FEATURE_LEVEL_ES2)
+//float4 PS_Threshold(Quad_VS2PS input) : SV_Target
+//{
+//	float4 color = Input0.SampleLevel(SamplerLinearClamp, input.TexCoord, 0);
+//    return clamp(color - BloomThreshold, 0, BloomLimit);
+//}
+// MZ: put in a soft knee to the threshold, so it's not ugly'
+
+
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_Threshold(Quad_VS2PS input) : SV_Target
 {
-	float4 color = Input0.SampleLevel(SamplerLinearClamp, input.TexCoord, 0);
-    return clamp(color - BloomThreshold, 0, BloomLimit);
+    float4 color = Input0.SampleLevel(SamplerCubicClamp, input.TexCoord, 0);
+    float brightness = max(color.r, max(color.g, color.b));
+    float thresholdFactor = (brightness - BloomThreshold) / (BloomLimit - BloomThreshold);
+    thresholdFactor = saturate(thresholdFactor);
+    return lerp(0, color, thresholdFactor);
 }
 
-// Uses hw bilinear filtering for upscaling or downscaling
-META_PS(true, FEATURE_LEVEL_ES2)
-float4 PS_Scale(Quad_VS2PS input) : SV_Target
-{
 	// TODO: we could use quality switch for bloom effect
 
-	return Input0.SampleLevel(SamplerLinearClamp, input.TexCoord, 0);
+	//return Input0.SampleLevel(SamplerCubicClamp, input.TexCoord, 0);
 	/*
 	float3 color;
 	// TODO: use gather for dx11 and dx12??
@@ -279,6 +287,61 @@ float4 PS_Scale(Quad_VS2PS input) : SV_Target
 
 	return float4(color, 1);
 	*/
+
+
+// Uses hw bilinear filtering for upscaling or downscaling
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_Scale(Quad_VS2PS input) : SV_Target
+{
+    const float inv6 = 1./6.;
+
+    float textureWidth;
+    float textureHeight;
+    float textureLevels;
+    Input0.GetDimensions(0, textureWidth, textureHeight, textureLevels);
+
+    float2 textureSize = float2(textureWidth, textureHeight);
+    float2 invSize = float2(1.0, 1.0) / textureSize;
+
+    float2 Weight[2];
+    float2 Sample[2];
+
+    float2 UV = input.TexCoord * textureSize;
+    float2 tc = floor(UV - float2(0.5, 0.5)) + float2(0.5, 0.5);
+    float2 f = UV - tc;
+    float2 f2 = f * f;
+    float2 f3 = f2 * f;
+
+    float2 of = float2(1.0, 1.0) - f;
+    float2 of2 = of * of;
+    float2 of3 = of2 * of;
+
+    float2 w0 = inv6 * of3;
+    float2 w1 = inv6 * (float2(4.0, 4.0) + 3.0 * f3 - 6.0 * f2);
+    float2 w2 = inv6 * (float2(4.0, 4.0) + 3.0 * of3 - 6.0 * of2);
+    float2 w3 = inv6 * f3;
+
+    Weight[0] = w0 + w1;
+    Weight[1] = w2 + w3;
+
+    Sample[0] = tc - (float2(1.0, 1.0) - w1 / Weight[0]);
+    Sample[1] = tc + float2(1.0, 1.0) + w3 / Weight[1];
+
+    Sample[0] *= invSize;
+    Sample[1] *= invSize;
+
+    float sampleWeight[4];
+    sampleWeight[0] = Weight[0].x * Weight[0].y;
+    sampleWeight[1] = Weight[1].x * Weight[0].y;
+    sampleWeight[2] = Weight[0].x * Weight[1].y;
+    sampleWeight[3] = Weight[1].x * Weight[1].y;
+
+    float3 Ctl = Input0.SampleLevel(SamplerLinearClamp, float2(Sample[0].x, Sample[0].y), 0).rgb * sampleWeight[0];
+    float3 Ctr = Input0.SampleLevel(SamplerLinearClamp, float2(Sample[1].x, Sample[0].y), 0).rgb * sampleWeight[1];
+    float3 Cbl = Input0.SampleLevel(SamplerLinearClamp, float2(Sample[0].x, Sample[1].y), 0).rgb * sampleWeight[2];
+    float3 Cbr = Input0.SampleLevel(SamplerLinearClamp, float2(Sample[1].x, Sample[1].y), 0).rgb * sampleWeight[3];
+
+    return float4(Ctl + Ctr + Cbl + Cbr, 1.0);
 }
 
 // Horizontal gaussian blur
@@ -472,18 +535,72 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 	}
 
 	// Bloom
-	BRANCH
-	if (BloomMagnitude > 0)
-	{
-		// Sample the bloom
-		float3 bloom = Input2.SampleLevel(SamplerLinearClamp, uv, 0).rgb;
-		bloom = bloom * BloomMagnitude;
+    BRANCH
+    if (BloomMagnitude > 0)
+    {
+        const float inv6 = 1./6.;
 
-		// Accumulate final bloom lght
-		lensLight += max(0, bloom * 3.0f + (- 1.0f * 3.0f));
-		color.rgb += bloom;
-	}
+        float textureWidth;
+        float textureHeight;
+        float textureLevels;
+        Input2.GetDimensions(0, textureWidth, textureHeight, textureLevels);
 
+        float2 textureSize = float2(textureWidth, textureHeight);
+        float2 invSize = float2(1.0, 1.0) / textureSize;
+
+        float2 Weight[2];
+        float2 Sample[2];
+
+        float3 bloom = float3(0.0, 0.0, 0.0);
+        float factor = 1.0;
+        float BloomExponentialFactor = BloomBlurSigma;
+
+        [unroll]
+        for (int i = 0; i < 9; i++)
+        {
+            float2 UV = uv * textureSize;
+            float2 tc = floor(UV - float2(0.5, 0.5)) + float2(0.5, 0.5);
+            float2 f = UV - tc;
+            float2 f2 = f * f;
+            float2 f3 = f2 * f;
+
+            float2 of = float2(1.0, 1.0) - f;
+            float2 of2 = of * of;
+            float2 of3 = of2 * of;
+
+            float2 w0 = inv6 * of3;
+            float2 w1 = inv6 * (float2(4.0, 4.0) + 3.0 * f3 - 6.0 * f2);
+            float2 w2 = inv6 * (float2(4.0, 4.0) + 3.0 * of3 - 6.0 * of2);
+            float2 w3 = inv6 * f3;
+
+            Weight[0] = w0 + w1;
+            Weight[1] = w2 + w3;
+
+            Sample[0] = tc - (float2(1.0, 1.0) - w1 / Weight[0]);
+            Sample[1] = tc + float2(1.0, 1.0) + w3 / Weight[1];
+
+            Sample[0] *= invSize;
+            Sample[1] *= invSize;
+
+            float sampleWeight[4];
+            sampleWeight[0] = Weight[0].x * Weight[0].y;
+            sampleWeight[1] = Weight[1].x * Weight[0].y;
+            sampleWeight[2] = Weight[0].x * Weight[1].y;
+            sampleWeight[3] = Weight[1].x * Weight[1].y;
+
+            float3 Ctl = Input2.SampleLevel(SamplerLinearClamp, float2(Sample[0].x, Sample[0].y), i).rgb * sampleWeight[0];
+            float3 Ctr = Input2.SampleLevel(SamplerLinearClamp, float2(Sample[1].x, Sample[0].y), i).rgb * sampleWeight[1];
+            float3 Cbl = Input2.SampleLevel(SamplerLinearClamp, float2(Sample[0].x, Sample[1].y), i).rgb * sampleWeight[2];
+            float3 Cbr = Input2.SampleLevel(SamplerLinearClamp, float2(Sample[1].x, Sample[1].y), i).rgb * sampleWeight[3];
+
+            bloom += (Ctl + Ctr + Cbl + Cbr) * factor;
+            factor *= BloomExponentialFactor;
+        }
+
+        // Accumulate final bloom light
+        lensLight += max(float3(0.0, 0.0, 0.0), bloom * 3.0f + float3(-1.0, -1.0, -1.0) * 3.0f);
+        color.rgb += bloom * BloomMagnitude;
+    }
 	// Lens Dirt
 	float3 lensDirt = LensDirt.SampleLevel(SamplerLinearClamp, uv, 0).rgb;
 	color.rgb += lensDirt * (lensLight * LensDirtIntensity);

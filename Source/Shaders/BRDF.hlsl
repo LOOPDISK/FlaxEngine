@@ -10,6 +10,87 @@ float3 Diffuse_Lambert(float3 diffuseColor)
     return diffuseColor * (1 / PI);
 }
 
+
+float3 OrenNayarToon(
+    float3 normal,      // Normalized surface normal
+    float3 lightDir,    // Normalized direction to the light
+    float3 viewDir,     // Normalized direction to the viewer (camera)
+    float roughness,    // Surface roughness [0,1]
+    float3 diffuseColor, // Diffuse color of the material
+    int levels          // Number of quantization levels for toon shading
+)
+{
+    // Basic Oren-Nayar calculations (simplified for demonstration)
+    float LdotN = max(dot(lightDir, normal), 0.0);
+    float roughnessSq = roughness * roughness;
+    float A = 1.0f - 0.5f * (roughnessSq / (roughnessSq + 0.33f));
+    float B = 0.45f * (roughnessSq / (roughnessSq + 0.09f));
+    float theta_r = acos(dot(viewDir, normal));
+    float theta_i = acos(LdotN);
+    float alpha = max(theta_i, theta_r);
+    float beta = min(theta_i, theta_r);
+    float sinAlpha = sin(alpha);
+    float tanBeta = tan(beta);
+
+    float OrenNayar = LdotN * (A + B * max(dot(lightDir, viewDir) - LdotN * dot(viewDir, normal), 0.0) * sinAlpha * tanBeta);
+
+    // Apply toon shading by quantizing the Oren-Nayar result
+    float quantized = ceil(OrenNayar * levels) / levels;
+
+    // Modulate the quantized result with the diffuse color
+    return diffuseColor * quantized;
+}
+
+float OrenNayarApprox(float NoL, float NoV, float3 N, float3 L, float3 V, float roughness)
+{
+    float3 H = normalize(V + L);
+    float VoH = saturate(dot(V, H));
+    float LdotH = dot(L, H);
+    float sigma2 = roughness * roughness;
+    
+    float s = 1.0 - 0.5 * sigma2 / (sigma2 + 0.33);
+    float t = 0.45 * sigma2 / (sigma2 + 0.09);
+    
+    float alpha = max(NoV, NoL);
+    float beta = min(NoV, NoL);
+
+    float OrenNayar = NoL * (s + t * max(dot(L - N * NoL, V - N * NoV), 0.0) * sin(alpha) * tan(beta));
+    return OrenNayar / PI;
+}
+
+float OrenNayarDiffuse(
+    float3 normal, // Normalized surface normal
+    float3 lightDir, // Normalized direction to the light
+    float3 viewDir, // Normalized direction to the viewer (camera)
+    float roughness, // Surface roughness [0,1]
+    float3 diffuseColor)   // Diffuse color of the material
+{
+    float sigma2 = roughness * roughness;
+    float LdotN = max(dot(lightDir, normal), 0.0);
+    float VdotN = max(dot(viewDir, normal), 0.0);
+
+    float theta_i = acos(LdotN);
+    float theta_r = acos(VdotN);
+
+    float alpha = max(theta_i, theta_r);
+    float beta = min(theta_i, theta_r);
+
+    float gamma = dot(lightDir - normal * LdotN, viewDir - normal * VdotN);
+    if (gamma < 0.0)
+        gamma = 0.0; // Max with 0 to prevent artifacts in edge cases
+
+    // Coefficients for the Oren-Nayar model
+    float A = 1.0 - 0.5 * (sigma2 / (sigma2 + 0.33));
+    float B = 0.45 * (sigma2 / (sigma2 + 0.09));
+
+    float C = sin(alpha) * tan(beta);
+    
+    // Final Oren-Nayar reflectance
+    float OrenNayar = LdotN * (A + B * max(0.0, gamma) * C);
+
+    return diffuseColor * OrenNayar / PI;
+}
+
 // GGX / Trowbridge-Reitz
 // [Walter et al. 2007, "Microfacet models for refraction through rough surfaces"]
 float D_GGX(float roughness, float NoH)

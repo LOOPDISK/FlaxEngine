@@ -21,6 +21,7 @@ namespace FlaxEditor.Surface.Archetypes
             LinearWrap = 2,
             PointWrap = 3,
             TextureGroup = 4,
+            CubicClamp = 6,
         }
 
         internal class SampleTextureNode : SurfaceNode

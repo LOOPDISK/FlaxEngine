@@ -23,7 +23,11 @@ LightingData StandardShading(GBufferSample gBuffer, float energy, float3 L, floa
     float VoH = saturate(dot(V, H));
 
     LightingData lighting;
-    lighting.Diffuse = Diffuse_Lambert(diffuseColor);
+    
+    //lighting.Diffuse = OrenNayarToon(N, L, V, gBuffer.Roughness, diffuseColor, 4); // Adjust '4' as needed
+    lighting.Diffuse = diffuseColor *  OrenNayarApprox(NoL, NoV, N, L, V, gBuffer.Roughness);
+    //lighting.Diffuse = Diffuse_Lambert(diffuseColor);
+     
 #if LIGHTING_NO_SPECULAR
     lighting.Specular = 0;
 #else
