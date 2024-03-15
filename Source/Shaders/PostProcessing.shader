@@ -289,6 +289,8 @@ float4 PS_Threshold(Quad_VS2PS input) : SV_Target
 	*/
 
 
+
+
 // Uses hw bilinear filtering for upscaling or downscaling
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_Scale(Quad_VS2PS input) : SV_Target
@@ -595,6 +597,8 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 
             bloom += (Ctl + Ctr + Cbl + Cbr) * factor;
             factor *= BloomExponentialFactor;
+
+
         }
 
         // Accumulate final bloom light
