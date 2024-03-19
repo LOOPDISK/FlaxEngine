@@ -232,6 +232,7 @@ GPUDeviceDX11::GPUDeviceDX11(IDXGIFactory* dxgiFactory, GPUAdapterDX* adapter)
     , _factoryDXGI(dxgiFactory)
     , _mainContext(nullptr)
     , _samplerLinearClamp(nullptr)
+    , _samplerCubicClamp(nullptr)
     , _samplerPointClamp(nullptr)
     , _samplerLinearWrap(nullptr)
     , _samplerPointWrap(nullptr)
@@ -451,6 +452,7 @@ bool GPUDeviceDX11::Init()
         D3D11_SAMPLER_DESC samplerDesc;
         Platform::MemoryClear(&samplerDesc, sizeof(samplerDesc));
 
+        LOG(Info, "test 0");
         // Linear Clamp
         samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -461,8 +463,22 @@ bool GPUDeviceDX11::Init()
         result = _device->CreateSamplerState(&samplerDesc, &_samplerLinearClamp);
         LOG_DIRECTX_RESULT_WITH_RETURN(result, true);
 
+
+        // Cubic Clamp
+        samplerDesc.Filter = D3D11_FILTER_MINIMUM_MIN_MAG_MIP_POINT;
+        samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+        samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+        samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        samplerDesc.MinLOD = 0;
+        samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+        result = _device->CreateSamplerState(&samplerDesc, &_samplerCubicClamp);
+        LOG_DIRECTX_RESULT_WITH_RETURN(result, true);
+
+
+
         // Point Clamp
         samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+
         samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -470,7 +486,7 @@ bool GPUDeviceDX11::Init()
         samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
         result = _device->CreateSamplerState(&samplerDesc, &_samplerPointClamp);
         LOG_DIRECTX_RESULT_WITH_RETURN(result, true);
-
+        
         // Linear Wrap
         samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
@@ -517,6 +533,9 @@ bool GPUDeviceDX11::Init()
         samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
         result = _device->CreateSamplerState(&samplerDesc, &_samplerShadowPCF);
         LOG_DIRECTX_RESULT_WITH_RETURN(result, true);
+
+
+
     }
 
     // Rasterizer States
@@ -612,6 +631,7 @@ void GPUDeviceDX11::Dispose()
 
     // Clear device resources
     SAFE_RELEASE(_samplerLinearClamp);
+    SAFE_RELEASE(_samplerCubicClamp);
     SAFE_RELEASE(_samplerPointClamp);
     SAFE_RELEASE(_samplerLinearWrap);
     SAFE_RELEASE(_samplerPointWrap);

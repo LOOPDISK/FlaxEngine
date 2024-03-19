@@ -109,12 +109,13 @@ void GPUContextDX11::FrameBegin()
     // Bind static samplers
     ID3D11SamplerState* samplers[] =
     {
-        _device->_samplerLinearClamp,
-        _device->_samplerPointClamp,
-        _device->_samplerLinearWrap,
-        _device->_samplerPointWrap,
-        _device->_samplerShadow,
-        _device->_samplerShadowPCF
+        _device->_samplerLinearClamp, //0
+        _device->_samplerPointClamp, //1
+        _device->_samplerLinearWrap, //2
+        _device->_samplerPointWrap, //3
+        _device->_samplerShadow, //4
+        _device->_samplerShadowPCF, //5
+        _device->_samplerCubicClamp //6
     };
     _context->VSSetSamplers(0, ARRAY_COUNT(samplers), samplers);
     _context->DSSetSamplers(0, ARRAY_COUNT(samplers), samplers);
@@ -666,7 +667,8 @@ void GPUContextDX11::ClearState()
         _device->_samplerLinearWrap,
         _device->_samplerPointWrap,
         _device->_samplerShadow,
-        _device->_samplerShadowPCF
+        _device->_samplerShadowPCF.
+        _device->_samplerCubicClamp
     };
     _context->VSSetSamplers(0, ARRAY_COUNT(samplers), samplers);
     _context->DSSetSamplers(0, ARRAY_COUNT(samplers), samplers);

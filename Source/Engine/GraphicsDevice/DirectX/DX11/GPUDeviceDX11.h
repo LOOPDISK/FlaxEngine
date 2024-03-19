@@ -33,6 +33,7 @@ private:
 
     // Static Samplers
     ID3D11SamplerState* _samplerLinearClamp;
+    ID3D11SamplerState* _samplerCubicClamp;
     ID3D11SamplerState* _samplerPointClamp;
     ID3D11SamplerState* _samplerLinearWrap;
     ID3D11SamplerState* _samplerPointWrap;
