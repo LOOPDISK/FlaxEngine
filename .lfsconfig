@@ -1,4 +1,4 @@
 # Redirect to our own Git LFS server
 [lfs]
-url="https://gitlab.flaxengine.com/flax/flaxengine.git/info/lfs"
+url=https://pfm2l69r96.execute-api.ap-southeast-3.amazonaws.com/lfs
 locksverify = false

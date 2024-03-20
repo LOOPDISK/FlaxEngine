@@ -486,10 +486,12 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             LinearWrap = 2,
             PointWrap = 3,
             TextureGroup = 4,
+         //   CubicClamp = 6,
         };
         const Char* SamplerNames[]
         {
             TEXT("SamplerLinearClamp"),
+           // TEXT("SamplerCubicClamp"),  
             TEXT("SamplerPointClamp"),
             TEXT("SamplerLinearWrap"),
             TEXT("SamplerPointWrap"),
