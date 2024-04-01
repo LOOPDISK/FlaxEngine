@@ -1174,25 +1174,7 @@ namespace FlaxEditor.Surface.Archetypes
                 }
             },
 
-            //             new NodeArchetype
-            //{
-            //    TypeID = 28,
-            //    Title = "Get Node Transform (model space)",
-            //    Description = "Samples the skeleton node transformation (in model space)",
-            //    Flags = NodeFlags.AnimGraph,
-            //    Size = new Float2(324, 40),
-            //    DefaultValues = new object[]
-            //    {
-            //        string.Empty,
-            //    },
-            //    Elements = new[]
-            //    {
-            //        NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 0),
-            //        NodeElementArchetype.Factory.SkeletonNodeNameSelect(40, Surface.Constants.LayoutOffsetY * 1, 160, 0),
-            //        NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Node:"),
-            //        NodeElementArchetype.Factory.Output(0, "Transform", typeof(Transform), 1),
-            //    }
-            //},
+
 
             new NodeArchetype
             {
@@ -1207,8 +1189,34 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(1, "Vector", true, typeof(Vector3), 1),
                     NodeElementArchetype.Factory.Output(0, "Result", typeof(Vector3), 2)
                 }
-            }
+            },
 
+            new NodeArchetype
+            {
+                TypeID = 39,
+                Title = "double track Node",
+                Description = "Copies the skeleton node transformation data (in local space)",
+                Flags = NodeFlags.AnimGraph,
+                Size = new Float2(260, 140),
+                DefaultValues = new object[]
+                {
+                    string.Empty,
+                    string.Empty,
+                    1.0,
+
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
+                    NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 1),
+                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 1, 120, 0),
+                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 2, 120, 1),
+                    //NodeElementArchetype.Factory.Input(3, "up", true, typeof(Vector3), 2),
+                    NodeElementArchetype.Factory.Input(4, "weight", true, typeof(float), 2),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Source Node:"),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
+                }
+            },
 
 
     };
