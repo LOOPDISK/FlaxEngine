@@ -1826,7 +1826,7 @@ public:
 /// <summary>
 /// The structure members override flags.
 /// </summary>
-API_ENUM(Attributes="Flags") enum class AntiAliasingSettingsOverride : int32
+API_ENUM(Attributes = "Flags") enum class AntiAliasingSettingsOverride : int32
 {
     /// <summary>
     /// None properties.
@@ -1859,9 +1859,30 @@ API_ENUM(Attributes="Flags") enum class AntiAliasingSettingsOverride : int32
     TAA_MotionBlending = 1 << 4,
 
     /// <summary>
+    /// Overrides <see cref="AntiAliasingSettings.CAS_SharpeningAmount"/> property.
+    /// </summary>
+    CAS_SharpeningAmount = 1 << 5,
+
+    /// <summary>
+    /// Overrides <see cref="AntiAliasingSettings.CAS_EdgeSharpening"/> property.
+    /// </summary>
+    CAS_EdgeSharpening = 1 << 6,
+
+    /// <summary>
+    /// Overrides <see cref="AntiAliasingSettings.CAS_MinEdgeThreshold"/> property.
+    /// </summary>
+    CAS_MinEdgeThreshold = 1 << 7,
+
+    /// <summary>
+    /// Overrides <see cref="AntiAliasingSettings.CAS_OverBlurLimit"/> property.
+    /// </summary>
+    CAS_OverBlurLimit = 1 << 8,
+
+    /// <summary>
     /// All properties.
     /// </summary>
-    All = Mode | TAA_JitterSpread | TAA_Sharpness | TAA_StationaryBlending | TAA_MotionBlending,
+    All = Mode | TAA_JitterSpread | TAA_Sharpness | TAA_StationaryBlending | TAA_MotionBlending |
+    CAS_SharpeningAmount | CAS_EdgeSharpening | CAS_MinEdgeThreshold | CAS_OverBlurLimit,
 };
 
 /// <summary>
@@ -1908,6 +1929,30 @@ API_STRUCT() struct FLAXENGINE_API AntiAliasingSettings : ISerializable
     /// </summary>
     API_FIELD(Attributes="Limit(0, 0.99f, 0.001f), EditorOrder(4), PostProcessSetting((int)AntiAliasingSettingsOverride.TAA_MotionBlending), EditorDisplay(null, \"TAA Motion Blending\")")
     float TAA_MotionBlending = 0.7f;
+
+    /// <summary>
+    /// The sharpening strength for the Contrast Adaptive Sharpening (CAS) pass.
+    /// </summary>
+    API_FIELD(Attributes = "Limit(0, 10f, 0.001f), EditorOrder(5), PostProcessSetting((int)AntiAliasingSettingsOverride.CAS_SharpeningAmount), EditorDisplay(null, \"CAS Sharpening Amount\")")
+        float CAS_SharpeningAmount = 1.0f;
+
+    /// <summary>
+    /// The edge sharpening strength for the Contrast Adaptive Sharpening (CAS) pass.
+    /// </summary>
+    API_FIELD(Attributes = "Limit(0, 10f, 0.001f), EditorOrder(6), PostProcessSetting((int)AntiAliasingSettingsOverride.CAS_EdgeSharpening), EditorDisplay(null, \"CAS Edge Sharpening\")")
+        float CAS_EdgeSharpening = 0.5f;
+
+    /// <summary>
+    /// The minimum edge threshold for the Contrast Adaptive Sharpening (CAS) pass.
+    /// </summary>
+    API_FIELD(Attributes = "Limit(0, 10f, 0.001f), EditorOrder(7), PostProcessSetting((int)AntiAliasingSettingsOverride.CAS_MinEdgeThreshold), EditorDisplay(null, \"CAS Min Edge Threshold\")")
+        float CAS_MinEdgeThreshold = 0.03f;
+
+    /// <summary>
+    /// The over-blur limit for the Contrast Adaptive Sharpening (CAS) pass.
+    /// </summary>
+    API_FIELD(Attributes = "Limit(0, 100f, 0.001f), EditorOrder(8), PostProcessSetting((int)AntiAliasingSettingsOverride.CAS_OverBlurLimit), EditorDisplay(null, \"CAS Over-blur Limit\")")
+        float CAS_OverBlurLimit = 1.0f;
 
 public:
     /// <summary>
