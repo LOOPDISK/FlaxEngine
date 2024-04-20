@@ -25,7 +25,7 @@ LightingData StandardShading(GBufferSample gBuffer, float energy, float3 L, floa
     LightingData lighting;
     
     //lighting.Diffuse = OrenNayarToon(N, L, V, gBuffer.Roughness, diffuseColor, 4); // Adjust '4' as needed
-    lighting.Diffuse = diffuseColor *  OrenNayarApprox(NoL, NoV, N, L, V, gBuffer.Roughness);
+    lighting.Diffuse = diffuseColor * OrenNayarApprox(NoL, NoV, N, L, V, gBuffer.Roughness);
     //lighting.Diffuse = Diffuse_Lambert(diffuseColor);
      
 #if LIGHTING_NO_SPECULAR
@@ -75,15 +75,15 @@ LightingData SurfaceShading(GBufferSample gBuffer, float energy, float3 L, float
 {
     switch (gBuffer.ShadingModel)
     {
-    case SHADING_MODEL_UNLIT:
-    case SHADING_MODEL_LIT:
-        return StandardShading(gBuffer, energy, L, V, N);
-    case SHADING_MODEL_SUBSURFACE:
-        return SubsurfaceShading(gBuffer, energy, L, V, N);
-    case SHADING_MODEL_FOLIAGE:
-        return FoliageShading(gBuffer, energy, L, V, N);
-    default:
-        return (LightingData)0;
+        case SHADING_MODEL_UNLIT:
+        case SHADING_MODEL_LIT:
+            return StandardShading(gBuffer, energy, L, V, N);
+        case SHADING_MODEL_SUBSURFACE:
+            return SubsurfaceShading(gBuffer, energy, L, V, N);
+        case SHADING_MODEL_FOLIAGE:
+            return FoliageShading(gBuffer, energy, L, V, N);
+        default:
+            return (LightingData) 0;
     }
 }
 
@@ -103,6 +103,15 @@ float4 GetSkyLightLighting(LightData lightData, GBufferSample gBuffer, TextureCu
     float3 diffuseLookup = ibl.SampleLevel(SamplerLinearClamp, uvw, mip).rgb * lightData.Color.rgb;
     diffuseLookup += float3(lightData.SpotAngles.rg, lightData.SourceRadius);
 
+    // Calculate specular reflection
+    float3 V = normalize(gBuffer.WorldPos - lightData.Position);
+    float3 R = reflect(-V, gBuffer.Normal);
+    float roughness = max(gBuffer.Roughness, lightData.MinRoughness);
+    float specularMip = roughness * 9.0; // Adjust the multiplier as needed
+    float3 specularLookup = ibl.SampleLevel(SamplerLinearClamp, R, specularMip).rgb * lightData.Color.rgb;
+    float3 specularColor = GetSpecularColor(gBuffer);
+    float3 specularLight = specularLookup * specularColor;
+
     // Fade out based on distance to capture
     float3 captureVector = gBuffer.WorldPos - lightData.Position;
     float captureVectorLength = length(captureVector);
@@ -110,10 +119,48 @@ float4 GetSkyLightLighting(LightData lightData, GBufferSample gBuffer, TextureCu
     float distanceAlpha = 1.0 - smoothstep(0.6, 1, normalizedDistanceToCapture);
 
     // Calculate final light
-    float3 color = diffuseLookup * diffuseColor;
-    float luminance = Luminance(diffuseLookup);
+    float3 color = (diffuseLookup * diffuseColor) + specularLight;
+    float luminance = Luminance(diffuseLookup + specularLookup);
     return float4(color, luminance) * (distanceAlpha * gBuffer.AO);
 }
+
+
+
+
+//float4 GetSkyLightLighting(LightData lightData, GBufferSample gBuffer, TextureCube ibl)
+//{
+//    // Get material diffuse color
+//    float3 diffuseColor = GetDiffuseColor(gBuffer);
+
+//    // Compute the preconvolved incoming lighting with the normal direction (apply ambient color)
+//    float mip = lightData.SourceLength;
+//    float3 uvw = (LIGHTING_NO_DIRECTIONAL ? float3(0, 0, 0) : gBuffer.Normal);
+//    float3 diffuseLookup = ibl.SampleLevel(SamplerLinearClamp, uvw, mip).rgb * lightData.Color.rgb;
+//    diffuseLookup += float3(lightData.SpotAngles.rg, lightData.SourceRadius);
+
+//    // Calculate specular reflection
+//    float3 V = normalize(gBuffer.WorldPos - lightData.Position);
+//    float3 R = reflect(-V, gBuffer.Normal);
+//    float roughness = max(gBuffer.Roughness, lightData.MinRoughness);
+//    float specularMip = roughness * 6.0; // Adjust the multiplier as needed for texture sampling
+//    float3 specularLookup = ibl.SampleLevel(SamplerLinearClamp, R, specularMip).rgb * lightData.Color.rgb;
+//    float3 specularColor = GetSpecularColor(gBuffer);
+//    float3 specularLight = specularLookup * specularColor;
+
+//    // Combine specular and diffuse components
+//    float3 color = (diffuseLookup * diffuseColor) + specularLight;
+
+//    // Fade out based on distance to capture
+//    float3 captureVector = gBuffer.WorldPos - lightData.Position;
+//    float captureVectorLength = length(captureVector);
+//    float normalizedDistanceToCapture = saturate(captureVectorLength / lightData.Radius);
+//    float distanceAlpha = 1.0 - smoothstep(0.6, 1, normalizedDistanceToCapture);
+
+//    // Calculate final light
+//    float luminance = Luminance(diffuseLookup + specularLookup);
+//    return float4(color, luminance) * (distanceAlpha * gBuffer.AO);
+//}
+
 
 float4 GetLighting(float3 viewPos, LightData lightData, GBufferSample gBuffer, float4 shadowMask, bool isRadial, bool isSpotLight)
 {
@@ -145,6 +192,7 @@ float4 GetLighting(float3 viewPos, LightData lightData, GBufferSample gBuffer, f
 #endif
 
     BRANCH
+
     if (shadow.SurfaceShadow + shadow.TransmissionShadow > 0)
     {
         gBuffer.Roughness = max(gBuffer.Roughness, lightData.MinRoughness);
