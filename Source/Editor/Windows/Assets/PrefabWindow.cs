@@ -69,6 +69,11 @@ namespace FlaxEditor.Windows.Assets
         public readonly LocalSceneGraph Graph;
 
         /// <summary>
+        /// Indication of if the prefab window selection is locked on specific objects.
+        /// </summary>
+        public bool LockSelectedObjects = false;
+
+        /// <summary>
         /// Gets or sets a value indicating whether use live reloading for the prefab changes (applies prefab changes on modification by auto).
         /// </summary>
         public bool LiveReload
@@ -132,7 +137,7 @@ namespace FlaxEditor.Windows.Assets
                 IsScrollable = false,
                 Offsets = new Margin(0, 0, 0, 18 + 6),
             };
-            _searchBox = new SearchBox()
+            _searchBox = new SearchBox
             {
                 AnchorPreset = AnchorPresets.HorizontalStretchMiddle,
                 Parent = headerPanel,
@@ -140,7 +145,8 @@ namespace FlaxEditor.Windows.Assets
             };
             _searchBox.TextChanged += OnSearchBoxTextChanged;
 
-            _treePanel = new Panel()
+            // Prefab structure tree
+            _treePanel = new Panel
             {
                 AnchorPreset = AnchorPresets.StretchAll,
                 Offsets = new Margin(0.0f, 0.0f, headerPanel.Bottom, 0.0f),
@@ -148,8 +154,6 @@ namespace FlaxEditor.Windows.Assets
                 IsScrollable = true,
                 Parent = sceneTreePanel,
             };
-
-            // Prefab structure tree
             Graph = new LocalSceneGraph(new CustomRootNode(this));
             Graph.Root.TreeNode.Expand(true);
             _tree = new PrefabTree
@@ -316,11 +320,7 @@ namespace FlaxEditor.Windows.Assets
                 return;
 
             // Restore
-            _viewport.Prefab = _asset;
-            Graph.MainActor = _viewport.Instance;
-            Selection.Clear();
-            Select(Graph.Main);
-            Graph.Root.TreeNode.Expand(true);
+            OnPrefabOpened();
             _undo.Clear();
             ClearEditedFlag();
         }
@@ -346,6 +346,16 @@ namespace FlaxEditor.Windows.Assets
             }
         }
 
+        private void OnPrefabOpened()
+        {
+            _viewport.Prefab = _asset;
+            _viewport.UpdateGizmoMode();
+            Graph.MainActor = _viewport.Instance;
+            Selection.Clear();
+            Select(Graph.Main);
+            Graph.Root.TreeNode.Expand(true);
+        }
+
         /// <inheritdoc />
         public override void Save()
         {
@@ -355,7 +365,7 @@ namespace FlaxEditor.Windows.Assets
 
             try
             {
-                Editor.Scene.OnSaveStart(_viewport);
+                Editor.Scene.OnSaveStart(_viewport._uiParentLink);
 
                 // Simply update changes
                 Editor.Prefabs.ApplyAll(_viewport.Instance);
@@ -375,7 +385,7 @@ namespace FlaxEditor.Windows.Assets
             }
             finally
             {
-                Editor.Scene.OnSaveEnd(_viewport);
+                Editor.Scene.OnSaveEnd(_viewport._uiParentLink);
             }
         }
 
@@ -417,13 +427,8 @@ namespace FlaxEditor.Windows.Assets
                 return;
             }
 
-            _viewport.Prefab = _asset;
-            Graph.MainActor = _viewport.Instance;
+            OnPrefabOpened();
             _focusCamera = true;
-            Selection.Clear();
-            Select(Graph.Main);
-            Graph.Root.TreeNode.Expand(true);
-
             _undo.Clear();
             ClearEditedFlag();
 
@@ -468,11 +473,7 @@ namespace FlaxEditor.Windows.Assets
                 _viewport.Prefab = null;
                 if (_asset.IsLoaded)
                 {
-                    _viewport.Prefab = _asset;
-                    Graph.MainActor = _viewport.Instance;
-                    Selection.Clear();
-                    Select(Graph.Main);
-                    Graph.Root.TreeNode.ExpandAll(true);
+                    OnPrefabOpened();
                 }
             }
             finally
@@ -484,7 +485,6 @@ namespace FlaxEditor.Windows.Assets
             if (_focusCamera && _viewport.Task.FrameCount > 1)
             {
                 _focusCamera = false;
-
                 Editor.GetActorEditorSphere(_viewport.Instance, out BoundingSphere bounds);
                 _viewport.ViewPosition = bounds.Center - _viewport.ViewDirection * (bounds.Radius * 1.2f);
             }

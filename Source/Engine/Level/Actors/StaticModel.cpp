@@ -400,13 +400,13 @@ void StaticModel::Draw(RenderContextBatch& renderContextBatch)
 bool StaticModel::IntersectsItself(const Ray& ray, Real& distance, Vector3& normal)
 {
     bool result = false;
-
     if (Model != nullptr && Model->IsLoaded())
     {
         Mesh* mesh;
-        result = Model->Intersects(ray, _transform, distance, normal, &mesh);
+        Matrix world;
+        GetLocalToWorldMatrix(world);
+        result = Model->Intersects(ray, world, distance, normal, &mesh);
     }
-
     return result;
 }
 
@@ -553,13 +553,11 @@ const Span<MaterialSlot> StaticModel::GetMaterialSlots() const
 
 MaterialBase* StaticModel::GetMaterial(int32 entryIndex)
 {
-    if (Model)
-        Model->WaitForLoaded();
-    else
+    if (!Model || Model->WaitForLoaded())
         return nullptr;
     CHECK_RETURN(entryIndex >= 0 && entryIndex < Entries.Count(), nullptr);
     MaterialBase* material = Entries[entryIndex].Material.Get();
-    if (!material)
+    if (!material && entryIndex < Model->MaterialSlots.Count())
     {
         material = Model->MaterialSlots[entryIndex].Material.Get();
         if (!material)

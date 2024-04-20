@@ -130,7 +130,7 @@ namespace Flax.Build
         /// <summary>
         /// The minimum SDK version.
         /// </summary>
-        public static Version MinimumVersion => new Version(7, 0);
+        public static Version MinimumVersion => new Version(8, 0);
 
         /// <summary>
         /// The maximum SDK version.
@@ -243,19 +243,12 @@ namespace Flax.Build
                             dotnetPath = string.Empty;
                     }
                 }
-
-                bool isRunningOnArm64Targetx64 = architecture == TargetArchitecture.ARM64 && (Configuration.BuildArchitectures != null && Configuration.BuildArchitectures[0] == TargetArchitecture.x64);
-
-                // We need to support two paths here: 
-                // 1. We are running an x64 binary and we are running on an arm64 host machine 
-                // 2. We are running an Arm64 binary and we are targeting an x64 host machine
-                if (Flax.Build.Platforms.MacPlatform.GetProcessIsTranslated() || isRunningOnArm64Targetx64)
+                if (Flax.Build.Platforms.MacPlatform.BuildingForx64)
                 {
                     rid = "osx-x64";
                     dotnetPath = Path.Combine(dotnetPath, "x64");
                     architecture = TargetArchitecture.x64;
                 }
-
                 break;
             }
             default: throw new InvalidPlatformException(platform);
@@ -276,8 +269,9 @@ namespace Flax.Build
             dotnetSdkVersions = MergeVersions(dotnetSdkVersions, GetVersions(Path.Combine(dotnetPath, "sdk")));
             dotnetRuntimeVersions = MergeVersions(dotnetRuntimeVersions, GetVersions(Path.Combine(dotnetPath, "shared", "Microsoft.NETCore.App")));
 
-            dotnetSdkVersions = dotnetSdkVersions.Where(x => IsValidVersion(Path.Combine(dotnetPath, "sdk", x)));
-            dotnetRuntimeVersions = dotnetRuntimeVersions.Where(x => IsValidVersion(Path.Combine(dotnetPath, "shared", "Microsoft.NETCore.App", x)));
+            dotnetSdkVersions = dotnetSdkVersions.Where(x => File.Exists(Path.Combine(dotnetPath, "sdk", x, ".version")));
+            dotnetRuntimeVersions = dotnetRuntimeVersions.Where(x => File.Exists(Path.Combine(dotnetPath, "shared", "Microsoft.NETCore.App", x, ".version")));
+            dotnetRuntimeVersions = dotnetRuntimeVersions.Where(x => Directory.Exists(Path.Combine(dotnetPath, "packs", "Microsoft.NETCore.App.Ref", x)));
 
             dotnetSdkVersions = dotnetSdkVersions.OrderByDescending(ParseVersion);
             dotnetRuntimeVersions = dotnetRuntimeVersions.OrderByDescending(ParseVersion);
@@ -472,6 +466,8 @@ namespace Flax.Build
         {
             var versions = GetVersions(root);
             var version = GetVersion(versions);
+            if (version == null)
+                throw new Exception($"Failed to select dotnet version from '{root}' ({string.Join(", ", versions)})");
             return Path.Combine(root, version);
         }
 
@@ -546,11 +542,6 @@ namespace Flax.Build
                     return version;
             }
             return null;
-        }
-
-        private static bool IsValidVersion(string versionPath)
-        {
-            return File.Exists(Path.Combine(versionPath, ".version"));
         }
 
         private static string SearchForDotnetLocationLinux()

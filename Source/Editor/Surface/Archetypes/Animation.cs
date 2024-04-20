@@ -625,7 +625,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Create = (id, context, arch, groupArch) => new MultiBlend1D(id, context, arch, groupArch),
                 Title = "Multi Blend 1D",
                 Description = "Animation blending in 1D",
-                Flags = NodeFlags.AnimGraph,
+                Flags = NodeFlags.AnimGraph | NodeFlags.VariableValuesSize,
                 Size = new Float2(420, 300),
                 DefaultValues = new object[]
                 {
@@ -637,19 +637,6 @@ namespace FlaxEditor.Surface.Archetypes
 
                     // Per blend sample data
                     new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
                 },
                 Elements = new[]
                 {
@@ -662,10 +649,10 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
 
                     // Axis X
-                    NodeElementArchetype.Factory.Input(4, "X", true, typeof(float), 4),
-                    NodeElementArchetype.Factory.Text(30, 4 * Surface.Constants.LayoutOffsetY, "(min:                   max:                   )"),
-                    NodeElementArchetype.Factory.Float(60, 4 * Surface.Constants.LayoutOffsetY, 0, 0),
-                    NodeElementArchetype.Factory.Float(145, 4 * Surface.Constants.LayoutOffsetY, 0, 1),
+                    NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
+                    NodeElementArchetype.Factory.Text(30, 3 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
+                    NodeElementArchetype.Factory.Float(60, 3 * Surface.Constants.LayoutOffsetY + 2, 0, 0),
+                    NodeElementArchetype.Factory.Float(145, 3 * Surface.Constants.LayoutOffsetY + 2, 0, 1),
                 }
             },
             new NodeArchetype
@@ -674,8 +661,8 @@ namespace FlaxEditor.Surface.Archetypes
                 Create = (id, context, arch, groupArch) => new MultiBlend2D(id, context, arch, groupArch),
                 Title = "Multi Blend 2D",
                 Description = "Animation blending in 2D",
-                Flags = NodeFlags.AnimGraph,
-                Size = new Float2(420, 320),
+                Flags = NodeFlags.AnimGraph | NodeFlags.VariableValuesSize,
+                Size = new Float2(420, 620),
                 DefaultValues = new object[]
                 {
                     // Node data
@@ -686,19 +673,6 @@ namespace FlaxEditor.Surface.Archetypes
 
                     // Per blend sample data
                     new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
-                    new Float4(0, 0, 0, 1.0f), Guid.Empty,
                 },
                 Elements = new[]
                 {
@@ -711,16 +685,16 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
 
                     // Axis X
-                    NodeElementArchetype.Factory.Input(4, "X", true, typeof(float), 4),
-                    NodeElementArchetype.Factory.Text(30, 4 * Surface.Constants.LayoutOffsetY, "(min:                   max:                   )"),
-                    NodeElementArchetype.Factory.Float(60, 4 * Surface.Constants.LayoutOffsetY, 0, 0),
-                    NodeElementArchetype.Factory.Float(145, 4 * Surface.Constants.LayoutOffsetY, 0, 1),
+                    NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
+                    NodeElementArchetype.Factory.Text(30, 3 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
+                    NodeElementArchetype.Factory.Float(60, 3 * Surface.Constants.LayoutOffsetY + 2, 0, 0),
+                    NodeElementArchetype.Factory.Float(145, 3 * Surface.Constants.LayoutOffsetY + 2, 0, 1),
 
                     // Axis Y
-                    NodeElementArchetype.Factory.Input(5, "Y", true, typeof(float), 5),
-                    NodeElementArchetype.Factory.Text(30, 5 * Surface.Constants.LayoutOffsetY, "(min:                   max:                   )"),
-                    NodeElementArchetype.Factory.Float(60, 5 * Surface.Constants.LayoutOffsetY, 0, 2),
-                    NodeElementArchetype.Factory.Float(145, 5 * Surface.Constants.LayoutOffsetY, 0, 3),
+                    NodeElementArchetype.Factory.Input(4, "Y", true, typeof(float), 5),
+                    NodeElementArchetype.Factory.Text(30, 4 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
+                    NodeElementArchetype.Factory.Float(60, 4 * Surface.Constants.LayoutOffsetY + 2, 0, 2),
+                    NodeElementArchetype.Factory.Float(145, 4 * Surface.Constants.LayoutOffsetY + 2, 0, 3),
                 }
             },
             new NodeArchetype

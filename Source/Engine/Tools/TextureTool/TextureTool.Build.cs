@@ -21,6 +21,7 @@ public class TextureTool : EngineModule
 
         bool useDirectXTex = false;
         bool useStb = false;
+        bool useExr = options.Target.IsEditor;
 
         switch (options.Platform.Target)
         {
@@ -57,6 +58,16 @@ public class TextureTool : EngineModule
                 options.PrivateDependencies.Add("detex");
                 options.PrivateDependencies.Add("bc7enc16");
             }
+        }
+        if (useExr)
+        {
+            options.PrivateDependencies.Add("tinyexr");
+        }
+        if (options.Target.IsEditor && astc.IsSupported(options))
+        {
+            // ASTC for mobile (iOS and Android)
+            options.SourceFiles.Add(Path.Combine(FolderPath, "TextureTool.astc.cpp"));
+            options.PrivateDependencies.Add("astc");
         }
 
         options.PublicDefinitions.Add("COMPILE_WITH_TEXTURE_TOOL");

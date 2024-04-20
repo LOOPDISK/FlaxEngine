@@ -10,7 +10,6 @@ using FlaxEditor.Viewport.Cameras;
 using FlaxEditor.Viewport.Widgets;
 using FlaxEngine;
 using FlaxEngine.GUI;
-using Newtonsoft.Json;
 using JsonSerializer = FlaxEngine.Json.JsonSerializer;
 
 namespace FlaxEditor.Viewport
@@ -67,6 +66,11 @@ namespace FlaxEditor.Viewport
             public bool IsAltDown;
 
             /// <summary>
+            /// The is alt down flag cached from the previous input. Used to make <see cref="IsControllingMouse"/> consistent when user releases Alt while orbiting with Alt+LMB.
+            /// </summary>
+            public bool WasAltDownBefore;
+
+            /// <summary>
             /// The is mouse right down flag.
             /// </summary>
             public bool IsMouseRightDown;
@@ -89,18 +93,20 @@ namespace FlaxEditor.Viewport
             /// <summary>
             /// Gets a value indicating whether use is controlling mouse.
             /// </summary>
-            public bool IsControllingMouse => IsMouseMiddleDown || IsMouseRightDown || (IsAltDown && IsMouseLeftDown) || Mathf.Abs(MouseWheelDelta) > 0.1f;
+            public bool IsControllingMouse => IsMouseMiddleDown || IsMouseRightDown || ((IsAltDown || WasAltDownBefore) && IsMouseLeftDown) || Mathf.Abs(MouseWheelDelta) > 0.1f;
 
             /// <summary>
             /// Gathers input from the specified window.
             /// </summary>
             /// <param name="window">The window.</param>
             /// <param name="useMouse">True if use mouse input, otherwise will skip mouse.</param>
-            public void Gather(Window window, bool useMouse)
+            /// <param name="prevInput">Previous input state.</param>
+            public void Gather(Window window, bool useMouse, ref Input prevInput)
             {
                 IsControlDown = window.GetKey(KeyboardKeys.Control);
                 IsShiftDown = window.GetKey(KeyboardKeys.Shift);
                 IsAltDown = window.GetKey(KeyboardKeys.Alt);
+                WasAltDownBefore = prevInput.WasAltDownBefore || prevInput.IsAltDown;
 
                 IsMouseRightDown = useMouse && window.GetMouseButton(MouseButton.Right);
                 IsMouseMiddleDown = useMouse && window.GetMouseButton(MouseButton.Middle);
@@ -115,6 +121,7 @@ namespace FlaxEditor.Viewport
                 IsControlDown = false;
                 IsShiftDown = false;
                 IsAltDown = false;
+                WasAltDownBefore = false;
 
                 IsMouseRightDown = false;
                 IsMouseMiddleDown = false;
@@ -154,6 +161,7 @@ namespace FlaxEditor.Viewport
 
         // Input
 
+        internal bool _disableInputUpdate;
         private bool _isControllingMouse, _isViewportControllingMouse, _wasVirtualMouseRightDown, _isVirtualMouseRightDown;
         private int _deltaFilteringStep;
         private Float2 _startPos;
@@ -704,9 +712,9 @@ namespace FlaxEditor.Viewport
                 // Camera Viewpoints
                 {
                     var cameraView = cameraCM.AddChildMenu("Viewpoints").ContextMenu;
-                    for (int i = 0; i < EditorViewportCameraViewpointValues.Length; i++)
+                    for (int i = 0; i < CameraViewpointValues.Length; i++)
                     {
-                        var co = EditorViewportCameraViewpointValues[i];
+                        var co = CameraViewpointValues[i];
                         var button = cameraView.AddButton(co.Name);
                         button.Tag = co.Orientation;
                     }
@@ -899,9 +907,9 @@ namespace FlaxEditor.Viewport
                     viewFlags.AddButton("Reset flags", () => Task.ViewFlags = ViewFlags.DefaultEditor).Icon = Editor.Instance.Icons.Rotate32;
                     viewFlags.AddButton("Disable flags", () => Task.ViewFlags = ViewFlags.None).Icon = Editor.Instance.Icons.Rotate32;
                     viewFlags.AddSeparator();
-                    for (int i = 0; i < EditorViewportViewFlagsValues.Length; i++)
+                    for (int i = 0; i < ViewFlagsValues.Length; i++)
                     {
-                        var v = EditorViewportViewFlagsValues[i];
+                        var v = ViewFlagsValues[i];
                         var button = viewFlags.AddButton(v.Name);
                         button.CloseMenuOnClick = false;
                         button.Tag = v.Mode;
@@ -933,9 +941,9 @@ namespace FlaxEditor.Viewport
                         }
                     });
                     debugView.AddSeparator();
-                    for (int i = 0; i < EditorViewportViewModeValues.Length; i++)
+                    for (int i = 0; i < ViewModeValues.Length; i++)
                     {
-                        ref var v = ref EditorViewportViewModeValues[i];
+                        ref var v = ref ViewModeValues[i];
                         if (v.Options != null)
                         {
                             var childMenu = debugView.AddChildMenu(v.Name).ContextMenu;
@@ -989,15 +997,16 @@ namespace FlaxEditor.Viewport
                 #endregion View mode widget
             }
 
-            InputActions.Add(options => options.ViewpointTop, () => OrientViewport(Quaternion.Euler(EditorViewportCameraViewpointValues.First(vp => vp.Name == "Top").Orientation)));
-            InputActions.Add(options => options.ViewpointBottom, () => OrientViewport(Quaternion.Euler(EditorViewportCameraViewpointValues.First(vp => vp.Name == "Bottom").Orientation)));
-            InputActions.Add(options => options.ViewpointFront, () => OrientViewport(Quaternion.Euler(EditorViewportCameraViewpointValues.First(vp => vp.Name == "Front").Orientation)));
-            InputActions.Add(options => options.ViewpointBack, () => OrientViewport(Quaternion.Euler(EditorViewportCameraViewpointValues.First(vp => vp.Name == "Back").Orientation)));
-            InputActions.Add(options => options.ViewpointRight, () => OrientViewport(Quaternion.Euler(EditorViewportCameraViewpointValues.First(vp => vp.Name == "Right").Orientation)));
-            InputActions.Add(options => options.ViewpointLeft, () => OrientViewport(Quaternion.Euler(EditorViewportCameraViewpointValues.First(vp => vp.Name == "Left").Orientation)));
+            InputActions.Add(options => options.ViewpointTop, () => OrientViewport(Quaternion.Euler(CameraViewpointValues.First(vp => vp.Name == "Top").Orientation)));
+            InputActions.Add(options => options.ViewpointBottom, () => OrientViewport(Quaternion.Euler(CameraViewpointValues.First(vp => vp.Name == "Bottom").Orientation)));
+            InputActions.Add(options => options.ViewpointFront, () => OrientViewport(Quaternion.Euler(CameraViewpointValues.First(vp => vp.Name == "Front").Orientation)));
+            InputActions.Add(options => options.ViewpointBack, () => OrientViewport(Quaternion.Euler(CameraViewpointValues.First(vp => vp.Name == "Back").Orientation)));
+            InputActions.Add(options => options.ViewpointRight, () => OrientViewport(Quaternion.Euler(CameraViewpointValues.First(vp => vp.Name == "Right").Orientation)));
+            InputActions.Add(options => options.ViewpointLeft, () => OrientViewport(Quaternion.Euler(CameraViewpointValues.First(vp => vp.Name == "Left").Orientation)));
             InputActions.Add(options => options.CameraToggleRotation, () => _isVirtualMouseRightDown = !_isVirtualMouseRightDown);
             InputActions.Add(options => options.CameraIncreaseMoveSpeed, () => AdjustCameraMoveSpeed(1));
             InputActions.Add(options => options.CameraDecreaseMoveSpeed, () => AdjustCameraMoveSpeed(-1));
+            InputActions.Add(options => options.ToggleOrthographic, () => OnOrthographicModeToggled(null));
 
             // Link for task event
             task.Begin += OnRenderBegin;
@@ -1496,6 +1505,9 @@ namespace FlaxEditor.Viewport
         {
             base.Update(deltaTime);
 
+            if (_disableInputUpdate)
+                return;
+
             // Update camera
             bool useMovementSpeed = false;
             if (_camera != null)
@@ -1534,9 +1546,9 @@ namespace FlaxEditor.Viewport
                 }
                 bool useMouse = IsControllingMouse || (Mathf.IsInRange(_viewMousePos.X, 0, Width) && Mathf.IsInRange(_viewMousePos.Y, 0, Height));
                 _prevInput = _input;
-                var hit = GetChildAt(_viewMousePos, c => c.Visible && !(c is CanvasRootControl));
+                var hit = GetChildAt(_viewMousePos, c => c.Visible && !(c is CanvasRootControl) && !(c is UIEditorRoot));
                 if (canUseInput && ContainsFocus && hit == null)
-                    _input.Gather(win.Window, useMouse);
+                    _input.Gather(win.Window, useMouse, ref _prevInput);
                 else
                     _input.Clear();
 
@@ -1659,8 +1671,7 @@ namespace FlaxEditor.Viewport
                 {
                     offset.X = offset.X > 0 ? Mathf.Floor(offset.X) : Mathf.Ceil(offset.X);
                     offset.Y = offset.Y > 0 ? Mathf.Floor(offset.Y) : Mathf.Ceil(offset.Y);
-                    _mouseDelta = offset / size;
-                    _mouseDelta.Y *= size.Y / size.X;
+                    _mouseDelta = offset;
 
                     // Update delta filtering buffer
                     _deltaFilteringBuffer[_deltaFilteringStep] = _mouseDelta;
@@ -1678,8 +1689,7 @@ namespace FlaxEditor.Viewport
                 }
                 else
                 {
-                    _mouseDelta = offset / size;
-                    _mouseDelta.Y *= size.Y / size.X;
+                    _mouseDelta = offset;
                     mouseDelta = _mouseDelta;
                 }
 
@@ -1693,7 +1703,7 @@ namespace FlaxEditor.Viewport
 
                 // Update
                 moveDelta *= dt * (60.0f * 4.0f);
-                mouseDelta *= 200.0f * MouseSpeed * _mouseSensitivity;
+                mouseDelta *= 0.1833f * MouseSpeed * _mouseSensitivity;
                 UpdateView(dt, ref moveDelta, ref mouseDelta, out var centerMouse);
 
                 // Move mouse back to the root position
@@ -1719,7 +1729,7 @@ namespace FlaxEditor.Viewport
                     var offset = _viewMousePos - _startPos;
                     offset.X = offset.X > 0 ? Mathf.Floor(offset.X) : Mathf.Ceil(offset.X);
                     offset.Y = offset.Y > 0 ? Mathf.Floor(offset.Y) : Mathf.Ceil(offset.Y);
-                    _mouseDelta = offset / size;
+                    _mouseDelta = offset;
                     _startPos = _viewMousePos;
                 }
                 else
@@ -1867,7 +1877,7 @@ namespace FlaxEditor.Viewport
             }
         }
 
-        private readonly CameraViewpoint[] EditorViewportCameraViewpointValues =
+        private readonly CameraViewpoint[] CameraViewpointValues =
         {
             new CameraViewpoint("Front", new Float3(0, 180, 0)),
             new CameraViewpoint("Back", new Float3(0, 0, 0)),
@@ -1898,7 +1908,7 @@ namespace FlaxEditor.Viewport
             }
         }
 
-        private static readonly ViewModeOptions[] EditorViewportViewModeValues =
+        private static readonly ViewModeOptions[] ViewModeValues =
         {
             new ViewModeOptions(ViewMode.Default, "Default"),
             new ViewModeOptions(ViewMode.Unlit, "Unlit"),
@@ -1970,7 +1980,7 @@ namespace FlaxEditor.Viewport
             }
         }
 
-        private static readonly ViewFlagOptions[] EditorViewportViewFlagsValues =
+        private static readonly ViewFlagOptions[] ViewFlagsValues =
         {
             new ViewFlagOptions(ViewFlags.AntiAliasing, "Anti Aliasing"),
             new ViewFlagOptions(ViewFlags.Shadows, "Shadows"),
@@ -2005,16 +2015,13 @@ namespace FlaxEditor.Viewport
         {
             if (cm.Visible == false)
                 return;
-
             var ccm = (ContextMenu)cm;
             foreach (var e in ccm.Items)
             {
                 if (e is ContextMenuButton b && b.Tag != null)
                 {
                     var v = (ViewFlags)b.Tag;
-                    b.Icon = (Task.View.Flags & v) != 0
-                             ? Style.Current.CheckBoxTick
-                             : SpriteHandle.Invalid;
+                    b.Icon = (Task.View.Flags & v) != 0 ? Style.Current.CheckBoxTick : SpriteHandle.Invalid;
                 }
             }
         }
@@ -2023,7 +2030,6 @@ namespace FlaxEditor.Viewport
         {
             if (cm.Visible == false)
                 return;
-
             var ccm = (ContextMenu)cm;
             var layersMask = Task.ViewLayersMask;
             foreach (var e in ccm.Items)
