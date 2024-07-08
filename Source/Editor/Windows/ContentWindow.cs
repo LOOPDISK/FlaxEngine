@@ -741,7 +741,8 @@ namespace FlaxEditor.Windows
         /// Pastes the specified files.
         /// </summary>
         /// <param name="files">The files paths to import.</param>
-        public void Paste(string[] files)
+        /// <param name="isCutting">Whether a cutting action is occuring.</param>
+        public void Paste(string[] files, bool isCutting)
         {
             var importFiles = new List<string>();
             foreach (var sourcePath in files)
@@ -752,7 +753,10 @@ namespace FlaxEditor.Windows
                     var newPath = StringUtils.NormalizePath(Path.Combine(CurrentViewFolder.Path, item.FileName));
                     if (sourcePath.Equals(newPath))
                         newPath = GetClonedAssetPath(item);
-                    Editor.ContentDatabase.Copy(item, newPath);
+                    if (isCutting)
+                        Editor.ContentDatabase.Move(item, newPath);
+                    else
+                        Editor.ContentDatabase.Copy(item, newPath);
                 }
                 else
                     importFiles.Add(sourcePath);
@@ -1068,7 +1072,7 @@ namespace FlaxEditor.Windows
             PerformLayout();
 
             // Load last viewed folder
-            if (Editor.ProjectCache.TryGetCustomData(ProjectDataLastViewedFolder, out var lastViewedFolder))
+            if (Editor.ProjectCache.TryGetCustomData(ProjectDataLastViewedFolder, out string lastViewedFolder))
             {
                 if (Editor.ContentDatabase.Find(lastViewedFolder) is ContentFolder folder)
                     _tree.Select(folder.Node);

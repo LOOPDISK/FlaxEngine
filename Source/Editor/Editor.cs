@@ -330,7 +330,7 @@ namespace FlaxEditor
                 }
                 case GeneralOptions.StartupSceneModes.LastOpened:
                 {
-                    if (ProjectCache.TryGetCustomData(ProjectDataLastScene, out var lastSceneIdName))
+                    if (ProjectCache.TryGetCustomData(ProjectDataLastScene, out string lastSceneIdName))
                     {
                         var lastScenes = JsonSerializer.Deserialize<Guid[]>(lastSceneIdName);
                         foreach (var scene in lastScenes)
@@ -442,7 +442,7 @@ namespace FlaxEditor
                 }
                 case GeneralOptions.StartupSceneModes.LastOpened:
                 {
-                    if (ProjectCache.TryGetCustomData(ProjectDataLastScene, out var lastSceneIdName))
+                    if (ProjectCache.TryGetCustomData(ProjectDataLastScene, out string lastSceneIdName))
                     {
                         var lastScenes = JsonSerializer.Deserialize<Guid[]>(lastSceneIdName);
                         foreach (var sceneId in lastScenes)
@@ -459,7 +459,7 @@ namespace FlaxEditor
                         }
 
                         // Restore view
-                        if (ProjectCache.TryGetCustomData(ProjectDataLastSceneSpawn, out var lastSceneSpawnName))
+                        if (ProjectCache.TryGetCustomData(ProjectDataLastSceneSpawn, out string lastSceneSpawnName))
                             Windows.EditWin.Viewport.ViewRay = JsonSerializer.Deserialize<Ray>(lastSceneSpawnName);
                     }
                     break;
@@ -1364,6 +1364,7 @@ namespace FlaxEditor
             public byte AutoReloadScriptsOnMainWindowFocus;
             public byte ForceScriptCompilationOnStartup;
             public byte UseAssetImportPathRelative;
+            public byte EnableParticlesPreview;
             public byte AutoRebuildCSG;
             public float AutoRebuildCSGTimeoutMs;
             public byte AutoRebuildNavMesh;

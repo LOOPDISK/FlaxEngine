@@ -586,8 +586,17 @@ namespace FlaxEngine.Interop
         internal static ManagedHandle GetArrayTypeFromElementType(ManagedHandle elementTypeHandle)
         {
             Type elementType = Unsafe.As<TypeHolder>(elementTypeHandle.Target);
-            Type classType = ArrayFactory.GetArrayType(elementType);
-            return GetTypeManagedHandle(classType);
+            Type arrayType = ArrayFactory.GetArrayType(elementType);
+            return GetTypeManagedHandle(arrayType);
+        }
+
+        [UnmanagedCallersOnly]
+        internal static ManagedHandle GetArrayTypeFromWrappedArray(ManagedHandle arrayHandle)
+        {
+            ManagedArray managedArray = Unsafe.As<ManagedArray>(arrayHandle.Target);
+            Type elementType = managedArray.ArrayType.GetElementType();
+            Type arrayType = ArrayFactory.GetArrayType(elementType);
+            return GetTypeManagedHandle(arrayType);
         }
 
         [UnmanagedCallersOnly]
@@ -1010,9 +1019,6 @@ namespace FlaxEngine.Interop
         {
 #if FLAX_EDITOR
             // Clear all caches which might hold references to assemblies in collectible ALC
-            typeCache.Clear();
-
-            // Release all references in collectible ALC
             cachedDelegatesCollectible.Clear();
             foreach (var pair in managedTypesCollectible)
                 pair.Value.handle.Free();
