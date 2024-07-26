@@ -16,7 +16,7 @@
 const Char* SplashScreenQuotes[] =
 {
 
-    TEXT(""),
+    TEXT("Derelict version"),
     // TEXT("Loading"),
 //     TEXT("Unloading"),
 //     TEXT("Reloading"),
