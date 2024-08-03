@@ -514,6 +514,9 @@ namespace FlaxEditor.Windows
                         var diff = entry.Time - _startupTime;
                         _textBuffer.AppendFormat("[ {0:00}:{1:00}:{2:00}.{3:000} ]: ", diff.Hours, diff.Minutes, diff.Seconds, diff.Milliseconds);
                         break;
+                    case InterfaceOptions.TimestampsFormats.LocalTimeCompact:
+                        _textBuffer.AppendFormat("[ {0:00}:{1:00}:{2:00}.{3:000} ]: ", entry.Time.Hour, entry.Time.Minute, entry.Time.Second, entry.Time.Millisecond);
+                        break;
                     }
                     if (_showLogType)
                     {

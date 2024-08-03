@@ -26,7 +26,7 @@ public:
     /// <summary>
     /// The ClientId of the network client that is a data sender. Can be used to detect who send the incoming RPC or replication data. Set to the current client when writing data.
     /// </summary>
-    API_FIELD(ReadOnly) uint32 SenderId = 0;
+    API_FIELD() uint32 SenderId = 0;
 
     /// <summary>
     /// Gets the pointer to the native stream memory buffer.
@@ -82,8 +82,8 @@ public:
     void Flush() override;
     void Close() override;
     uint32 GetLength() override;
-    uint32 GetPosition() override;
-    void SetPosition(uint32 seek) override;
+    API_PROPERTY() uint32 GetPosition() override;
+    API_PROPERTY() void SetPosition(uint32 seek) override;
 
     // [ReadStream]
     void ReadBytes(void* data, uint32 bytes) override;

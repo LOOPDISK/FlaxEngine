@@ -22,6 +22,20 @@ namespace FlaxEngine.Networking
         }
 
         /// <summary>
+        /// Writes raw bytes into the message.
+        /// </summary>
+        /// <param name="start">Offset the source array by these many bytes.</param>
+        /// <param name="bytes">The bytes that will be written.</param>
+        /// <param name="length">The amount of bytes to write from the bytes pointer.</param>
+        public void WriteBytes(byte* bytes, int start, int length)
+        {
+            Assert.IsTrue(Position + length <= BufferSize, $"Could not write data of length {length} into message with id={MessageId}! Current write position={Position}");
+            Utils.MemoryCopy(new IntPtr(Buffer + Position), new IntPtr(bytes + start), (ulong)length);
+            Position += (uint)length;
+            Length = Position;
+        }
+
+        /// <summary>
         /// Reads raw bytes from the message into the given byte array.
         /// </summary>
         /// <param name="buffer">
