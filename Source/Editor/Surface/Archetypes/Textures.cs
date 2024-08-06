@@ -463,7 +463,7 @@ namespace FlaxEditor.Surface.Archetypes
             {
                 TypeID = 19,
                 Title = "Local Triplanar Normal Map",
-                Description = "Projects a normal map using local-space coordinates.",
+                Description = "Projects a Normal Map using local-space coordinates.",
                 Flags = NodeFlags.MaterialGraph,
                 Size = new Float2(280, 120),  // Increased size to accommodate new inputs
                 DefaultValues = new object[]
@@ -473,7 +473,7 @@ namespace FlaxEditor.Surface.Archetypes
                 },
                 Elements = new[]
                 {
-                    NodeElementArchetype.Factory.Input(0, "Normal Map", true, typeof(FlaxEngine.Object), 0),
+                    NodeElementArchetype.Factory.Input(0, "Texture", true, typeof(FlaxEngine.Object), 0),
                     NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float3), 1, 0),
                     NodeElementArchetype.Factory.Input(2, "Blend", true, typeof(float), 2, 1),
 
