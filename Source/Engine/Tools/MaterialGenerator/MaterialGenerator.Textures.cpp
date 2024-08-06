@@ -622,11 +622,11 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                 "   {3} = tex1 + tex2 + tex3;\n"
                 "   }}\n"
             ),
-                                                   uvs.Value, // {0}
-                                                   texture.Value, // {1}
-                                                   samplerName, // {2}
-                                                   textureBox->Cache.Value, // {3}
-                                                   offset.Value // {4}
+            uvs.Value, // {0}
+            texture.Value, // {1}
+            samplerName, // {2}
+            textureBox->Cache.Value, // {3}
+            offset.Value // {4}
             );
 
             _writer.Write(*proceduralSample);
@@ -686,6 +686,8 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         value = box == gradientBox ? gradient : distance;
         break;
     }
+
+
     // World Triplanar Texture
     case 16:
     {
@@ -726,13 +728,144 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             "   {3} += {0}.Sample(SamplerLinearWrap, worldPos.xy) * normal.z;\n"
             "	}}\n"
         ),
-                                                       texture.Value, //  {0}
-                                                       scale.Value, //  {1}
-                                                       blend.Value, //  {2}
-                                                       result.Value //  {3}
+        texture.Value, //  {0}
+        scale.Value, //  {1}
+        blend.Value, //  {2}
+        result.Value //  {3}
         );
 
         _writer.Write(*triplanarTexture);
+        value = result;
+    }
+    // Local Space Triplanar Texture
+    case 18:
+    {
+        // Get input boxes
+        auto textureBox = node->GetBox(0);
+        auto scaleBox = node->GetBox(1);
+        auto blendBox = node->GetBox(2);
+
+        if (!textureBox->HasConnection())
+        {
+            value = Value::Zero;
+            break;
+        }
+
+        const auto texture = eatBox(textureBox->GetParent<Node>(), textureBox->FirstConnection());
+        const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat3();
+        const auto blend = tryGetValue(blendBox, node->Values[1]).AsFloat();
+
+        auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
+
+        const String triplanarTexture = String::Format(TEXT(
+            "    {{\n"
+            "    // Get local space position\n"
+
+            "    float3 localPos = input.WorldPosition - GetObjectPosition(input);\n"
+
+            "    float3 localScale = GetObjectScale(input);\n"
+            "    localPos = TransformWorldVectorToLocal(input, localPos);\n"
+
+            "    \n"
+            "    // Apply the scale parameter in local space\n"
+            "    localPos *= {1};\n"
+            "    localPos /= localScale;\n"
+            "    \n"
+            "    // Get local normal\n"
+            "    float3 localNormal = TransformWorldVectorToLocal(input, input.TBN[2]);\n"
+            "    \n"
+            "    // Sample texture for each plane\n"
+            "    float3 xColor = {0}.Sample(SamplerLinearWrap, localPos.yz).rgb;\n"
+            "    float3 yColor = {0}.Sample(SamplerLinearWrap, localPos.xz).rgb;\n"
+            "    float3 zColor = {0}.Sample(SamplerLinearWrap, localPos.xy).rgb;\n"
+            "    \n"
+            "    // Compute blending factors\n"
+            "    float3 blendWeights = pow(abs(localNormal), {2});\n"
+            "    blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);\n"
+            "    \n"
+            "    // Blend samples\n"
+            "    float3 color = xColor * blendWeights.x + yColor * blendWeights.y + zColor * blendWeights.z;\n"
+            "    \n"
+            "    // Output the blended color\n"
+            "    {3} = color;\n"
+            "    }}\n"
+        ),
+            texture.Value,    // {0}
+            scale.Value,      // {1}
+            blend.Value,      // {2}
+            result.Value      // {3}
+        );
+
+        _writer.Write(*triplanarTexture);
+        value = result;
+    }
+    // Local Space Triplanar Normal Mapping with Flax Decoding
+    case 19:
+    {
+        // Get input boxes
+        auto normalMapBox = node->GetBox(0);
+        auto scaleBox = node->GetBox(1);
+        auto blendBox = node->GetBox(2);
+        if (!normalMapBox->HasConnection())
+        {
+            value = Value::Zero;
+            break;
+        }
+        const auto normalMap = eatBox(normalMapBox->GetParent<Node>(), normalMapBox->FirstConnection());
+        const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat3();
+        const auto blend = tryGetValue(blendBox, node->Values[1]).AsFloat();
+        auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
+
+        const String triplanarNormal = String::Format(TEXT(
+            "    {{\n"
+            "    // Get local space position\n"
+            "    float3 localPos = input.WorldPosition - GetObjectPosition(input);\n"
+            "    float3 localScale = GetObjectScale(input);\n"
+            "    localPos = TransformWorldVectorToLocal(input, localPos);\n"
+            "    \n"
+            "    // Apply the scale parameter in local space\n"
+            "    localPos *= {1};\n"
+            "    localPos /= localScale;\n"
+            "    \n"
+            "    // Get world normal\n"
+            "    float3 worldNormal = input.TBN[2];\n"
+            "    \n"
+            "    // Sample and decode normal map for each plane\n"
+            "    float3 tnormalX = {0}.Sample(SamplerLinearWrap, localPos.zy).xyz * 2.0 - 1.0;\n"
+            "    float3 tnormalY = {0}.Sample(SamplerLinearWrap, localPos.xz).xyz * 2.0 - 1.0;\n"
+            "    float3 tnormalZ = {0}.Sample(SamplerLinearWrap, localPos.xy).xyz * 2.0 - 1.0;\n"
+            "    \n"
+            "    // Apply Whiteout blend\n"
+            "    tnormalX = float3(tnormalX.xy + worldNormal.zy, tnormalX.z * worldNormal.x);\n"
+            "    tnormalY = float3(tnormalY.xy + worldNormal.xz, tnormalY.z * worldNormal.y);\n"
+            "    tnormalZ = float3(tnormalZ.xy + worldNormal.xy, tnormalZ.z * worldNormal.z);\n"
+            "    \n"
+            "    // Compute blending factors\n"
+            "    float3 blendWeights = pow(abs(worldNormal), {2});\n"
+            "    blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);\n"
+            "    \n"
+            "    // Blend normal samples\n"
+            "    float3 blendedNormal = normalize(\n"
+            "        tnormalX.zyx * blendWeights.x +\n"
+            "        tnormalY.xzy * blendWeights.y +\n"
+            "        tnormalZ.xyz * blendWeights.z\n"
+            "    );\n"
+            "    \n"
+            "    // Transform blended normal to tangent space\n"
+            "    float3x3 worldToTangent = transpose(float3x3(input.TBN[0], input.TBN[1], input.TBN[2]));\n"
+            "    float3 tangentNormal = mul(worldToTangent, blendedNormal);\n"
+            "    \n"
+            "    // Output the tangent space normal\n"
+            "    {3} = tangentNormal * 0.5 + 0.5;\n"
+            "    }}\n"
+        ),
+            normalMap.Value,  // {0}
+            scale.Value,      // {1}
+            blend.Value,      // {2}
+            result.Value      // {3}
+        );
+        
+        _writer.Write(*triplanarNormal);
         value = result;
     }
     default:
