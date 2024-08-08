@@ -458,12 +458,13 @@ namespace FlaxEditor.Surface.Archetypes
 
                     NodeElementArchetype.Factory.Output(0, "Color", typeof(Float3), 5)
                 }
-            },
+            }
+            ,
             new NodeArchetype
             {
                 TypeID = 19,
-                Title = "Local Triplanar Normal Map",
-                Description = "Projects a Normal Map using local-space coordinates.",
+                Title = "Object Triplanar Normal Map",
+                Description = " Normal Map using local-space coordinates. using triplanar",
                 Flags = NodeFlags.MaterialGraph,
                 Size = new Float2(280, 120),  // Increased size to accommodate new inputs
                 DefaultValues = new object[]
@@ -478,6 +479,23 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Blend", true, typeof(float), 2, 1),
 
                     NodeElementArchetype.Factory.Output(0, "Vector", typeof(Float3), 5)
+                }
+            },
+            new NodeArchetype
+            {
+                TypeID = 20,
+                Title = "OLD Mesh Curvature",
+                Description = "Calculates surface curvature based on local-space smooth mesh normals. Output: 0.5 = flat, >0.5 = convex, <0.5 = concave",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(200, 60),
+                DefaultValues = new object[]
+                {
+                    1.0f, // Default strength
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Input(0, "Strength", true, typeof(float), 0),
+                    NodeElementArchetype.Factory.Output(0, "Curvature", typeof(float), 1),
                 }
             }
         };
