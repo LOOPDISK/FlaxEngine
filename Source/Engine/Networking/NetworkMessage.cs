@@ -51,6 +51,22 @@ namespace FlaxEngine.Networking
         }
 
         /// <summary>
+        /// Reads raw bytes from the message into the given byte array.
+        /// </summary>
+        /// <param name="buffer">
+        /// The buffer pointer that will be used to store the bytes.
+        /// Should be of the same length as length or longer.
+        /// </param>
+        /// <param name="start">The starting position of where to write into the destination array.</param>
+        /// <param name="length">The minimal amount of bytes that the buffer contains.</param>
+        public void ReadBytes(byte* buffer, int start, int length)
+        {
+            Assert.IsTrue(Position + length <= Length, $"Could not read data of length {length} from message with id={MessageId} and size of {Length}B! Current read position={Position}");
+            Utils.MemoryCopy(new IntPtr(buffer + start), new IntPtr(Buffer + Position), (ulong)length);
+            Position += (uint)length;
+        }
+
+        /// <summary>
         /// Writes raw bytes into the message.
         /// </summary>
         /// <param name="bytes">The bytes that will be written.</param>
@@ -76,6 +92,23 @@ namespace FlaxEngine.Networking
             fixed (byte* bufferPtr = buffer)
             {
                 ReadBytes(bufferPtr, length);
+            }
+        }
+
+        /// <summary>
+        /// Reads raw bytes from the message into the given byte array.
+        /// </summary>
+        /// <param name="buffer">
+        /// The buffer that will be used to store the bytes.
+        /// Should be of the same length as length or longer.
+        /// </param>
+        /// <param name="start">The starting position of where to write into the destination array.</param>
+        /// <param name="length">The minimal amount of bytes that the buffer contains.</param>
+        public void ReadBytes(byte[] buffer, int start, int length)
+        {
+            fixed (byte* bufferPtr = buffer)
+            {
+                ReadBytes(bufferPtr, start, length);
             }
         }
 
