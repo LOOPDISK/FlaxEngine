@@ -745,6 +745,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         auto textureBox = node->GetBox(0);
         auto scaleBox = node->GetBox(1);
         auto blendBox = node->GetBox(2);
+        auto offsetBox = node->GetBox(3); // New input box for offset
 
         if (!textureBox->HasConnection())
         {
@@ -755,6 +756,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         const auto texture = eatBox(textureBox->GetParent<Node>(), textureBox->FirstConnection());
         const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat3();
         const auto blend = tryGetValue(blendBox, node->Values[1]).AsFloat();
+        const auto offset = tryGetValue(offsetBox, node->Values[2]).AsFloat3(); // New offset value
 
         auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
 
@@ -769,7 +771,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 
             "    \n"
             "    // Apply the scale parameter in local space\n"
-            "    localPos *= {1} * 0.001f;\n"
+            "    localPos = localPos * {1} * 0.001f + {4};\n"
             "    localPos /= localScale;\n"
             "    \n"
             "    // Get local normal\n"
@@ -794,7 +796,8 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             texture.Value,    // {0}
             scale.Value,      // {1}
             blend.Value,      // {2}
-            result.Value      // {3}
+            result.Value,      // {3}
+            offset.Value      // {4} - New offset parameter
         );
 
         _writer.Write(*triplanarTexture);
@@ -808,6 +811,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         auto textureBox = node->GetBox(0);
         auto scaleBox = node->GetBox(1);
         auto blendBox = node->GetBox(2);
+        auto offsetBox = node->GetBox(3); // New input box for offset
         if (!textureBox->HasConnection())
         {
             // No texture to sample
@@ -823,6 +827,8 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         const auto texture = eatBox(textureBox->GetParent<Node>(), textureBox->FirstConnection());
         const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat3();
         const auto blend = tryGetValue(blendBox, node->Values[1]).AsFloat();
+        const auto offset = tryGetValue(offsetBox, node->Values[2]).AsFloat3(); // New offset value
+
         auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
 
         const String triplanarNormalMap = String::Format(TEXT(
@@ -833,7 +839,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             "   localPos = TransformWorldVectorToLocal(input, localPos);\n"
             "\n"
             "   // Apply the scale parameter in local space\n"
-            "   localPos *= {1} * 0.001f;\n"
+            "    localPos = localPos * {1} * 0.001f + {4};\n"
             "   localPos /= localScale;\n"
             "\n"
             "   // Get local normal\n"
@@ -881,7 +887,8 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             texture.Value, //  {0}
             scale.Value,   //  {1}
             blend.Value,   //  {2}
-            result.Value   //  {3}
+            result.Value,   //  {3}
+            offset.Value      // {4} - New offset parameter
         );
 
         _writer.Write(*triplanarNormalMap);

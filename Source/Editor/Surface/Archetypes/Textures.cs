@@ -442,20 +442,21 @@ namespace FlaxEditor.Surface.Archetypes
             {
                 TypeID = 18,
                 Title = "Local Triplanar Texture",
-                Description = "Projects a texture using local-space coordinates.",
+                Description = "Projects a texture using local-space coordinates with offset.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 120),  // Increased size to accommodate new inputs
+                Size = new Float2(280, 140),  // Increased size to accommodate new input
                 DefaultValues = new object[]
                 {
                     1.0f,
-                    1.0f
+                    1.0f,
+                    new Float3(0, 0, 0)  // Default offset
                 },
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Input(0, "Texture", true, typeof(FlaxEngine.Object), 0),
                     NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float3), 1, 0),
                     NodeElementArchetype.Factory.Input(2, "Blend", true, typeof(float), 2, 1),
-
+                    NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float3), 3, 2),  // New input for offset
                     NodeElementArchetype.Factory.Output(0, "Color", typeof(Float3), 5)
                 }
             }
@@ -470,14 +471,15 @@ namespace FlaxEditor.Surface.Archetypes
                 DefaultValues = new object[]
                 {
                     1.0f,
-                    1.0f
+                    1.0f,
+                    new Float3(0, 0, 0)  // Default offset
                 },
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Input(0, "Texture", true, typeof(FlaxEngine.Object), 0),
                     NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float3), 1, 0),
                     NodeElementArchetype.Factory.Input(2, "Blend", true, typeof(float), 2, 1),
-
+                    NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float3), 3, 2),
                     NodeElementArchetype.Factory.Output(0, "Vector", typeof(Float3), 5)
                 }
             },
