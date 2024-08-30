@@ -669,6 +669,43 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         value = writeLocal(ValueType::Float3, String::Format(TEXT("float3({0}, {1}, {2})"), innerMask.Value, outerMask.Value, mask.Value), node);
         break;
     }
+    // Mesh Curvature (Vertex Shader Approximation)
+    case 50:
+    {
+        if (_treeType == MaterialTreeType::VertexShader)
+        {
+            // Get pre-skinned position and normal
+            const auto position = Value(VariantType::Float3, TEXT("input.PreSkinnedPosition"));
+            const auto normal = Value(VariantType::Float3, TEXT("normalize(input.PreSkinnedNormal)"));
+
+            // Calculate partial derivatives of the position
+            auto dpdx = writeLocal(ValueType::Float3, String::Format(TEXT("ddx({0})"), position.Value), node);
+            auto dpdy = writeLocal(ValueType::Float3, String::Format(TEXT("ddy({0})"), position.Value), node);
+
+            // Calculate partial derivatives of the normal
+            auto dndx = writeLocal(ValueType::Float3, String::Format(TEXT("ddx({0})"), normal.Value), node);
+            auto dndy = writeLocal(ValueType::Float3, String::Format(TEXT("ddy({0})"), normal.Value), node);
+
+            // Calculate an approximation of curvature
+            auto curvatureX = writeLocal(ValueType::Float, String::Format(TEXT("length({0})"), dndx.Value), node);
+            auto curvatureY = writeLocal(ValueType::Float, String::Format(TEXT("length({1})"), dndy.Value), node);
+
+            // Combine curvatures
+            auto curvature = writeLocal(ValueType::Float, String::Format(TEXT("{0} + {1}"), curvatureX.Value, curvatureY.Value), node);
+
+            // Apply strength and remap to 0-1 range
+            const auto strength = tryGetValue(node->GetBox(0), node->Values[0]).AsFloat();
+            auto remappedCurvature = writeLocal(ValueType::Float, String::Format(TEXT("saturate({0} * {1} * 100.0)"), curvature.Value, strength.Value), node);
+
+            value = remappedCurvature;
+        }
+        else
+        {
+            // For other shader types, including pixel shader, output zero
+            value = Value::Zero;
+        }
+        break;
+    }
     default:
         break;
     }

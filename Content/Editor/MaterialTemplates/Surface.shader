@@ -237,6 +237,21 @@ float3 GetObjectPosition(MaterialInput input)
 	return input.InstanceOrigin.xyz;
 }
 
+// Gets the current object scale (supports instancing)
+float3 GetObjectScale(MaterialInput input)
+{
+    float4x4 world = GetInstanceTransform(input);
+    
+    // Extract scale from the world matrix
+    float3 scale;
+    scale.x = length(float3(world._11, world._12, world._13));
+    scale.y = length(float3(world._21, world._22, world._23));
+    scale.z = length(float3(world._31, world._32, world._33));
+    
+    return scale;
+}
+
+
 // Gets the current object size (supports instancing)
 float3 GetObjectSize(MaterialInput input)
 {

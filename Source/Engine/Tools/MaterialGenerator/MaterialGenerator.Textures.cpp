@@ -622,11 +622,11 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                 "   {3} = tex1 + tex2 + tex3;\n"
                 "   }}\n"
             ),
-                                                   uvs.Value, // {0}
-                                                   texture.Value, // {1}
-                                                   samplerName, // {2}
-                                                   textureBox->Cache.Value, // {3}
-                                                   offset.Value // {4}
+            uvs.Value, // {0}
+            texture.Value, // {1}
+            samplerName, // {2}
+            textureBox->Cache.Value, // {3}
+            offset.Value // {4}
             );
 
             _writer.Write(*proceduralSample);
@@ -686,6 +686,8 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         value = box == gradientBox ? gradient : distance;
         break;
     }
+
+
     // World Triplanar Texture
     case 16:
     {
@@ -726,14 +728,234 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             "   {3} += {0}.Sample(SamplerLinearWrap, worldPos.xy) * normal.z;\n"
             "	}}\n"
         ),
-                                                       texture.Value, //  {0}
-                                                       scale.Value, //  {1}
-                                                       blend.Value, //  {2}
-                                                       result.Value //  {3}
+        texture.Value, //  {0}
+        scale.Value, //  {1}
+        blend.Value, //  {2}
+        result.Value //  {3}
         );
 
         _writer.Write(*triplanarTexture);
         value = result;
+        break;
+    }
+    // Local Space Triplanar Texture
+    case 18:
+    {
+        // Get input boxes
+        auto textureBox = node->GetBox(0);
+        auto scaleBox = node->GetBox(1);
+        auto blendBox = node->GetBox(2);
+        auto offsetBox = node->GetBox(3); // New input box for offset
+
+        if (!textureBox->HasConnection())
+        {
+            value = Value::Zero;
+            break;
+        }
+
+        const auto texture = eatBox(textureBox->GetParent<Node>(), textureBox->FirstConnection());
+        const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat3();
+        const auto blend = tryGetValue(blendBox, node->Values[1]).AsFloat();
+        const auto offset = tryGetValue(offsetBox, node->Values[2]).AsFloat3(); // New offset value
+
+        auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
+
+        const String triplanarTexture = String::Format(TEXT(
+            "    {{\n"
+            "    // Get local space position\n"
+
+            "    float3 localPos = input.WorldPosition - GetObjectPosition(input) ;\n"
+
+            "    float3 localScale = GetObjectScale(input);\n"
+            "    localPos = TransformWorldVectorToLocal(input, localPos);\n"
+
+            "    \n"
+            "    // Apply the scale parameter in local space\n"
+            "    localPos = localPos * {1} * 0.001f + {4};\n"
+            "    localPos /= localScale;\n"
+            "    \n"
+            "    // Get local normal\n"
+            "    float3 localNormal = TransformWorldVectorToLocal(input, input.TBN[2]);\n"
+            "    \n"
+            "    // Sample texture for each plane\n"
+            "    float3 xColor = {0}.Sample(SamplerLinearWrap, localPos.yz).rgb;\n"
+            "    float3 yColor = {0}.Sample(SamplerLinearWrap, localPos.xz).rgb;\n"
+            "    float3 zColor = {0}.Sample(SamplerLinearWrap, localPos.xy).rgb;\n"
+            "    \n"
+            "    // Compute blending factors\n"
+            "    float3 blendWeights = pow(abs(localNormal), {2});\n"
+            "    blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);\n"
+            "    \n"
+            "    // Blend samples\n"
+            "    float3 color = xColor * blendWeights.x + yColor * blendWeights.y + zColor * blendWeights.z;\n"
+            "    \n"
+            "    // Output the blended color\n"
+            "    {3} = color;\n"
+            "    }}\n"
+        ),
+            texture.Value,    // {0}
+            scale.Value,      // {1}
+            blend.Value,      // {2}
+            result.Value,      // {3}
+            offset.Value      // {4} - New offset parameter
+        );
+
+        _writer.Write(*triplanarTexture);
+        value = result;
+        break;
+    }
+    // World Triplanar Normal Map
+    case 19:
+    {
+        // Get input boxes
+        auto textureBox = node->GetBox(0);
+        auto scaleBox = node->GetBox(1);
+        auto blendBox = node->GetBox(2);
+        auto offsetBox = node->GetBox(3); // New input box for offset
+        if (!textureBox->HasConnection())
+        {
+            // No texture to sample
+            value = Value::Zero;
+            break;
+        }
+        if (!CanUseSample(_treeType))
+        {
+            // Must sample texture in pixel shader
+            value = Value::Zero;
+            break;
+        }
+        const auto texture = eatBox(textureBox->GetParent<Node>(), textureBox->FirstConnection());
+        const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat3();
+        const auto blend = tryGetValue(blendBox, node->Values[1]).AsFloat();
+        const auto offset = tryGetValue(offsetBox, node->Values[2]).AsFloat3(); // New offset value
+
+        auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
+
+        const String triplanarNormalMap = String::Format(TEXT(
+            "   {{\n"
+            "   // Get local space position\n"
+            "   float3 localPos = input.WorldPosition - GetObjectPosition(input);\n"
+            "   float3 localScale = GetObjectScale(input);\n"
+            "   localPos = TransformWorldVectorToLocal(input, localPos);\n"
+            "\n"
+            "   // Apply the scale parameter in local space\n"
+            "    localPos = localPos * {1} * 0.001f + {4};\n"
+            "   localPos /= localScale;\n"
+            "\n"
+            "   // Get local normal\n"
+            "   float3 localNormal = normalize(TransformWorldVectorToLocal(input, input.TBN[2]));\n"
+            "\n"
+            "   // Calculate blend weights\n"
+            "   float3 blendWeights = abs(localNormal);\n"
+            "   blendWeights = pow(blendWeights, {2});\n"
+            "   blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);\n"
+            "\n"
+            "   // Sample and unpack normal maps\n"
+            "   float2 uvX = localPos.yz;\n"
+            "   float2 uvY = localPos.xz;\n"
+            "   float2 uvZ = localPos.xy;\n"
+            "\n"
+            "   float3 tnormalX = float3({0}.Sample(SamplerLinearWrap, uvX).rg * 2.0 - 1.0, 0);\n"
+            "   tnormalX.y = -tnormalX.y;\n"
+            "   tnormalX.z = sqrt(1.0 - saturate(dot(tnormalX.xy, tnormalX.xy)));\n"
+            "\n"
+            "   float3 tnormalY = float3({0}.Sample(SamplerLinearWrap, uvY).rg * 2.0 - 1.0, 0);\n"
+            "   tnormalY.y = -tnormalY.y;\n"
+            "   tnormalY.z = sqrt(1.0 - saturate(dot(tnormalY.xy, tnormalY.xy)));\n"
+            "\n"
+            "   float3 tnormalZ = float3({0}.Sample(SamplerLinearWrap, uvZ).rg * 2.0 - 1.0, 0);\n"
+            "   tnormalZ.y = -tnormalZ.y;\n"
+            "   tnormalZ.z = sqrt(1.0 - saturate(dot(tnormalZ.xy, tnormalZ.xy)));\n"
+            "\n"
+            "   // Apply Whiteout blend\n"
+            "   float3 axisSign = sign(localNormal);\n"
+            "   tnormalX = float3(tnormalX.xy + localNormal.zy, abs(tnormalX.z) * localNormal.x);\n"
+            "   tnormalY = float3(tnormalY.xy + localNormal.xz, abs(tnormalY.z) * localNormal.y);\n"
+            "   tnormalZ = float3(tnormalZ.xy + localNormal.xy, abs(tnormalZ.z) * localNormal.z);\n"
+            "\n"
+            "   // Swizzle tangent normals to match local orientation and blend\n"
+            "   float3 localTriplanarNormal = normalize(\n"
+            "       tnormalX.zxy * blendWeights.x +\n"
+            "       tnormalY.xzy * blendWeights.y +\n"
+            "       tnormalZ.xyz * blendWeights.z\n"
+            "   );\n"
+            "\n"
+            "   // Transform the blended normal back to world space\n"
+            "   {3} = normalize(TransformLocalVectorToWorld(input, localTriplanarNormal));\n"
+            "   }}\n"
+        ),
+            texture.Value, //  {0}
+            scale.Value,   //  {1}
+            blend.Value,   //  {2}
+            result.Value,   //  {3}
+            offset.Value      // {4} - New offset parameter
+        );
+
+        _writer.Write(*triplanarNormalMap);
+        value = result;
+        break;
+    }
+
+    // Scale-independent Curvature from Local Space Smooth Mesh Normals
+    case 20:
+    {
+        auto strengthBox = node->GetBox(0);
+        const auto strength = tryGetValue(strengthBox, node->Values[0]).AsFloat();
+        auto result = writeLocal(Value::InitForZero(ValueType::Float), node);
+        const String curvatureCode = String::Format(TEXT(R"(
+    {{
+        // Get the local-space position and normal
+        float3 localPos = TransformWorldVectorToLocal(input, input.WorldPosition.xyz);
+        float3 localNormal = normalize(TransformWorldVectorToLocal(input, input.TBN[2]));
+
+        // Calculate partial derivatives in local space
+        float3 dpdx = ddx(localPos);
+        float3 dpdy = ddy(localPos);
+        float3 dndx = ddx(localNormal);
+        float3 dndy = ddy(localNormal);
+
+        // Calculate the scale factor based on the size of the pixel in local space
+        float pixelSize = length(dpdx) + length(dpdy);
+        float scaleFactor = 1.0 / (pixelSize + 1e-6);
+
+        // Scale the derivatives
+        dpdx *= scaleFactor;
+        dpdy *= scaleFactor;
+        dndx *= scaleFactor;
+        dndy *= scaleFactor;
+
+        // Compute coefficients for fundamental forms
+        float E = dot(dpdx, dpdx);
+        float F = dot(dpdx, dpdy);
+        float G = dot(dpdy, dpdy);
+
+        float n = length(cross(dpdx, dpdy));
+        float invDet = 1.0 / (E * G - F * F + 1e-6);
+
+        float3 dndu = (G * dndx - F * dndy) * invDet;
+        float3 dndv = (E * dndy - F * dndx) * invDet;
+
+        // Compute principal curvatures
+        float3 dn = cross(dndu, dndv);
+        float k1 = length(dn + cross(dndu, dndv)) / (n + 1e-6);
+        float k2 = length(dn - cross(dndu, dndv)) / (n + 1e-6);
+
+        // Compute mean curvature
+        float meanCurvature = (k1 + k2) * 0.5;
+
+        // Apply strength and shift to make 0.5 the zero curvature point
+        float curvature = meanCurvature * {0} * 0.5 + 0.5;
+
+        // Ensure the output is clamped between 0 and 1
+        {1} = saturate(curvature);
+    }}
+    )"),
+            strength.Value, // {0}
+            result.Value    // {1}
+        );
+        _writer.Write(*curvatureCode);
+        value = result;
+        break;
     }
     default:
         break;

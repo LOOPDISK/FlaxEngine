@@ -1083,6 +1083,9 @@ void VisjectExecutor::ProcessGroupTools(Box* box, Node* node, Value& value)
     case 34:
         value = Noise::CustomNoise((Float3)tryGetValue(node->GetBox(0)));
         break;
+    case 35:
+        value = Noise::PerlinNoise((Float3)tryGetValue(node->GetBox(0)));
+        break;
     default:
         break;
     }

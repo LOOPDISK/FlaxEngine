@@ -28,6 +28,13 @@ public:
     API_FUNCTION() static float PerlinNoise(const Float2& p, const Float2& rep);
 
     /// <summary>
+    /// Classic Perlin noise in 3D.
+    /// </summary>
+    /// <param name="p">Point on a 3D grid to sample noise at.</param>
+    /// <returns>Noise value (range 0-1).</returns>
+    API_FUNCTION() static float PerlinNoise(const Float3& p);
+    
+    /// <summary>
     /// Simplex noise.
     /// </summary>
     /// <param name="p">Point on a 2D grid to sample noise at.</param>
