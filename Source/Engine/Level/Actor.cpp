@@ -617,7 +617,7 @@ void Actor::SetStaticFlags(StaticFlags value)
 
 void Actor::SetTransform(const Transform& value)
 {
-    if (!value.IsNanOrInfinity())
+    if (value.IsNanOrInfinity())
     {
         LOG_STR(Error, String(__builtin_FUNCTION()));
     }
