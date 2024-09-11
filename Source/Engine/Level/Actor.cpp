@@ -617,6 +617,10 @@ void Actor::SetStaticFlags(StaticFlags value)
 
 void Actor::SetTransform(const Transform& value)
 {
+    if (value.IsNanOrInfinity())
+    {
+        LOG_STR(Error, String(__builtin_FUNCTION()));
+    }
     CHECK(!value.IsNanOrInfinity());
     if (!(Vector3::NearEqual(_transform.Translation, value.Translation) && Quaternion::NearEqual(_transform.Orientation, value.Orientation, ACTOR_ORIENTATION_EPSILON) && Float3::NearEqual(_transform.Scale, value.Scale)))
     {

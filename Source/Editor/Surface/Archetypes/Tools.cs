@@ -1791,6 +1791,7 @@ namespace FlaxEditor.Surface.Archetypes
             Noise(32, "Worley Noise", typeof(Float2), typeof(Float2), "Worley noise (cellar noise with standard 3x3 search window for F1 and F2 values)."),
             Noise(33, "Voronoi Noise", typeof(Float3), typeof(Float2), "Voronoi noise (X=minDistToCell, Y=randomColor, Z=minEdgeDistance)."),
             Noise(34, "Custom Noise", typeof(float), typeof(Float3), "Custom noise function (3D -> 1D)."),
+            Noise(35, "3d Perlin Noise", typeof(Float3), typeof(Float3), "3d perlin noise function."),
         };
     }
 }

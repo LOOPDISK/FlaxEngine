@@ -34,9 +34,15 @@ namespace FlaxEditor.Options
             LocalTime,
 
             /// <summary>
+            /// The local time in a compact format with milliseconds
+            /// </summary>
+            LocalTimeCompact,
+
+            /// <summary>
             /// The time since startup (in seconds).
             /// </summary>
             TimeSinceStartup,
+
         }
 
         /// <summary>

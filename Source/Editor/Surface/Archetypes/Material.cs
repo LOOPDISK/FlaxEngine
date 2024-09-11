@@ -1072,6 +1072,24 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(Float3), 4),
                 ]
             },
+            new NodeArchetype
+            {
+                TypeID = 50,
+                Title = "Mesh Curvature",
+                Description = "Calculates mesh curvature in vertex shader and passes it to pixel shader",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(200, 100),
+                DefaultValues = new object[]
+                {
+                    1.0f, // Default strength
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Input(0, "Strength", true, typeof(float), 0),
+                    NodeElementArchetype.Factory.Output(0, "Curvature", typeof(Float3), 1),
+                   // NodeElementArchetype.Factory.Text("X: Curvature, Y/Z: Unused")
+                }
+            },
         };
     }
 }

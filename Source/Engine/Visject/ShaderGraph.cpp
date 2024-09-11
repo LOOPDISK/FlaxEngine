@@ -847,6 +847,10 @@ void ShaderGenerator::ProcessGroupTools(Box* box, Node* node, Value& value)
             format = TEXT("CustomNoise({0})");
             pointType = VariantType::Float3;
             break;
+        case 35:
+            format = TEXT("PerlinNoise3d({0})");
+            pointType = VariantType::Float3;
+            break;
         }
         value = writeLocal(resultType, String::Format(format, tryGetValue(node->GetBox(0), Value::Zero).Cast(pointType).Value), node);
         break;

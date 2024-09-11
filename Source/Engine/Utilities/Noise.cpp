@@ -341,3 +341,96 @@ Float3 Noise::CustomNoise3D(const Float3& p, int32 octaves, float roughness)
     }
     return noise / Math::Max(weight, ZeroTolerance);
 }
+
+Float3 PerlinNoiseFade(const Float3& t)
+{
+    return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+}
+
+float Noise::PerlinNoise(const Float3& p)
+{
+    Float3 Pi0 = Float3::Floor(p); // Integer part for indexing
+    Float3 Pi1 = Pi0 + 1.0f; // Integer part + 1
+    Pi0 = Mod289(Pi0);
+    Pi1 = Mod289(Pi1);
+    Float3 Pf0 = Float3::Frac(p); // Fractional part for interpolation
+    Float3 Pf1 = Pf0 - 1.0f; // Fractional part - 1.0
+
+    Float4 ix(Pi0.X, Pi1.X, Pi0.X, Pi1.X);
+    Float4 iy(Pi0.Y, Pi0.Y, Pi1.Y, Pi1.Y);
+    Float4 iz0(Pi0.Z);
+    Float4 iz1(Pi1.Z);
+
+    Float4 ixy = Permute(Permute(ix) + iy);
+    Float4 ixy0 = Permute(ixy + iz0);
+    Float4 ixy1 = Permute(ixy + iz1);
+
+    Float4 gx0 = ixy0 * (1.0f / 7.0f);
+    Float4 gy0 = Float4::Frac(Float4::Floor(gx0) * (1.0f / 7.0f)) - 0.5f;
+    gx0 = Float4::Frac(gx0);
+    Float4 gz0 = Float4(0.5f) - Float4::Abs(gx0) - Float4::Abs(gy0);
+    Float4 sz0 = Float4(gz0.X < 0 ? 1.0f : 0.0f,
+        gz0.Y < 0 ? 1.0f : 0.0f,
+        gz0.Z < 0 ? 1.0f : 0.0f,
+        gz0.W < 0 ? 1.0f : 0.0f);
+    gx0 -= sz0 * (Float4(gx0.X > 0 ? 1.0f : 0.0f,
+        gx0.Y > 0 ? 1.0f : 0.0f,
+        gx0.Z > 0 ? 1.0f : 0.0f,
+        gx0.W > 0 ? 1.0f : 0.0f) - 0.5f);
+    gy0 -= sz0 * (Float4(gy0.X > 0 ? 1.0f : 0.0f,
+        gy0.Y > 0 ? 1.0f : 0.0f,
+        gy0.Z > 0 ? 1.0f : 0.0f,
+        gy0.W > 0 ? 1.0f : 0.0f) - 0.5f);
+
+    Float4 gx1 = ixy1 * (1.0f / 7.0f);
+    Float4 gy1 = Float4::Frac(Float4::Floor(gx1) * (1.0f / 7.0f)) - 0.5f;
+    gx1 = Float4::Frac(gx1);
+    Float4 gz1 = Float4(0.5f) - Float4::Abs(gx1) - Float4::Abs(gy1);
+    Float4 sz1 = Float4(gz1.X < 0 ? 1.0f : 0.0f,
+        gz1.Y < 0 ? 1.0f : 0.0f,
+        gz1.Z < 0 ? 1.0f : 0.0f,
+        gz1.W < 0 ? 1.0f : 0.0f);
+    gx1 -= sz1 * (Float4(gx1.X > 0 ? 1.0f : 0.0f,
+        gx1.Y > 0 ? 1.0f : 0.0f,
+        gx1.Z > 0 ? 1.0f : 0.0f,
+        gx1.W > 0 ? 1.0f : 0.0f) - 0.5f);
+    gy1 -= sz1 * (Float4(gy1.X > 0 ? 1.0f : 0.0f,
+        gy1.Y > 0 ? 1.0f : 0.0f,
+        gy1.Z > 0 ? 1.0f : 0.0f,
+        gy1.W > 0 ? 1.0f : 0.0f) - 0.5f);
+
+    Float3 g000(gx0.X, gy0.X, gz0.X);
+    Float3 g100(gx0.Y, gy0.Y, gz0.Y);
+    Float3 g010(gx0.Z, gy0.Z, gz0.Z);
+    Float3 g110(gx0.W, gy0.W, gz0.W);
+    Float3 g001(gx1.X, gy1.X, gz1.X);
+    Float3 g101(gx1.Y, gy1.Y, gz1.Y);
+    Float3 g011(gx1.Z, gy1.Z, gz1.Z);
+    Float3 g111(gx1.W, gy1.W, gz1.W);
+
+    Float4 norm0 = TaylorInvSqrt(Float4(Float3::Dot(g000, g000), Float3::Dot(g010, g010), Float3::Dot(g100, g100), Float3::Dot(g110, g110)));
+    g000 *= norm0.X;
+    g010 *= norm0.Y;
+    g100 *= norm0.Z;
+    g110 *= norm0.W;
+    Float4 norm1 = TaylorInvSqrt(Float4(Float3::Dot(g001, g001), Float3::Dot(g011, g011), Float3::Dot(g101, g101), Float3::Dot(g111, g111)));
+    g001 *= norm1.X;
+    g011 *= norm1.Y;
+    g101 *= norm1.Z;
+    g111 *= norm1.W;
+
+    float n000 = Float3::Dot(g000, Pf0);
+    float n100 = Float3::Dot(g100, Float3(Pf1.X, Pf0.Y, Pf0.Z));
+    float n010 = Float3::Dot(g010, Float3(Pf0.X, Pf1.Y, Pf0.Z));
+    float n110 = Float3::Dot(g110, Float3(Pf1.X, Pf1.Y, Pf0.Z));
+    float n001 = Float3::Dot(g001, Float3(Pf0.X, Pf0.Y, Pf1.Z));
+    float n101 = Float3::Dot(g101, Float3(Pf1.X, Pf0.Y, Pf1.Z));
+    float n011 = Float3::Dot(g011, Float3(Pf0.X, Pf1.Y, Pf1.Z));
+    float n111 = Float3::Dot(g111, Pf1);
+
+    Float3 fade_xyz = PerlinNoiseFade(Pf0);
+    Float4 n_z = Float4::Lerp(Float4(n000, n100, n010, n110), Float4(n001, n101, n011, n111), fade_xyz.Z);
+    Float2 n_yz = Float2::Lerp(Float2(n_z.X, n_z.Y), Float2(n_z.Z, n_z.W), fade_xyz.Y);
+    float n_xyz = Math::Lerp(n_yz.X, n_yz.Y, fade_xyz.X);
+    return Math::Saturate(2.2f * n_xyz);
+}
