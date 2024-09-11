@@ -42,7 +42,7 @@ bool Log::Logger::Init()
 #if USE_EDITOR
     const String logsDirectory = Globals::ProjectFolder / TEXT("Logs");
 #else
-    const String logsDirectory = TEXT("C:\\game\\derelict\\Logs");
+    const String logsDirectory = TEXT("C:\\game\\derelict\\GameLogs");
 #endif
     if (FileSystem::CreateDirectory(logsDirectory))
     {
