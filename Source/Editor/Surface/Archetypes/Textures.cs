@@ -497,7 +497,7 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(0, "Strength", true, typeof(float), 0),
                     NodeElementArchetype.Factory.Output(0, "Curvature", typeof(float), 1),
                 }
-            }
+            },
 
             new NodeArchetype
             {
