@@ -142,6 +142,7 @@ namespace Flax.Build.Bindings
             // Numbers
             if (float.TryParse(value, out _) || (value[value.Length - 1] == 'f' && float.TryParse(value.Substring(0, value.Length - 1), out _)))
             {
+                value = value.Replace(".f", ".0f");
                 // If the value type is different than the value (eg. value is int but the field is float) then cast it for the [DefaultValue] attribute
                 if (valueType != null && attribute)
                     return $"({GenerateCSharpNativeToManaged(buildData, valueType, caller)}){value}";
@@ -166,7 +167,7 @@ namespace Flax.Build.Bindings
                     foreach (var vectorType in CSharpVectorTypes)
                     {
                         if (value.Length > vectorType.Length + 4 && value.StartsWith(vectorType) && value[vectorType.Length] == '(')
-                            return $"typeof({vectorType}), \"{value.Substring(vectorType.Length + 1, value.Length - vectorType.Length - 2).Replace("f", "")}\"";
+                            return $"typeof({vectorType}), \"{value.Substring(vectorType.Length + 1, value.Length - vectorType.Length - 2).Replace(".f", ".0").Replace("f", "")}\"";
                     }
 
                     return null;
@@ -529,7 +530,7 @@ namespace Flax.Build.Bindings
 
                     // interface
                     if (apiType.IsInterface)
-                        return string.Format("FlaxEngine.Object.GetUnmanagedInterface({{0}}, typeof({0}))", apiType.FullNameManaged);
+                        return string.Format("FlaxEngine.Object.GetUnmanagedInterface({{0}}, typeof({0}))", apiType.Name);
                 }
 
                 // Object reference property
@@ -589,7 +590,7 @@ namespace Flax.Build.Bindings
                     fullReturnValueType = $"{apiType.Namespace}.Interop.{returnValueType}";
 
                 // Interfaces are not supported by NativeMarshallingAttribute, marshal the parameter
-                returnMarshalType = $"MarshalUsing(typeof({fullReturnValueType}Marshaller))";
+                returnMarshalType = $"MarshalUsing(typeof({returnValueType}Marshaller))";
             }
             else if (functionInfo.ReturnType.Type == "MonoArray" || functionInfo.ReturnType.Type == "MArray")
                 returnMarshalType = "MarshalUsing(typeof(FlaxEngine.Interop.SystemArrayMarshaller))";
@@ -897,6 +898,30 @@ namespace Flax.Build.Bindings
                 if (defaultValue != null)
                     contents.Append(indent).Append("[DefaultValue(").Append(defaultValue).Append(")]").AppendLine();
             }
+            
+            // Check if array has fixed allocation and add in MaxCount Collection attribute if a Collection attribute does not already exist.
+            if (defaultValueType != null && (string.IsNullOrEmpty(attributes) || !attributes.Contains("Collection", StringComparison.Ordinal)))
+            {
+                // Array or Span or DataContainer
+#if USE_NETCORE
+                if ((defaultValueType.Type == "Array" || defaultValueType.Type == "Span" || defaultValueType.Type == "DataContainer" || defaultValueType.Type == "MonoArray" || defaultValueType.Type == "MArray") && defaultValueType.GenericArgs != null)
+#else
+                if ((defaultValueType.Type == "Array" || defaultValueType.Type == "Span" || defaultValueType.Type == "DataContainer") && defaultValueType.GenericArgs != null)
+#endif
+                {
+                    if (defaultValueType.GenericArgs.Count > 1)
+                    {
+                        var allocationArg = defaultValueType.GenericArgs[1];
+                        if (allocationArg.Type.Contains("FixedAllocation", StringComparison.Ordinal) && allocationArg.GenericArgs.Count > 0)
+                        {
+                            if (int.TryParse(allocationArg.GenericArgs[0].ToString(), out int allocation))
+                            {
+                                contents.Append(indent).Append($"[Collection(MaxCount={allocation.ToString()})]").AppendLine();
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         private static void GenerateCSharpAttributes(BuildData buildData, StringBuilder contents, string indent, ApiTypeInfo apiTypeInfo, bool useUnmanaged, string defaultValue = null, TypeInfo defaultValueType = null)
@@ -1091,6 +1116,8 @@ namespace Flax.Build.Bindings
                 contents.Append(indent).Append('}').AppendLine();
 
                 contents.AppendLine();
+                if (buildData.Configuration != TargetConfiguration.Release)
+                    contents.Append(indent).Append("[System.Diagnostics.DebuggerBrowsable(global::System.Diagnostics.DebuggerBrowsableState.Never)]").AppendLine();
                 contents.Append(indent).Append("private ");
                 if (eventInfo.IsStatic)
                     contents.Append("static ");
@@ -2041,13 +2068,18 @@ namespace Flax.Build.Bindings
             GenerateCSharpAttributes(buildData, contents, indent, enumInfo, true);
             contents.Append(indent).Append(GenerateCSharpAccessLevel(enumInfo.Access));
             contents.Append("enum ").Append(enumInfo.Name);
+            string managedType = string.Empty;
             if (enumInfo.UnderlyingType != null)
-                contents.Append(" : ").Append(GenerateCSharpNativeToManaged(buildData, enumInfo.UnderlyingType, enumInfo));
+            {
+                managedType = GenerateCSharpNativeToManaged(buildData, enumInfo.UnderlyingType, enumInfo);
+                contents.Append(" : ").Append(managedType);
+            }
             contents.AppendLine();
             contents.Append(indent + "{");
             indent += "    ";
 
             // Entries
+            bool usedMax = false;
             foreach (var entryInfo in enumInfo.Entries)
             {
                 contents.AppendLine();
@@ -2055,7 +2087,29 @@ namespace Flax.Build.Bindings
                 GenerateCSharpAttributes(buildData, contents, indent, enumInfo, entryInfo.Attributes, entryInfo.Comment, true, false);
                 contents.Append(indent).Append(entryInfo.Name);
                 if (!string.IsNullOrEmpty(entryInfo.Value))
-                    contents.Append(" = ").Append(entryInfo.Value);
+                {
+                    if (usedMax)
+                        usedMax = false;
+
+                    string value;
+                    if (enumInfo.UnderlyingType != null)
+                    {
+                        value = GenerateCSharpDefaultValueNativeToManaged(buildData, entryInfo.Value, enumInfo, enumInfo.UnderlyingType, false, managedType);
+                        if (value.Contains($"{managedType}.MaxValue", StringComparison.Ordinal))
+                            usedMax = true;
+                    }
+                    else
+                    {
+                        value = entryInfo.Value;
+                    }
+                    contents.Append(" = ").Append(value);
+                }
+                // Handle case of next value after Max value being zero if a value is not defined.
+                else if (string.IsNullOrEmpty(entryInfo.Value) && usedMax)
+                {
+                    contents.Append(" = ").Append('0');
+                    usedMax = false;
+                }
                 contents.Append(',');
                 contents.AppendLine();
             }
@@ -2161,7 +2215,7 @@ namespace Flax.Build.Bindings
                 contents.Append(indent).AppendLine("/// </summary>");
                 if (buildData.Target != null & buildData.Target.IsEditor)
                     contents.Append(indent).AppendLine("[HideInEditor]");
-                contents.Append(indent).AppendLine($"[CustomMarshaller(typeof({interfaceInfo.Name}), MarshalMode.Default, typeof({marshallerFullName}))]");
+                contents.Append(indent).AppendLine($"[CustomMarshaller(typeof({interfaceInfo.Name}), MarshalMode.Default, typeof({marshallerName}))]");
                 contents.Append(indent).AppendLine($"public static class {marshallerName}");
                 contents.Append(indent).AppendLine("{");
                 contents.AppendLine("#pragma warning disable 1591");

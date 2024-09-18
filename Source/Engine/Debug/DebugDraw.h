@@ -8,6 +8,9 @@
 #include "Engine/Core/Math/Color.h"
 #include "Engine/Core/Types/Span.h"
 
+struct RenderView;
+class Collider;
+class Light;
 struct RenderContext;
 class GPUTextureView;
 class GPUContext;
@@ -66,6 +69,28 @@ API_CLASS(Static) class FLAXENGINE_API DebugDraw
     /// <param name="selectedActorsCount">The size of the list of actors.</param>
     /// <param name="drawScenes">True if draw all debug shapes from scenes too or false if draw just from specified actor list.</param>
     API_FUNCTION() static void DrawActors(Actor** selectedActors, int32 selectedActorsCount, bool drawScenes);
+
+    /// <summary>
+    /// Draws the debug shapes for the given actor and the actor's children
+    /// </summary>
+    /// <param name="actor">The actor to start drawing at.</param>
+    API_FUNCTION() static void DrawActorsTree(Actor* actor);
+
+#if USE_EDITOR
+    /// <summary>
+    /// Draws the physics debug shapes for the given collider. Editor Only
+    /// </summary>
+    /// <param name="collider">The collider to draw.</param>
+    /// <param name="view">The render view to draw in.</param>
+    API_FUNCTION() static void DrawColliderDebugPhysics(Collider* collider, RenderView& view);
+
+    /// <summary>
+    /// Draws the light debug shapes for the given light. Editor Only
+    /// </summary>
+    /// <param name="light">The light debug to draw.</param>
+    /// <param name="view">The render view to draw in.</param>
+    API_FUNCTION() static void DrawLightDebug(Light* light, RenderView& view);
+#endif
 
     /// <summary>
     /// Draws the lines axis from direction.

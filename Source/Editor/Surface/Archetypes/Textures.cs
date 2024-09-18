@@ -406,11 +406,9 @@ namespace FlaxEditor.Surface.Archetypes
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Input(0, "Texture", true, typeof(FlaxEngine.Object), 0),
-                    NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float3), 1, 0),
+                    NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float4), 1, 0),
                     NodeElementArchetype.Factory.Input(2, "Blend", true, typeof(float), 2, 1),
-
-
-                    NodeElementArchetype.Factory.Output(0, "Color", typeof(Float3), 3)
+                    NodeElementArchetype.Factory.Output(0, "Color", typeof(Float4), 3)
                 }
             },
             new NodeArchetype
@@ -498,6 +496,20 @@ namespace FlaxEditor.Surface.Archetypes
                 {
                     NodeElementArchetype.Factory.Input(0, "Strength", true, typeof(float), 0),
                     NodeElementArchetype.Factory.Output(0, "Curvature", typeof(float), 1),
+                }
+            }
+
+            new NodeArchetype
+            {
+                TypeID = 21,
+                Title = "Lightmap UV",
+                AlternativeTitles = new string[] { "Lightmap TexCoord" },
+                Description = "Lightmap UVs",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(110, 30),
+                Elements = new []
+                {
+                    NodeElementArchetype.Factory.Output(0, "UVs", typeof(Float2), 0)
                 }
             }
         };

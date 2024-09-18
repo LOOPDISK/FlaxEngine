@@ -71,6 +71,7 @@ Action Engine::Draw;
 Action Engine::PhysicsUpdate;
 Action Engine::Pause;
 Action Engine::Unpause;
+Action Engine::RequestingExit;
 Window* Engine::MainWindow = nullptr;
 
 int32 Engine::Main(const Char* cmdLine)
@@ -196,6 +197,12 @@ int32 Engine::Main(const Char* cmdLine)
         // Use the same time for all ticks to improve synchronization
         const double time = Platform::GetTimeSeconds();
 
+        // Update application (will gather data and other platform related events)
+        {
+            PROFILE_CPU_NAMED("Platform.Tick");
+            Platform::Tick();
+        }
+        
         // Update game logic
         if (Time::OnBeginUpdate(time))
         {
@@ -254,10 +261,12 @@ void Engine::RequestExit(int32 exitCode)
     {
         Globals::IsRequestingExit = true;
         Globals::ExitCode = exitCode;
+        RequestingExit();
     }
 #else
     Globals::IsRequestingExit = true;
     Globals::ExitCode = exitCode;
+    RequestingExit();
 #endif
 }
 
@@ -302,12 +311,6 @@ void Engine::OnUpdate()
     PROFILE_CPU_NAMED("Update");
 
     UpdateCount++;
-
-    // Update application (will gather data and other platform related events)
-    {
-        PROFILE_CPU_NAMED("Platform.Tick");
-        Platform::Tick();
-    }
 
     const auto mainWindow = MainWindow;
 

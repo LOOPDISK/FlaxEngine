@@ -17,7 +17,6 @@ using FlaxEditor.Surface.Elements;
 using FlaxEngine;
 using FlaxEngine.GUI;
 using FlaxEngine.Utilities;
-using Object = FlaxEngine.Object;
 
 namespace FlaxEditor.Surface
 {
@@ -175,6 +174,9 @@ namespace FlaxEditor.Surface
         public override bool CanSetParameters => true;
 
         /// <inheritdoc />
+        public override bool UseContextMenuDescriptionPanel => true;
+
+        /// <inheritdoc />
         public override bool CanUseNodeType(GroupArchetype groupArchetype, NodeArchetype nodeArchetype)
         {
             return (nodeArchetype.Flags & NodeFlags.VisualScriptGraph) != 0 && base.CanUseNodeType(groupArchetype, nodeArchetype);
@@ -235,10 +237,12 @@ namespace FlaxEditor.Surface
 
                         var node = (NodeArchetype)Archetypes.Function.Nodes[2].Clone();
                         node.Flags &= ~NodeFlags.NoSpawnViaGUI;
-                        node.Description = Editor.Instance.CodeDocs.GetTooltip(member);
+                        node.Signature = SurfaceUtils.GetVisualScriptMemberInfoSignature(member);
+                        node.Description = SurfaceUtils.GetVisualScriptMemberShortDescription(member);
                         node.DefaultValues[0] = name;
                         node.DefaultValues[1] = parameters.Length;
                         node.Title = "Override " + name;
+                        node.Tag = member;
                         nodes.Add(node);
                     }
                 }
@@ -276,6 +280,7 @@ namespace FlaxEditor.Surface
                 node.DefaultValues[0] = Activator.CreateInstance(scriptType.Type);
                 node.Flags &= ~NodeFlags.NoSpawnViaGUI;
                 node.Title = scriptTypeName;
+                node.Signature = scriptTypeName;
                 node.Description = Editor.Instance.CodeDocs.GetTooltip(scriptType);
 
                 // Create group archetype
@@ -326,6 +331,7 @@ namespace FlaxEditor.Surface
                 node.DefaultValues[0] = scriptTypeTypeName;
                 node.Flags &= ~NodeFlags.NoSpawnViaGUI;
                 node.Title = "Pack " + scriptTypeName;
+                node.Signature = "Pack " + scriptTypeName;
                 node.Description = tooltip;
                 ((IList<NodeArchetype>)group.Archetypes).Add(node);
 
@@ -334,6 +340,7 @@ namespace FlaxEditor.Surface
                 node.DefaultValues[0] = scriptTypeTypeName;
                 node.Flags &= ~NodeFlags.NoSpawnViaGUI;
                 node.Title = "Unpack " + scriptTypeName;
+                node.Signature = "Unpack " + scriptTypeName;
                 node.Description = tooltip;
                 ((IList<NodeArchetype>)group.Archetypes).Add(node);
             }
@@ -367,7 +374,8 @@ namespace FlaxEditor.Surface
                         node.DefaultValues[2] = parameters.Length;
                         node.Flags &= ~NodeFlags.NoSpawnViaGUI;
                         node.Title = SurfaceUtils.GetMethodDisplayName((string)node.DefaultValues[1]);
-                        node.Description = SurfaceUtils.GetVisualScriptMemberInfoDescription(member);
+                        node.Signature = SurfaceUtils.GetVisualScriptMemberInfoSignature(member);
+                        node.Description = SurfaceUtils.GetVisualScriptMemberShortDescription(member);
                         node.SubTitle = string.Format(" (in {0})", scriptTypeName);
                         node.Tag = member;
 
@@ -415,8 +423,10 @@ namespace FlaxEditor.Surface
                             node.DefaultValues[3] = member.IsStatic;
                             node.Flags &= ~NodeFlags.NoSpawnViaGUI;
                             node.Title = "Get " + name;
-                            node.Description = SurfaceUtils.GetVisualScriptMemberInfoDescription(member);
+                            node.Signature = SurfaceUtils.GetVisualScriptMemberInfoSignature(member);
+                            node.Description = SurfaceUtils.GetVisualScriptMemberShortDescription(member);
                             node.SubTitle = string.Format(" (in {0})", scriptTypeName);
+                            node.Tag = member;
 
                             // Create group archetype
                             var groupKey = new KeyValuePair<string, ushort>(scriptTypeName, 16);
@@ -449,8 +459,10 @@ namespace FlaxEditor.Surface
                             node.DefaultValues[3] = member.IsStatic;
                             node.Flags &= ~NodeFlags.NoSpawnViaGUI;
                             node.Title = "Set " + name;
-                            node.Description = SurfaceUtils.GetVisualScriptMemberInfoDescription(member);
+                            node.Signature = SurfaceUtils.GetVisualScriptMemberInfoSignature(member);
+                            node.Description = SurfaceUtils.GetVisualScriptMemberShortDescription(member);
                             node.SubTitle = string.Format(" (in {0})", scriptTypeName);
+                            node.Tag = member;
 
                             // Create group archetype
                             var groupKey = new KeyValuePair<string, ushort>(scriptTypeName, 16);
@@ -507,8 +519,10 @@ namespace FlaxEditor.Surface
                         bindNode.DefaultValues[1] = name;
                         bindNode.Flags &= ~NodeFlags.NoSpawnViaGUI;
                         bindNode.Title = "Bind " + name;
-                        bindNode.Description = SurfaceUtils.GetVisualScriptMemberInfoDescription(member);
+                        bindNode.Signature = SurfaceUtils.GetVisualScriptMemberInfoSignature(member);
+                        bindNode.Description = SurfaceUtils.GetVisualScriptMemberShortDescription(member);
                         bindNode.SubTitle = string.Format(" (in {0})", scriptTypeName);
+                        bindNode.Tag = member;
                         ((IList<NodeArchetype>)group.Archetypes).Add(bindNode);
 
                         // Add Unbind event node
@@ -517,8 +531,10 @@ namespace FlaxEditor.Surface
                         unbindNode.DefaultValues[1] = name;
                         unbindNode.Flags &= ~NodeFlags.NoSpawnViaGUI;
                         unbindNode.Title = "Unbind " + name;
+                        unbindNode.Signature = bindNode.Signature;
                         unbindNode.Description = bindNode.Description;
                         unbindNode.SubTitle = bindNode.SubTitle;
+                        unbindNode.Tag = member;
                         ((IList<NodeArchetype>)group.Archetypes).Add(unbindNode);
 
 #if DEBUG_EVENTS_SEARCHING

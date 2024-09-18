@@ -57,6 +57,7 @@ private:
     bool _clipChanged = false;
 
     bool _isActuallyPlayingSth = false;
+    bool _startingToPlay = false;
     bool _needToUpdateStreamingBuffers = false;
     States _state = States::Stopped;
 
@@ -277,8 +278,17 @@ public:
 public:
     /// <summary>
     /// Determines whether this audio source started playing audio via audio backend. After audio play it may wait for audio clip data to be loaded or streamed.
+    /// [Deprecated in v1.9]
     /// </summary>
-    API_PROPERTY() FORCE_INLINE bool IsActuallyPlayingSth() const
+    API_PROPERTY() DEPRECATED FORCE_INLINE bool IsActuallyPlayingSth() const
+    {
+        return _isActuallyPlayingSth;
+    }
+
+    /// <summary>
+    /// Determines whether this audio source started playing audio via audio backend. After audio play it may wait for audio clip data to be loaded or streamed.
+    /// </summary>
+    API_PROPERTY() FORCE_INLINE bool IsActuallyPlaying() const
     {
         return _isActuallyPlayingSth;
     }

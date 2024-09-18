@@ -154,6 +154,7 @@ private:
     Array<Field, InlinedAllocation<32>> _fields;
 #if USE_EDITOR
     Array<Guid> _oldParamsLayout;
+    Array<Variant> _oldParamsValues;
 #endif
 
 public:
@@ -305,6 +306,7 @@ class FLAXENGINE_API VisualScriptingBinaryModule : public BinaryModule
     friend VisualScript;
 private:
     StringAnsi _name;
+    Array<char*> _unloadedScriptTypeNames;
 
 public:
     /// <summary>
