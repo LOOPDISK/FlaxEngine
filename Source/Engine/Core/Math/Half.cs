@@ -117,7 +117,11 @@ namespace FlaxEngine
         /// <summary>
         /// Gets or sets the raw 16 bit value used to back this half-float.
         /// </summary>
-        public ushort RawValue => rawValue;
+        public ushort RawValue
+        {
+            get => rawValue;
+            set => rawValue = value;
+        }
 
         /// <summary>
         /// Converts an array of half precision values into full precision values.
