@@ -511,6 +511,39 @@ namespace FlaxEditor.Surface.Archetypes
                 {
                     NodeElementArchetype.Factory.Output(0, "UVs", typeof(Float2), 0)
                 }
+            },
+            new NodeArchetype
+            {
+                TypeID = 22,  // Make sure this ID is unique
+                Title = "Layer Driven UV Twist",
+                Description = "Twists UVs based on terrain layer weight. Above 0.5 clockwise, below counterclockwise",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(200, 80),
+                DefaultValues = new object[]
+                {
+                    0.5f,  // Default twist strength
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Input(0, "UVs", true, typeof(Float2), 0),
+                    NodeElementArchetype.Factory.Input(1, "Layer Weight", true, typeof(float), 1),
+                    NodeElementArchetype.Factory.Input(2, "Strength", true, typeof(float), 2, 0),
+                    NodeElementArchetype.Factory.Output(0, "Twisted UVs", typeof(Float2), 3),
+                }
+            },
+            new NodeArchetype
+            {
+                TypeID = 23,
+                Title = "Local Generated Position",
+                AlternativeTitles = new string[] { "local pos" },
+                Description = "Local Generated Position, taking into account scale and rotation",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(200, 50),
+
+                Elements = new []
+                {
+                    NodeElementArchetype.Factory.Output(0, "Pos", typeof(Float3), 0)
+                }
             }
         };
     }

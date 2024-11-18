@@ -268,42 +268,56 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         Value cameraVectorTS = writeLocal(VariantType::Float3, String::Format(TEXT("TransformWorldVectorToTangent(input, {0})"), cameraVectorWS.Value), node);
         auto code = String::Format(TEXT(
             "	{{\n"
-            "	float vLength = length({8}.rg);\n"
-            "	float coeff0 = vLength / {8}.b;\n"
-            "	float coeff1 = coeff0 * (-({4}));\n"
-            "	float2 vNorm = {8}.rg / vLength;\n"
-            "	float2 maxOffset = (vNorm * coeff1);\n"
+            // Get view vector components
+            "	float3 viewDir = normalize({8});\n"
+            "   float viewDist = length(viewDir.xy);\n"
+            "   float viewCos = viewDir.z;\n"  // cosine of view angle
 
-            "	float numSamples = lerp({0}, {3}, saturate(dot({9}, input.TBN[2])));\n"
-            "	float stepSize = 1.0 / numSamples;\n"
+            // Calculate ray step sizes that match world space distances
+            "   float heightScale = {4};\n"
+            "   float numLayers = lerp({0}, {3}, abs(viewCos));\n"
+            "   float layerHeight = 1.0 / numLayers;\n"
+            "   float2 texStep = (-viewDir.xy * heightScale) / (viewDir.z * numLayers);\n"
 
-            "	float2 currOffset = 0;\n"
-            "	float2 lastOffset = 0;\n"
-            "	float currRayHeight = 1.0;\n"
-            "	float lastSampledHeight = 1;\n"
-            "	int currSample = 0;\n"
+            // Initial state
+            "   float2 currOffset = 0;\n"
+            "   float currHeight = 1.0;\n"
+            "   float2 prevOffset = 0;\n"
+            "   float prevHeight = 1.0;\n"
 
-            "	while (currSample < (int)numSamples)\n"
-            "	{{\n"
-            "		float currSampledHeight = {1}.SampleGrad(SamplerLinearWrap, {10} + currOffset, {5}, {6}){7};\n"
+            // March ray with consistent world-space steps
+            "   [unroll(32)]\n"
+            "   for(int i = 0; i < 32; i++)\n"
+            "   {{\n"
+            "       float surfaceHeight = {1}.SampleGrad(SamplerLinearWrap, {10} + currOffset, {5}, {6}){7};\n"
 
-            "		if (currSampledHeight > currRayHeight)\n"
-            "		{{\n"
-            "			float delta1 = currSampledHeight - currRayHeight;\n"
-            "			float delta2 = (currRayHeight + stepSize) - lastSampledHeight;\n"
-            "			float ratio = delta1 / max(delta1 + delta2, 0.00001f);\n"
-            "			currOffset = ratio * lastOffset + (1.0 - ratio) * currOffset;\n"
-            "			break;\n"
-            "		}}\n"
 
-            "		currRayHeight -= stepSize;\n"
-            "		lastOffset = currOffset;\n"
-            "		currOffset += stepSize * maxOffset;\n"
-            "		lastSampledHeight = currSampledHeight;\n"
-            "		currSample++;\n"
-            "	}}\n"
+            "       if(surfaceHeight > currHeight)\n"
+            "       {{\n"
 
-            "	{2} = {10} + currOffset;\n"
+            "           float delta1 = surfaceHeight - currHeight;\n"
+            "           float delta2 = (currHeight + layerHeight) - prevHeight;\n"
+            "           float ratio = delta1 / (delta1 + delta2);\n"
+
+
+            "           currOffset = lerp(currOffset, prevOffset, ratio);\n"
+            "           break;\n"
+            "       }}\n"
+
+
+            "       prevOffset = currOffset;\n"
+            "       prevHeight = surfaceHeight;\n"
+            "       \n"
+
+            "       currOffset += texStep;\n"
+            "       currHeight -= layerHeight;\n"
+            "   }}\n"
+
+            // Apply self-shadowing fade at glancing angles
+            //"   float angleFade = smoothstep(0.0, 0.3, viewCos);\n"
+            //"   currOffset *= angleFade;\n"
+
+            "   {2} = {10} + currOffset;\n"
             "	}}\n"
         ),
                                    minSteps.Value, // {0}
@@ -643,17 +657,24 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         value = textureBox->Cache;
         break;
     }
-    // Flipbook
     case 10:
     {
+        // Retrieve input values
         auto uv = Value::Cast(tryGetValue(node->GetBox(0), getUVs), VariantType::Float2);
         auto frame = Value::Cast(tryGetValue(node->GetBox(1), node->Values[0]), VariantType::Float);
         auto framesXY = Value::Cast(tryGetValue(node->GetBox(2), node->Values[1]), VariantType::Float2);
         auto invertX = Value::Cast(tryGetValue(node->GetBox(3), node->Values[2]), VariantType::Float);
         auto invertY = Value::Cast(tryGetValue(node->GetBox(4), node->Values[3]), VariantType::Float);
-        value = writeLocal(VariantType::Float2, String::Format(TEXT("Flipbook({0}, {1}, {2}, float2({3}, {4}))"), uv.Value, frame.Value, framesXY.Value, invertX.Value, invertY.Value), node);
+
+        // Calculate the aspect ratio based on framesXY (assuming each frame is the same size)
+        auto aspectRatio = writeLocal(VariantType::Float2, String::Format(TEXT("float2({0}.x / max({0}.x, {0}.y), {0}.y / max({0}.x, {0}.y))"), framesXY.Value), node);
+
+        // Pass aspectRatio as an additional parameter to Flipbook
+        value = writeLocal(VariantType::Float2, String::Format(TEXT("Flipbook({0}, {1}, {2}, float2({3}, {4}), {5})"), 
+            uv.Value, frame.Value, framesXY.Value, invertX.Value, invertY.Value, aspectRatio.Value), node);
         break;
     }
+
     // Sample Global SDF
     case 14:
     {
@@ -953,6 +974,75 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         ), output.Value);
         _writer.Write(*lightmapUV);
         value = output;
+        break;
+    }
+    // Layer Driven UV Twist
+    case 22:
+    {
+        auto uvsBox = node->GetBox(0);
+        auto layerWeightBox = node->GetBox(1);
+        auto strengthBox = node->GetBox(2);
+
+        // Get inputs
+        Value uvs = tryGetValue(uvsBox, getUVs).AsFloat2();
+        Value layerWeight = tryGetValue(layerWeightBox, Value::Zero).AsFloat();
+        Value strength = tryGetValue(strengthBox, node->Values[0]).AsFloat();
+
+        auto result = writeLocal(Value::InitForZero(ValueType::Float2), node);
+
+        const String uvDisplace = String::Format(TEXT(
+            "   {{\n"
+            "   float2 uv = {0};\n"
+            "   float displacement = ({1} - 0.5) * {2};\n"
+            "   uv.y += displacement;\n"  // or uv.x if you want horizontal displacement
+            "   {3} = uv;\n"
+            "   }}\n"
+        ),
+            uvs.Value,        // {0}
+            layerWeight.Value, // {1}
+            strength.Value,    // {2}
+            result.Value      // {3}
+        );
+
+        _writer.Write(*uvDisplace);
+        value = result;
+        break;
+    }
+    // Local Space position
+    case 23:
+    {
+
+
+        auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
+        const String local_pos = String::Format(TEXT(
+            "    {{\n"
+            "    // Get local space position\n"
+
+            "    float3 localPos = input.WorldPosition - GetObjectPosition(input) ;\n"
+
+            "    float3 localScale = GetObjectScale(input);\n"
+            "    localPos = TransformWorldVectorToLocal(input, localPos);\n"
+
+            "    \n"
+            "    // Apply the scale parameter in local space\n"
+
+            "    localPos = localPos  * 0.01f ;\n"
+            "    localPos /= localScale;\n"
+            "    \n"
+            "    // Get local normal\n"
+            "    //float3 localNormal = TransformWorldVectorToLocal(input, input.TBN[2]);\n"
+            "    \n"
+
+            "    // Output the blended color\n"
+            "    {0} = localPos;\n"
+            "    }}\n"
+        ),
+
+            result.Value     
+        );
+
+        _writer.Write(*local_pos);
+        value = result;
         break;
     }
     default:

@@ -211,12 +211,16 @@ float3 AOMultiBounce(float visibility, float3 albedo)
     return max(visibility, ((visibility * a + b) * visibility + c) * visibility);
 }
 
-float2 Flipbook(float2 uv, float frame, float2 sizeXY, float2 flipXY = 0.0f)
+float2 Flipbook(float2 uv, float frame, float2 sizeXY, float2 flipXY = 0.0f, float2 texAspect = float2(1.0, 1.0))
 {
-    float2 frameXY = float2((uint)frame % (uint)sizeXY.y, (uint)frame / (uint)sizeXY.x);
+    float2 frameXY = float2((uint) frame % (uint) sizeXY.y, (uint) frame / (uint) sizeXY.x);
     float2 flipFrameXY = sizeXY - frameXY - float2(1, 1);
     frameXY = lerp(frameXY, flipFrameXY, flipXY);
-    return (uv + frameXY) / sizeXY;
+
+    // Adjust for non-square textures using the texture aspect ratio
+    float2 aspectCorrectedUV = uv * texAspect;
+    return (aspectCorrectedUV + frameXY) / sizeXY;
 }
+
 
 #endif
