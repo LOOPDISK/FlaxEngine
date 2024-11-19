@@ -392,7 +392,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Animation",
                 Description = "Animation sampling",
                 Flags = NodeFlags.AnimGraph,
-                Size = new Float2(230, 160),
+                Size = new Float2(230, 180),
                 DefaultValues = new object[]
                 {
                     Guid.Empty,
@@ -410,7 +410,8 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(0, "Speed", true, typeof(float), 5, 1),
                     NodeElementArchetype.Factory.Input(1, "Loop", true, typeof(bool), 6, 2),
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 7, 3),
-                    NodeElementArchetype.Factory.Input(3, "Animation Asset", true, typeof(FlaxEngine.Animation), 8),
+                    NodeElementArchetype.Factory.Input(4, "Animation Asset", true, typeof(FlaxEngine.Animation), 8),
+                    NodeElementArchetype.Factory.Input(3, "Position Override", true, typeof(float), 9), // New input
                     NodeElementArchetype.Factory.Asset(0, Surface.Constants.LayoutOffsetY * 4, 0, typeof(FlaxEngine.Animation)),
                 }
             },
@@ -683,7 +684,10 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(0, "Speed", true, typeof(float), 1, 1),
                     NodeElementArchetype.Factory.Input(1, "Loop", true, typeof(bool), 2, 2),
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
-
+                    
+                    // Position Override
+                    NodeElementArchetype.Factory.Input(5, "Position Override", true, typeof(float), 6), // New input
+                    
                     // Axis X
                     NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
                     NodeElementArchetype.Factory.Text(30, 3 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
