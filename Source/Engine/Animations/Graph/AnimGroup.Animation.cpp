@@ -866,6 +866,10 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             anim = TVariantValueCast<Animation*>::Cast(tryGetValue(animationAssetBox, Value::Null));
         }
 
+        // Add new position override input handling
+        auto positionOverrideBox = node->TryGetBox(9);
+        const bool hasPositionOverride = positionOverrideBox && positionOverrideBox->HasConnection();
+
         switch (box->ID)
         {
             // Animation
@@ -877,13 +881,42 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             const float startTimePos = (float)tryGetValue(node->GetBox(7), node->Values[3]);
             const float length = anim ? anim->GetLength() : 0.0f;
 
+            //// Calculate new time position
+            //if (speed < 0.0f && bucket.LastUpdateFrame < context.CurrentFrameIndex - 1)
+            //{
+            //    // If speed is negative and it's the first node update then start playing from end
+            //    bucket.TimePosition = length;
+            //}
+            //float newTimePos = bucket.TimePosition + context.DeltaTime * speed;
+
             // Calculate new time position
-            if (speed < 0.0f && bucket.LastUpdateFrame < context.CurrentFrameIndex - 1)
+            float newTimePos;
+            if (hasPositionOverride)
             {
-                // If speed is negative and it's the first node update then start playing from end
-                bucket.TimePosition = length;
+                // Use position override if connected
+                float positionOverride = (float)tryGetValue(positionOverrideBox, 0.0f);
+                if (loop)
+                {
+                    // When looping, wrap the position value
+                    positionOverride = Math::Mod(positionOverride, 1.0f);
+                    if (positionOverride < 0.0f)
+                        positionOverride += 1.0f;
+                }
+                else
+                {
+                    // When not looping, clamp the position value
+                    positionOverride = Math::Saturate(positionOverride);
+                }
+                newTimePos = length * positionOverride;
             }
-            float newTimePos = bucket.TimePosition + context.DeltaTime * speed;
+            else
+            {
+                if (speed < 0.0f && bucket.LastUpdateFrame < context.CurrentFrameIndex - 1)
+                {
+                    bucket.TimePosition = length;
+                }
+                newTimePos = bucket.TimePosition + context.DeltaTime * speed;
+            }
 
             value = SampleAnimation(node, loop, length, startTimePos, bucket.TimePosition, newTimePos, anim, 1.0f);
 
@@ -1434,6 +1467,11 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         const auto startTimePos = (float)tryGetValue(node->GetBox(3), node->Values[3]);
         auto& data = node->Data.MultiBlend2D;
 
+
+        // Add position override check
+        auto positionOverrideBox = node->TryGetBox(6);
+        const bool hasPositionOverride = positionOverrideBox && positionOverrideBox->HasConnection();
+
         // Check if not valid animation binded
         if (data.TrianglesCount == 0)
             break;
@@ -1461,12 +1499,33 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             break;
 
         // Calculate new time position
-        if (speed < 0.0f && bucket.LastUpdateFrame < context.CurrentFrameIndex - 1)
+        float newTimePos;
+        if (hasPositionOverride)
         {
-            // If speed is negative and it's the first node update then start playing from end
-            bucket.TimePosition = data.Length;
+            // Use position override if connected
+            float positionOverride = (float)tryGetValue(positionOverrideBox, 0.0f);
+            if (loop)
+            {
+                // When looping, wrap the position value
+                positionOverride = Math::Mod(positionOverride, 1.0f);
+                if (positionOverride < 0.0f)
+                    positionOverride += 1.0f;
+            }
+            else
+            {
+                // When not looping, clamp the position value
+                positionOverride = Math::Saturate(positionOverride);
+            }
+            newTimePos = data.Length * positionOverride;
         }
-        float newTimePos = bucket.TimePosition + context.DeltaTime * speed;
+        else
+        {
+            if (speed < 0.0f && bucket.LastUpdateFrame < context.CurrentFrameIndex - 1)
+            {
+                bucket.TimePosition = data.Length;
+            }
+            newTimePos = bucket.TimePosition + context.DeltaTime * speed;
+        }
 
         ANIM_GRAPH_PROFILE_EVENT("Multi Blend 2D");
 

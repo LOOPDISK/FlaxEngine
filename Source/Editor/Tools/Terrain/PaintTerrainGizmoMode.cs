@@ -80,6 +80,10 @@ namespace FlaxEditor.Tools.Terrain
             /// The single layer mode.
             /// </summary>
             SingleLayer,
+            /// <summary>
+            /// The isolated layer mode.
+            /// </summary>
+            IsolateLayer,
         }
 
         /// <summary>
@@ -96,6 +100,7 @@ namespace FlaxEditor.Tools.Terrain
         private readonly Mode[] _modes =
         {
             new SingleLayerMode(),
+            new IsolateLayerMode(),
         };
 
         private readonly Brush[] _brushes =
@@ -139,6 +144,11 @@ namespace FlaxEditor.Tools.Terrain
         /// Gets the single layer mode instance.
         /// </summary>
         public SingleLayerMode SingleLayerMode => _modes[(int)ModeTypes.SingleLayer] as SingleLayerMode;
+
+        /// <summary>
+        /// Gets the isolate layer mode instance.
+        /// </summary>
+        public IsolateLayerMode IsolateLayerMode => _modes[(int)ModeTypes.IsolateLayer] as IsolateLayerMode;
 
         /// <summary>
         /// Occurs when tool brush gets changed.

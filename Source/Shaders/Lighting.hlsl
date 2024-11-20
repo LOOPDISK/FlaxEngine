@@ -13,6 +13,22 @@ ShadowData GetShadow(LightData lightData, GBufferSample gBuffer, float4 shadowMa
     return shadow;
 }
 
+// Update the core BRDF functions first:
+float3 Diffuse_Disney(float3 diffuseColor, float roughness, float NoV, float NoL, float VoH)
+{
+    float FL = pow(1.0 - NoL, 5.0);
+    float FV = pow(1.0 - NoV, 5.0);
+    float Fretro = FL * FV;
+    
+    // Roughness-based retro-reflection
+    float rough = roughness;
+    float Dr = 1.0 + (0.5 + 0.5 * rough) * Fretro;
+    
+    return diffuseColor * Dr * (1.0 / PI);
+}
+
+
+// The main lighting calculation:
 LightingData StandardShading(GBufferSample gBuffer, float energy, float3 L, float3 V, half3 N)
 {
     float3 diffuseColor = GetDiffuseColor(gBuffer);
@@ -23,23 +39,31 @@ LightingData StandardShading(GBufferSample gBuffer, float energy, float3 L, floa
     float VoH = saturate(dot(V, H));
 
     LightingData lighting;
-    
-    //lighting.Diffuse = OrenNayarToon(N, L, V, gBuffer.Roughness, diffuseColor, 4); // Adjust '4' as needed
-    lighting.Diffuse = diffuseColor * OrenNayarApprox(NoL, NoV, N, L, V, gBuffer.Roughness);
-    //lighting.Diffuse = Diffuse_Lambert(diffuseColor);
-     
+
+    // Disney diffuse
+    lighting.Diffuse = Diffuse_Disney(diffuseColor, gBuffer.Roughness, NoV, NoL, VoH);
+
 #if LIGHTING_NO_SPECULAR
     lighting.Specular = 0;
 #else
     float3 specularColor = GetSpecularColor(gBuffer);
+    
+    // Energy-conserving specular
     float3 F = F_Schlick(specularColor, VoH);
-    float D = D_GGX(gBuffer.Roughness, NoH) * energy;
+    float D = D_GGX(gBuffer.Roughness, NoH);
     float Vis = Vis_SmithJointApprox(gBuffer.Roughness, NoV, NoL);
-    lighting.Specular = (D * Vis) * F;
+    
+    // Properly scaled specular term
+    lighting.Specular = (D * Vis) * F * energy;
+    
+    // Energy conservation between diffuse and specular
+    lighting.Diffuse *= (1.0 - F);
 #endif
+
     lighting.Transmission = 0;
     return lighting;
 }
+
 
 LightingData SubsurfaceShading(GBufferSample gBuffer, float energy, float3 L, float3 V, half3 N)
 {
@@ -167,14 +191,14 @@ float4 GetLighting(float3 viewPos, LightData lightData, GBufferSample gBuffer, f
     float4 result = 0;
     float3 V = normalize(viewPos - gBuffer.WorldPos);
     float3 N = gBuffer.Normal;
-    float3 L = lightData.Direction; // no need to normalize
+    float3 L = lightData.Direction;
     float NoL = saturate(dot(N, L));
     float3 toLight = lightData.Direction;
 
-    // Calculate shadow
+    // Get shadow with both surface and transmission components
     ShadowData shadow = GetShadow(lightData, gBuffer, shadowMask);
 
-    // Calculate attenuation
+    // Handle radial lights
     if (isRadial)
     {
         toLight = lightData.Position - gBuffer.WorldPos;
@@ -186,11 +210,6 @@ float4 GetLighting(float3 viewPos, LightData lightData, GBufferSample gBuffer, f
         shadow.TransmissionShadow *= attenuation;
     }
 
-#if !LIGHTING_NO_DIRECTIONAL
-    // Reduce shadow mapping artifacts
-    shadow.SurfaceShadow *= saturate(NoL * 6.0f - 0.2f) * NoL;
-#endif
-
     BRANCH
 
     if (shadow.SurfaceShadow + shadow.TransmissionShadow > 0)
@@ -198,14 +217,37 @@ float4 GetLighting(float3 viewPos, LightData lightData, GBufferSample gBuffer, f
         gBuffer.Roughness = max(gBuffer.Roughness, lightData.MinRoughness);
         float energy = AreaLightSpecular(lightData, gBuffer.Roughness, toLight, L, V, N);
 
-        // Calculate direct lighting
-        LightingData lighting = SurfaceShading(gBuffer, energy, L, V, N);
+        LightingData lighting;
+        
+        // Handle different shading models
+        switch (gBuffer.ShadingModel)
+        {
+            case SHADING_MODEL_UNLIT:
+            case SHADING_MODEL_LIT:
+                lighting = StandardShading(gBuffer, energy, L, V, N);
+                break;
+            case SHADING_MODEL_SUBSURFACE:
+                lighting = SubsurfaceShading(gBuffer, energy, L, V, N);
+                break;
+            case SHADING_MODEL_FOLIAGE:
+                lighting = FoliageShading(gBuffer, energy, L, V, N);
+                break;
+            default:
+                lighting = (LightingData) 0;
+                break;
+        }
 
-        // Calculate final light color
-        float3 surfaceLight = (lighting.Diffuse + lighting.Specular) * shadow.SurfaceShadow;
+        // Combine direct lighting (with improved energy conservation)
+        float3 surfaceLight = (lighting.Diffuse + lighting.Specular) * NoL * shadow.SurfaceShadow;
+        
+        // Handle transmission separately since it doesn't use NoL the same way
         float3 subsurfaceLight = lighting.Transmission * shadow.TransmissionShadow;
-        result.rgb = lightData.Color * (surfaceLight + subsurfaceLight);
-        result.a = 1;
+        
+        // Combine both lighting components
+        float3 finalLight = surfaceLight + subsurfaceLight;
+        
+        result.rgb = lightData.Color * finalLight;
+        result.a = Luminance(finalLight);
     }
 
     return result;

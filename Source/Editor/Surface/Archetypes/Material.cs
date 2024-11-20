@@ -389,7 +389,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Custom Code",
                 Description = "Custom HLSL shader code expression",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(300, 200),
+                Size = new Float2(800, 800),
                 DefaultValues = new object[]
                 {
                     "// Here you can add HLSL code\nOutput0 = Input0;"
@@ -410,7 +410,7 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Output(2, "Output2", typeof(Float4), 10),
                     NodeElementArchetype.Factory.Output(3, "Output3", typeof(Float4), 11),
 
-                    NodeElementArchetype.Factory.TextBox(60, 0, 175, 200, 0),
+                    NodeElementArchetype.Factory.TextBox(70, 0, 660, 780, 0),
                 }
             },
             new NodeArchetype
