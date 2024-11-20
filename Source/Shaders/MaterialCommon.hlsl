@@ -211,16 +211,30 @@ float3 AOMultiBounce(float visibility, float3 albedo)
     return max(visibility, ((visibility * a + b) * visibility + c) * visibility);
 }
 
-float2 Flipbook(float2 uv, float frame, float2 sizeXY, float2 flipXY = 0.0f, float2 texAspect = float2(1.0, 1.0))
+float2 Flipbook(float2 uv, float frame, float2 sizeXY, float2 flipXY = 0.0f)
 {
-    float2 frameXY = float2((uint) frame % (uint) sizeXY.y, (uint) frame / (uint) sizeXY.x);
-    float2 flipFrameXY = sizeXY - frameXY - float2(1, 1);
-    frameXY = lerp(frameXY, flipFrameXY, flipXY);
-
-    // Adjust for non-square textures using the texture aspect ratio
-    float2 aspectCorrectedUV = uv * texAspect;
-    return (aspectCorrectedUV + frameXY) / sizeXY;
+    // Clamp sizeXY to prevent division by zero
+    sizeXY = max(sizeXY, float2(1, 1));
+    
+    // Ensure frame is in valid range
+    uint totalFrames = (uint) (sizeXY.x * sizeXY.y);
+    uint safeFrame = (uint) max(0, frame) % totalFrames;
+    
+    // Calculate grid position
+    float2 frameXY = float2(
+        safeFrame % (uint) sizeXY.x,
+        floor(safeFrame / sizeXY.x)
+    );
+    
+    // Handle flipping without stretching
+    frameXY = lerp(
+        frameXY,
+        float2(sizeXY.x - frameXY.x - 1, sizeXY.y - frameXY.y - 1),
+        flipXY
+    );
+    
+    // Simple UV transformation without additional scaling
+    return (uv + frameXY) / sizeXY;
 }
-
 
 #endif

@@ -657,21 +657,22 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         value = textureBox->Cache;
         break;
     }
-    case 10:
-    {
-        // Retrieve input values
+    //flipbook
+    case 10: {
         auto uv = Value::Cast(tryGetValue(node->GetBox(0), getUVs), VariantType::Float2);
         auto frame = Value::Cast(tryGetValue(node->GetBox(1), node->Values[0]), VariantType::Float);
         auto framesXY = Value::Cast(tryGetValue(node->GetBox(2), node->Values[1]), VariantType::Float2);
         auto invertX = Value::Cast(tryGetValue(node->GetBox(3), node->Values[2]), VariantType::Float);
         auto invertY = Value::Cast(tryGetValue(node->GetBox(4), node->Values[3]), VariantType::Float);
 
-        // Calculate the aspect ratio based on framesXY (assuming each frame is the same size)
-        auto aspectRatio = writeLocal(VariantType::Float2, String::Format(TEXT("float2({0}.x / max({0}.x, {0}.y), {0}.y / max({0}.x, {0}.y))"), framesXY.Value), node);
+        auto flipXY = writeLocal(VariantType::Float2,
+            String::Format(TEXT("float2({0}, {1})"), invertX.Value, invertY.Value),
+            node);
 
-        // Pass aspectRatio as an additional parameter to Flipbook
-        value = writeLocal(VariantType::Float2, String::Format(TEXT("Flipbook({0}, {1}, {2}, float2({3}, {4}), {5})"), 
-            uv.Value, frame.Value, framesXY.Value, invertX.Value, invertY.Value, aspectRatio.Value), node);
+        value = writeLocal(VariantType::Float2,
+            String::Format(TEXT("Flipbook({0}, {1}, {2}, {3})"),
+                uv.Value, frame.Value, framesXY.Value, flipXY.Value),
+            node);
         break;
     }
 
