@@ -410,24 +410,35 @@ API_ENUM(Attributes="Flags") enum class BloomSettingsOverride : int32
     Intensity = 1 << 1,
 
     /// <summary>
-    /// Overrides <see cref="BloomSettings.Threshold"/> property.
+    /// Overrides <see cref="BloomSettings.ThresholdStart"/> property.
     /// </summary>
-    Threshold = 1 << 2,
+    ThresholdStart = 1 << 2,
 
     /// <summary>
-    /// Overrides <see cref="BloomSettings.BlurSigma"/> property.
+    /// Overrides <see cref="BloomSettings.ThresholdSoftness"/> property.
     /// </summary>
-    BlurSigma = 1 << 3,
+    ThresholdSoftness = 1 << 3,
 
     /// <summary>
-    /// Overrides <see cref="BloomSettings.Limit"/> property.
+    /// Overrides <see cref="BloomSettings.Scatter"/> property.
     /// </summary>
-    Limit = 1 << 4,
+    Scatter = 1 << 4,
+
+    /// <summary>
+    /// Overrides <see cref="BloomSettings.TintColor"/> property.
+    /// </summary>
+    TintColor = 1 << 5,
+
+    /// <summary>
+    /// Overrides <see cref="BloomSettings.ClampIntensity"/> property.
+    /// </summary>
+    ClampIntensity = 1 << 6,
 
     /// <summary>
     /// All properties.
     /// </summary>
-    All = Enabled | Intensity | Threshold | BlurSigma | Limit,
+    All = Enabled | Intensity | ThresholdStart | ThresholdSoftness | Scatter | TintColor | ClampIntensity,
+
 };
 
 /// <summary>
@@ -448,32 +459,44 @@ API_STRUCT() struct FLAXENGINE_API BloomSettings : ISerializable
     /// <summary>
     /// If checked, bloom effect will be rendered.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(0), PostProcessSetting((int)BloomSettingsOverride.Enabled)")
+    API_FIELD(Attributes = "EditorOrder(0), PostProcessSetting((int)BloomSettingsOverride.Enabled)")
     bool Enabled = true;
 
     /// <summary>
-    /// Bloom effect strength. Set a value of 0 to disabled it, while higher values increase the effect.
+    /// Overall bloom effect strength. Higher values create a stronger glow effect.
     /// </summary>
-    API_FIELD(Attributes="Limit(0, 20.0f, 0.01f), EditorOrder(1), PostProcessSetting((int)BloomSettingsOverride.Intensity)")
+    API_FIELD(Attributes = "Limit(0, 1000.0f, 0.01f), EditorOrder(1), PostProcessSetting((int)BloomSettingsOverride.Intensity)")
     float Intensity = 1.0f;
 
     /// <summary>
-    /// Minimum pixel brightness value to start blooming. Values below this threshold are skipped.
+    /// Brightness level where bloom starts to appear. Higher values only bloom the brightest parts of the image.
     /// </summary>
-    API_FIELD(Attributes="Limit(0, 15.0f, 0.01f), EditorOrder(2), PostProcessSetting((int)BloomSettingsOverride.Threshold)")
-    float Threshold = 3.0f;
+    API_FIELD(Attributes = "Limit(0, 1000.0f, 0.01f), EditorOrder(2), PostProcessSetting((int)BloomSettingsOverride.ThresholdStart)")
+    float ThresholdStart = 3.0f;
 
     /// <summary>
-    /// This affects the fall-off of the bloom. It's the standard deviation (sigma) used in the Gaussian blur formula when calculating the kernel of the bloom.
+    /// Controls how smoothly pixels transition from non-bloomed to bloomed. Higher values create softer transitions.
     /// </summary>
-    API_FIELD(Attributes="Limit(0, 20.0f, 0.01f), EditorOrder(3), PostProcessSetting((int)BloomSettingsOverride.BlurSigma)")
-    float BlurSigma = 4.0f;
+    API_FIELD(Attributes = "Limit(0, 1.0f, 0.01f), EditorOrder(3), PostProcessSetting((int)BloomSettingsOverride.ThresholdSoftness)")
+    float ThresholdSoftness = 0.25f;
 
     /// <summary>
-    /// Bloom effect brightness limit. Pixels with higher luminance will be capped to this brightness level.
+    /// Controls how far the bloom spreads from bright areas. Higher values create a wider glow.
     /// </summary>
-    API_FIELD(Attributes="Limit(0, 100.0f, 0.01f), EditorOrder(4), PostProcessSetting((int)BloomSettingsOverride.Limit)")
-    float Limit = 10.0f;
+    API_FIELD(Attributes = "Limit(0.01f, 0.99f, 0.01f), EditorOrder(4), PostProcessSetting((int)BloomSettingsOverride.Scatter)")
+    float Scatter = 0.5f;
+
+    /// <summary>
+    /// Color tint applied to the bloom effect. Use to add subtle coloring to the glow.
+    /// </summary>
+    API_FIELD(Attributes = "EditorOrder(5), PostProcessSetting((int)BloomSettingsOverride.TintColor)")
+    Color TintColor = Color(1.0f, 1.0f, 1.0f, 1.0f);
+
+    /// <summary>
+    /// Maximum brightness of any bloomed pixel. Prevents excessive glow from very bright areas.
+    /// </summary>
+    API_FIELD(Attributes = "Limit(1.0f, 100.0f, 0.1f), EditorOrder(6), PostProcessSetting((int)BloomSettingsOverride.ClampIntensity)")
+    float ClampIntensity = 10.0f;
 
 public:
     /// <summary>

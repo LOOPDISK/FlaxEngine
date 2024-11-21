@@ -16,10 +16,14 @@ class PostProcessingPass : public RendererPass<PostProcessingPass>
 private:
 
     PACK_STRUCT(struct Data {
-        float BloomLimit;
-        float BloomThreshold;
-        float BloomMagnitude;
-        float BloomBlurSigma;
+        float BloomIntensity;
+        float BloomThresholdStart;
+        float BloomThresholdSoftness;
+        float BloomScatter;
+        Float3 BloomTintColor;
+        float BloomClampIntensity;
+        float BloomMipCount; 
+        Float3 BloomPadding;
 
         Float3 VignetteColor;
         float VignetteShapeFactor;
@@ -67,6 +71,8 @@ private:
     AssetReference<Shader> _shader;
     GPUPipelineState* _psThreshold;
     GPUPipelineState* _psScale;
+    GPUPipelineState* _psBlendBloom;
+    GPUPipelineState* _psKawaseBlur;
     GPUPipelineState* _psBlurH;
     GPUPipelineState* _psBlurV;
     GPUPipelineState* _psGenGhosts;
@@ -117,6 +123,8 @@ private:
     {
         _psThreshold->ReleaseGPU();
         _psScale->ReleaseGPU();
+        _psBlendBloom->ReleaseGPU();
+        _psKawaseBlur->ReleaseGPU();
         _psBlurH->ReleaseGPU();
         _psBlurV->ReleaseGPU();
         _psGenGhosts->ReleaseGPU();

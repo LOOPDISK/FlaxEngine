@@ -36,10 +36,16 @@
 
 META_CB_BEGIN(0, Data)
 
-float BloomLimit;
-float BloomThreshold;
-float BloomMagnitude;
-float BloomBlurSigma;
+// New bloom parameters
+float BloomIntensity;
+float BloomThresholdStart;
+float BloomThresholdSoftness;
+float BloomScatter;
+float3 BloomTintColor;
+float BloomClampIntensity;
+float BloomMipCount; // Add this near other bloom parameters
+float3 BloomPadding;
+
 
 float3 VignetteColor;
 float VignetteShapeFactor;
@@ -252,121 +258,149 @@ float2 coordRot(in float2 tc, in float angle)
 	return float2(rotX, rotY);
 }
 
-// Uses a lower exposure to produce a value suitable for a bloom pass
-//META_PS(true, FEATURE_LEVEL_ES2)
-//float4 PS_Threshold(Quad_VS2PS input) : SV_Target
-//{
-//	float4 color = Input0.SampleLevel(SamplerLinearClamp, input.TexCoord, 0);
-//    return clamp(color - BloomThreshold, 0, BloomLimit);
-//}
-// MZ: put in a soft knee to the threshold, so it's not ugly'
 
 
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_Threshold(Quad_VS2PS input) : SV_Target
 {
+
+
     float4 color = Input0.SampleLevel(SamplerCubicClamp, input.TexCoord, 0);
-    float brightness = max(color.r, max(color.g, color.b));
-    float thresholdFactor = (brightness - BloomThreshold) / (BloomLimit - BloomThreshold);
-    thresholdFactor = saturate(thresholdFactor);
-    return lerp(0, color, thresholdFactor);
+
+    // Use Rec. 709 luminance weights for better HDR handling
+    float brightness = dot(color.rgb, float3(0.2126, 0.7152, 0.0722));
+
+    // Let's modify the threshold calculation to work better in HDR range
+    float threshold = BloomThresholdStart * 2.0; // Scale up the threshold range
+    float knee = threshold * BloomThresholdSoftness;
+    
+    // Calculate soft threshold
+    float soft = brightness - threshold + knee;
+    soft = clamp(soft, 0, 2 * knee);
+    soft = (soft * soft) / (4 * knee + 0.00001);
+    float contribution = max(soft, brightness - threshold);
+    contribution /= max(brightness, 0.00001); // Normalize by brightness
+    
+    // Scale down the intensity to work better with typical HDR values
+    float3 bloomColor = color.rgb * contribution * 0.5; // Scale factor for intensity
+    
+    // Apply clamp and tint
+    bloomColor = min(bloomColor, BloomClampIntensity);
+    bloomColor *= BloomTintColor;
+
+    //return float4(1, 0, 0, 1); // Bright red
+    return float4(bloomColor, 1.0);
 }
-
-	// TODO: we could use quality switch for bloom effect
-
-	//return Input0.SampleLevel(SamplerCubicClamp, input.TexCoord, 0);
-	/*
-	float3 color;
-	// TODO: use gather for dx11 and dx12??
-	color  = Input0.SampleLevel(SamplerLinearClamp, input.TexCoord, 0, int2( 0, 0)).rgb;
-	color += Input0.SampleLevel(SamplerLinearClamp, input.TexCoord, 0, int2( 0, 1)).rgb;
-	color += Input0.SampleLevel(SamplerLinearClamp, input.TexCoord, 0, int2( 0,-1)).rgb;
-	color += Input0.SampleLevel(SamplerLinearClamp, input.TexCoord, 0, int2(-1, 0)).rgb;
-	color += Input0.SampleLevel(SamplerLinearClamp, input.TexCoord, 0, int2( 1, 0)).rgb;
-	color *= (1.0f / 5.0f);
-
-	return float4(color, 1);
-	*/
+ 
 
 
+// META_PS(true, FEATURE_LEVEL_ES2)
+// float4 PS_Scale(Quad_VS2PS input) : SV_Target
+// {
+//     float textureWidth;
+//     float textureHeight;
+//     float textureLevels;
+//     Input0.GetDimensions(0, textureWidth, textureHeight, textureLevels);
+    
+//     // Calculate half-pixel offset based on the texture size
+//     float2 halfPixel = 0.5 / float2(textureWidth, textureHeight);
+//     float CENTER_WEIGHT = 3.5;
+//     // Slight RGB separation for analog feel
+//     const float2 chromaOffset = halfPixel * 0.1; // Subtle chromatic aberration
+    
+//     // Sample with slight color separation
+//     float3 sum;
+//     float2 tc = input.TexCoord;
+    
+//     // Red channel samples
+//     sum.r = Input0.Sample(SamplerLinearClamp, tc + chromaOffset).r * CENTER_WEIGHT;
+//     sum.r += Input0.Sample(SamplerLinearClamp, tc - halfPixel + chromaOffset).r;
+//     sum.r += Input0.Sample(SamplerLinearClamp, tc + halfPixel + chromaOffset).r;
+//     sum.r += Input0.Sample(SamplerLinearClamp, tc + float2(halfPixel.x, -halfPixel.y) + chromaOffset).r;
+//     sum.r += Input0.Sample(SamplerLinearClamp, tc - float2(halfPixel.x, -halfPixel.y) + chromaOffset).r;
+    
+//     // Green channel samples (centered)
+//     sum.g = Input0.Sample(SamplerLinearClamp, tc).g * CENTER_WEIGHT;
+//     sum.g += Input0.Sample(SamplerLinearClamp, tc - halfPixel).g;
+//     sum.g += Input0.Sample(SamplerLinearClamp, tc + halfPixel).g;
+//     sum.g += Input0.Sample(SamplerLinearClamp, tc + float2(halfPixel.x, -halfPixel.y)).g;
+//     sum.g += Input0.Sample(SamplerLinearClamp, tc - float2(halfPixel.x, -halfPixel.y)).g;
+    
+//     // Blue channel samples
+//     sum.b = Input0.Sample(SamplerLinearClamp, tc - chromaOffset).b * 4.0;
+//     sum.b += Input0.Sample(SamplerLinearClamp, tc - halfPixel - chromaOffset).b;
+//     sum.b += Input0.Sample(SamplerLinearClamp, tc + halfPixel - chromaOffset).b;
+//     sum.b += Input0.Sample(SamplerLinearClamp, tc + float2(halfPixel.x, -halfPixel.y) - chromaOffset).b;
+//     sum.b += Input0.Sample(SamplerLinearClamp, tc - float2(halfPixel.x, -halfPixel.y) - chromaOffset).b;
+    
+//     // Average the sum
+//     float3 color = sum / 8.0;
+    
+//     // Subtle power curve for more analog response
+//     color = pow(color, 1.1);
+    
+//     return float4(color, 1.0);
+//  //   return float4(1, 0, 0, 1); // Bright red
+// }
 
-/*
-// Uses hw bilinear filtering for upscaling or downscaling
+// Kawase blur for high-res pass
 META_PS(true, FEATURE_LEVEL_ES2)
-float4 PS_Scale(Quad_VS2PS input) : SV_Target
-{
-    const float inv6 = 1./6.;
-
-    float textureWidth;
-    float textureHeight;
-    float textureLevels;
-    Input0.GetDimensions(0, textureWidth, textureHeight, textureLevels);
-
-    float2 textureSize = float2(textureWidth, textureHeight);
-    float2 invSize = float2(1.0, 1.0) / textureSize;
-
-    float2 Weight[2];
-    float2 Sample[2];
-
-    float2 UV = input.TexCoord * textureSize;
-    float2 tc = floor(UV - float2(0.5, 0.5)) + float2(0.5, 0.5);
-    float2 f = UV - tc;
-    float2 f2 = f * f;
-    float2 f3 = f2 * f;
-
-    float2 of = float2(1.0, 1.0) - f;
-    float2 of2 = of * of;
-    float2 of3 = of2 * of;
-
-    float2 w0 = inv6 * of3;
-    float2 w1 = inv6 * (float2(4.0, 4.0) + 3.0 * f3 - 6.0 * f2);
-    float2 w2 = inv6 * (float2(4.0, 4.0) + 3.0 * of3 - 6.0 * of2);
-    float2 w3 = inv6 * f3;
-
-    Weight[0] = w0 + w1;
-    Weight[1] = w2 + w3;
-
-    Sample[0] = tc - (float2(1.0, 1.0) - w1 / Weight[0]);
-    Sample[1] = tc + float2(1.0, 1.0) + w3 / Weight[1];
-
-    Sample[0] *= invSize;
-    Sample[1] *= invSize;
-
-    float sampleWeight[4];
-    sampleWeight[0] = Weight[0].x * Weight[0].y;
-    sampleWeight[1] = Weight[1].x * Weight[0].y;
-    sampleWeight[2] = Weight[0].x * Weight[1].y;
-    sampleWeight[3] = Weight[1].x * Weight[1].y;
-
-    float3 Ctl = Input0.SampleLevel(SamplerLinearClamp, float2(Sample[0].x, Sample[0].y), 0).rgb * sampleWeight[0];
-    float3 Ctr = Input0.SampleLevel(SamplerLinearClamp, float2(Sample[1].x, Sample[0].y), 0).rgb * sampleWeight[1];
-    float3 Cbl = Input0.SampleLevel(SamplerLinearClamp, float2(Sample[0].x, Sample[1].y), 0).rgb * sampleWeight[2];
-    float3 Cbr = Input0.SampleLevel(SamplerLinearClamp, float2(Sample[1].x, Sample[1].y), 0).rgb * sampleWeight[3];
-
-    return float4(Ctl + Ctr + Cbl + Cbr, 1.0);
-}
-*/
-
-META_PS(true, FEATURE_LEVEL_ES2)
-float4 PS_Scale(Quad_VS2PS input) : SV_Target
+float4 PS_KawaseBlur(Quad_VS2PS input) : SV_Target
 {
     float textureWidth;
     float textureHeight;
     float textureLevels;
     Input0.GetDimensions(0, textureWidth, textureHeight, textureLevels);
+    
+    float2 texelSize = 1.0 / float2(textureWidth, textureHeight);
+    float2 offset = texelSize * 0.5; // Smaller offset for high-res
+    
+    float3 col = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb * 0.4;
+    col += Input0.Sample(SamplerLinearClamp, input.TexCoord + float2(offset.x, offset.y)).rgb * 0.15;
+    col += Input0.Sample(SamplerLinearClamp, input.TexCoord + float2(-offset.x, offset.y)).rgb * 0.15;
+    col += Input0.Sample(SamplerLinearClamp, input.TexCoord + float2(offset.x, -offset.y)).rgb * 0.15;
+    col += Input0.Sample(SamplerLinearClamp, input.TexCoord + float2(-offset.x, -offset.y)).rgb * 0.15;
+    
+    return float4(col, 1.0);
+}
 
-    // Calculate half-pixel offset based on the texture size
-    float2 halfPixel = 0.5 / float2(textureWidth, textureHeight);
+// Blend high-res and mip chain results
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_BlendBloom(Quad_VS2PS input) : SV_Target
+{
+    float3 highRes = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+    float3 mipChain = Input1.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+    
+    // Blend based on intensity
+    float intensity = dot(highRes, float3(0.2126, 0.7152, 0.0722));
+    float blend = saturate(intensity * 2.0);
+    
+    float3 color = highRes * blend * 0.5 + mipChain * (1.0 - blend * 0.3);
+    
+    return float4(color, 1.0);
+}
 
-    // Dual filtering downsample
-    float4 sum = Input0.Sample(SamplerLinearClamp, input.TexCoord) * 4.0;
-    sum += Input0.Sample(SamplerLinearClamp, input.TexCoord - halfPixel);
-    sum += Input0.Sample(SamplerLinearClamp, input.TexCoord + halfPixel);
-    sum += Input0.Sample(SamplerLinearClamp, input.TexCoord + float2(halfPixel.x, -halfPixel.y));
-    sum += Input0.Sample(SamplerLinearClamp, input.TexCoord - float2(halfPixel.x, -halfPixel.y));
-
-    // Average the sum by dividing by 8    
-    return sum / 8.0;
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_Scale(Quad_VS2PS input) : SV_Target
+{
+    float textureWidth;
+    float textureHeight;
+    float textureLevels;
+    Input0.GetDimensions(0, textureWidth, textureHeight, textureLevels);
+    
+    float2 texelSize = 1.0 / float2(textureWidth, textureHeight);
+    float2 offset = texelSize * 0.75; // Reduced offset for better clarity while maintaining stability
+    
+    // Center sample (higher weight for clarity)
+    float3 col = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb * 0.4;
+    
+    // Kawase diagonal taps
+    col += Input0.Sample(SamplerLinearClamp, input.TexCoord + float2(offset.x, offset.y)).rgb * 0.15;
+    col += Input0.Sample(SamplerLinearClamp, input.TexCoord + float2(-offset.x, offset.y)).rgb * 0.15;
+    col += Input0.Sample(SamplerLinearClamp, input.TexCoord + float2(offset.x, -offset.y)).rgb * 0.15;
+    col += Input0.Sample(SamplerLinearClamp, input.TexCoord + float2(-offset.x, -offset.y)).rgb * 0.15;
+    
+    return float4(col, 1.0);
 }
 
 // Horizontal gaussian blur
@@ -562,34 +596,36 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 	}
 
 // Bloom with dual filtering upsample
+// Bloom with dual filtering upsample
 BRANCH
-if (BloomMagnitude > 0)
+if (BloomIntensity > 0)
 {
     float3 bloom = float3(0.0, 0.0, 0.0);
-    float factor = 1.0;
-    float BloomExponentialFactor = BloomBlurSigma;
-
-    // Fetch the texture size of the bloom texture at mip level 0
+    
     float textureWidth;
     float textureHeight;
     float textureLevels;
     Input2.GetDimensions(0, textureWidth, textureHeight, textureLevels);
     float2 textureSize = float2(textureWidth, textureHeight);
-    float3 BloomTintColor = float3(0.1,0.8,1.0);
-    // Number of mipmap levels to use for dual filtering
-    const int numMips = 10;
 
-    // Upsample passes
-    [unroll]
-    for (int i = numMips - 1; i >= 0; i--)
+    int maxMip = BloomMipCount - 1;
+    
+    // Initialize with smallest mip
+    bloom = Input2.SampleLevel(SamplerLinearClamp, input.TexCoord, maxMip).rgb;
+    
+    // Start with low weight for highest mip (most blurred)
+    // BloomScatter is typically between 0 and 1
+    float mipWeight = BloomScatter;  // Start small for most blurred
+    float totalWeight = mipWeight;
+    bloom *= mipWeight;
+    
+    [unroll(6)]
+    for (int i = 1 - 1; i >= 0; i--)
     {
-        // Calculate the mip level texture size
         float2 mipTextureSize = textureSize * pow(0.5, i);
-
-        // Calculate the half pixel size for the current mip level
         float2 halfPixel = 0.5 / mipTextureSize;
 
-        // Sample the bloom texture with the updated offsets and weights
+        // Dual kawase sampling pattern
         float4 sum = Input2.SampleLevel(SamplerLinearClamp, input.TexCoord + float2(-halfPixel.x * 2.0, 0.0), i);
         sum += Input2.SampleLevel(SamplerLinearClamp, input.TexCoord + float2(-halfPixel.x, halfPixel.y), i) * 2.0;
         sum += Input2.SampleLevel(SamplerLinearClamp, input.TexCoord + float2(0.0, halfPixel.y * 2.0), i);
@@ -599,28 +635,31 @@ if (BloomMagnitude > 0)
         sum += Input2.SampleLevel(SamplerLinearClamp, input.TexCoord + float2(0.0, -halfPixel.y * 2.0), i);
         sum += Input2.SampleLevel(SamplerLinearClamp, input.TexCoord + float2(-halfPixel.x, -halfPixel.y), i) * 2.0;
 
-
-
-
-        // Divide the sum by 12 to normalize the weights
-        float3 bloomColor = (sum / 12.0).rgb;
-
-        // Calculate the color tint based on the current mip level
-        float3 colorTint = lerp(float3(1.0, 1.0, 1.0), BloomTintColor, i / (float)(numMips - 1));
-
-        // Apply the color tint to the bloom color
-        bloomColor *= colorTint;
-
-        // Accumulate the tinted bloom color
-        bloom += bloomColor * factor;
-        factor *= BloomExponentialFactor;
+        float3 currentMip = (sum.rgb / 12.0);
+        
+        // Weight increases for lower mips (less blurred)
+        // Division by BloomScatter means higher BloomScatter = more contribution from blurred mips
+        mipWeight = 1.0 / (BloomScatter * (i + 1));
+        totalWeight += mipWeight;
+        
+        bloom += currentMip * mipWeight;
     }
+    
+    // Normalize
+    bloom /= totalWeight;
 
-    // Accumulate final bloom light
-    lensLight += max(float3(0.0, 0.0, 0.0), bloom * 3.0f + float3(-1.0, -1.0, -1.0) * 3.0f);
-    color.rgb += bloom * BloomMagnitude;
+    // Apply final intensity
+    color.rgb += bloom * BloomIntensity;
+
+    //    // Output individual mip levels
+    // int mipToDebug = 0; // Change this value to debug different mip levels
+    
+    // // Initialize with the mip level to debug
+    // bloom = Input2.SampleLevel(SamplerLinearClamp, input.TexCoord, mipToDebug).rgb;
+    
+    // // Normalize and apply
+    // color.rgb = bloom;
 }
-
 	// Lens Dirt
 	float3 lensDirt = LensDirt.SampleLevel(SamplerLinearClamp, uv, 0).rgb;
 	color.rgb += lensDirt * (lensLight * LensDirtIntensity);
