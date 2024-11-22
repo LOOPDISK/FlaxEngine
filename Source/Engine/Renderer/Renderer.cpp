@@ -30,6 +30,7 @@
 #include "AntiAliasing/FXAA.h"
 #include "AntiAliasing/TAA.h"
 #include "AntiAliasing/SMAA.h"
+//#include "AntiAliasing/SGSSAA.h"
 #include "Engine/Level/Actor.h"
 #include "Engine/Level/Level.h"
 #include "Engine/Level/Scene/SceneRendering.h"
@@ -86,6 +87,7 @@ bool RendererService::Init()
     PassList.Add(FXAA::Instance());
     PassList.Add(TAA::Instance());
     PassList.Add(SMAA::Instance());
+    //PassList.Add(SGSSAA::Instance());
     PassList.Add(HistogramPass::Instance());
     PassList.Add(GlobalSignDistanceFieldPass::Instance());
     PassList.Add(GlobalSurfaceAtlasPass::Instance());
@@ -136,6 +138,10 @@ void RenderAntiAliasingPass(RenderContext& renderContext, GPUTexture* input, GPU
     {
         SMAA::Instance()->Render(renderContext, input, output);
     }
+    //else if (aaMode == AntialiasingMode::SparseGridSupersamplingAntialiasing)
+    //{
+    //    SGSSAA::Instance()->Render(renderContext, input, output);
+    //}
     else
     {
         PROFILE_GPU("Copy frame");

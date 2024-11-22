@@ -8,6 +8,7 @@
 #include "Engine/Core/Config/GameSettings.h"
 #include "Engine/Renderer/ReflectionsPass.h"
 #include "Engine/Renderer/AntiAliasing/SMAA.h"
+//#include "Engine/Renderer/AntiAliasing/SGSSAA.h"
 #include "Engine/Engine/Globals.h"
 #include "Editor/Cooker/PlatformTools.h"
 #include "Editor/Utilities/EditorUtilities.h"
@@ -336,6 +337,7 @@ bool DeployDataStep::Perform(CookingData& data)
     data.AddRootEngineAsset(TEXT("Shaders/FXAA"));
     data.AddRootEngineAsset(TEXT("Shaders/TAA"));
     data.AddRootEngineAsset(TEXT("Shaders/SMAA"));
+    //data.AddRootEngineAsset(TEXT("Shaders/SGSSAA"));
     data.AddRootEngineAsset(TEXT("Shaders/GBuffer"));
     data.AddRootEngineAsset(TEXT("Shaders/GUI"));
     data.AddRootEngineAsset(TEXT("Shaders/Histogram"));

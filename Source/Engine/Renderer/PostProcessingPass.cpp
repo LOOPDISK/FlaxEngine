@@ -323,9 +323,8 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     ////////////////////////////////////////////////////////////////////////////////////
     // Bloom
 
-
-    auto tempDesc = GPUTextureDescription::New2D(w2, h2, 0, output->Format(), GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
-
+    auto tempDesc = GPUTextureDescription::New2D(w2, h2, 0, output->Format(),
+        GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
     auto bloomTmp1 = RenderTargetPool::Get(tempDesc);
     RENDER_TARGET_POOL_SET_NAME(bloomTmp1, "PostProcessing.Bloom");
     auto bloomTmp2 = RenderTargetPool::Get(tempDesc);
@@ -341,7 +340,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
             return;
         }
 
-        // Pre-calculate all mip sizes to avoid runtime pow calculations
+        // Pre-calculate mip sizes
         struct MipSize {
             int32 width;
             int32 height;
@@ -349,11 +348,11 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         MipSize mipSizes[6];  // Support up to 6 mips
         for (int32 i = 0; i < BLOOM_MIP_COUNT; i++)
         {
-            mipSizes[i].width = w2 >> i;   // Use bit shift instead of pow
+            mipSizes[i].width = w2 >> i;
             mipSizes[i].height = h2 >> i;
         }
 
-        // Initial threshold pass at highest resolution
+        // Combined threshold and source treatment pass
         context->SetRenderTarget(bloomTmp1->View(0, 0));
         context->SetViewportAndScissors((float)mipSizes[0].width, (float)mipSizes[0].height);
         context->BindSR(0, input->View());
@@ -361,97 +360,32 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         context->DrawFullscreenTriangle();
         context->ResetRenderTarget();
 
-
-        // High-res blur on thresholded image (tmp1 -> tmp2)
-        context->SetRenderTarget(bloomTmp2->View(0, 0));
-        context->SetViewportAndScissors((float)mipSizes[0].width, (float)mipSizes[0].height);
-        context->BindSR(0, bloomTmp1->View(0, 0));
-        context->SetState(_psKawaseBlur);  // Need to add this shader state
-        context->DrawFullscreenTriangle();
-        context->ResetRenderTarget();
-
-        // Copy blurred high-res result back to tmp1
-        context->SetRenderTarget(bloomTmp2->View(0, 0));
-        context->SetViewportAndScissors((float)mipSizes[0].width, (float)mipSizes[0].height);
-        context->BindSR(0, bloomTmp1->View(0, 0));
-        context->SetState(_psScale);
-        context->DrawFullscreenTriangle();
-        context->ResetRenderTarget();
-
-
-
-        // Downscale chain with blur at each mip
+        // Kawase downscale chain
         for (int32 mip = 1; mip < BLOOM_MIP_COUNT; mip++)
         {
-            // Downscale
             context->SetRenderTarget(bloomTmp1->View(0, mip));
             context->SetViewportAndScissors((float)mipSizes[mip].width, (float)mipSizes[mip].height);
             context->BindSR(0, bloomTmp1->View(0, mip - 1));
             context->SetState(_psScale);
             context->DrawFullscreenTriangle();
             context->ResetRenderTarget();
-
-            // Apply blur at this mip level
-            const float analogBlurStrength = data.BloomScatter * 0.00001;
-            GB_ComputeKernel(analogBlurStrength,
-                (float)mipSizes[mip].width,
-                (float)mipSizes[mip].height);
-
-            //// Single blur pass at each mip
-            //// Horizontal Bloom Blur (tmp1 -> tmp2)
-            //Platform::MemoryCopy(_gbData.GaussianBlurCache, GaussianBlurCacheH, sizeof(GaussianBlurCacheH));
-            //context->UpdateCB(cb1, &_gbData);
-            //context->BindCB(1, cb1);
-            //context->SetRenderTarget(bloomTmp2->View(0, mip));
-            //context->BindSR(0, bloomTmp1->View(0, mip));
-            //context->SetState(_psBlurH);
-            //context->DrawFullscreenTriangle();
-            //context->ResetRenderTarget();
-
-            //// Vertical Bloom Blur (tmp2 -> tmp1)
-            //Platform::MemoryCopy(_gbData.GaussianBlurCache, GaussianBlurCacheV, sizeof(GaussianBlurCacheV));
-            //context->UpdateCB(cb1, &_gbData);
-            //context->BindCB(1, cb1);
-            //context->SetRenderTarget(bloomTmp1->View(0, mip));
-            //context->BindSR(0, bloomTmp2->View(0, mip));
-            //context->SetState(_psBlurV);
-            //context->DrawFullscreenTriangle();
-            //context->ResetRenderTarget();
         }
 
-        // Upscale chain remains the same
+        // Kawase upscale chain
         for (int32 mip = BLOOM_MIP_COUNT - 2; mip >= 0; mip--)
         {
-            context->SetRenderTarget(bloomTmp2->View(0, mip));
+            GPUTexture* target = (mip % 2 == 0) ? bloomTmp2 : bloomTmp1;
+            context->SetRenderTarget(target->View(0, mip));
             context->SetViewportAndScissors((float)mipSizes[mip].width, (float)mipSizes[mip].height);
-            context->BindSR(0, bloomTmp1->View(0, mip + 1));
-            context->SetState(_psScale);
+            context->BindSR(0, bloomTmp1->View(0, mip + 1));  // Higher mip
+            context->BindSR(1, bloomTmp1->View(0, mip));      // Current mip
+            context->SetState(_psKawaseBlur);
             context->DrawFullscreenTriangle();
             context->ResetRenderTarget();
-
-            if (mip > 0)
-            {
-                context->SetRenderTarget(bloomTmp1->View(0, mip));
-                context->SetViewportAndScissors((float)mipSizes[mip].width, (float)mipSizes[mip].height);
-                context->BindSR(0, bloomTmp2->View(0, mip));
-                context->SetState(_psScale);
-                context->DrawFullscreenTriangle();
-                context->ResetRenderTarget();
-            }
         }
 
-        // Final blend using tmp2 for high-res and tmp1 for mip chain
-        context->SetRenderTarget(bloomTmp1->View(0, 0));  // Changed target
-        context->SetViewportAndScissors((float)mipSizes[0].width, (float)mipSizes[0].height);
-        context->BindSR(0, bloomTmp2->View(0, 0));  // High-res blur
-        context->BindSR(1, bloomTmp1->View(0, 0));  // Mip chain result
-        context->SetState(_psBlendBloom);
-        context->DrawFullscreenTriangle();
-        context->ResetRenderTarget();
-
-
-        // Bind final result
-        context->BindSR(2, bloomTmp1);
+        // Final result will be in bloomTmp2 since we end on mip 0 (even)
+        context->BindSR(2, bloomTmp2);
     }
 
     ////////////////////////////////////////////////////////////////////////////////////
