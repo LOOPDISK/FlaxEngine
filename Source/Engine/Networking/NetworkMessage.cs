@@ -15,7 +15,8 @@ namespace FlaxEngine.Networking
         /// <param name="length">The amount of bytes to write from the bytes pointer.</param>
         public void WriteBytes(byte* bytes, int length)
         {
-            Assert.IsTrue(Position + length <= BufferSize, $"Could not write data of length {length} into message with id={MessageId}! Current write position={Position}");
+            if (Position + length > BufferSize)
+                Assert.IsTrue(Position + length <= BufferSize, $"Could not write data of length {length} into message with id={MessageId}! Current write position={Position}");
             Utils.MemoryCopy(new IntPtr(Buffer + Position), new IntPtr(bytes), (ulong)length);
             Position += (uint)length;
             Length = Position;
@@ -29,7 +30,8 @@ namespace FlaxEngine.Networking
         /// <param name="length">The amount of bytes to write from the bytes pointer.</param>
         public void WriteBytes(byte* bytes, int start, int length)
         {
-            Assert.IsTrue(Position + length <= BufferSize, $"Could not write data of length {length} into message with id={MessageId}! Current write position={Position}");
+            if (Position + length > BufferSize)
+                Assert.IsTrue(Position + length <= BufferSize, $"Could not write data of length {length} into message with id={MessageId}! Current write position={Position}");
             Utils.MemoryCopy(new IntPtr(Buffer + Position), new IntPtr(bytes + start), (ulong)length);
             Position += (uint)length;
             Length = Position;
@@ -45,7 +47,8 @@ namespace FlaxEngine.Networking
         /// <param name="length">The minimal amount of bytes that the buffer contains.</param>
         public void ReadBytes(byte* buffer, int length)
         {
-            Assert.IsTrue(Position + length <= Length, $"Could not read data of length {length} from message with id={MessageId} and size of {Length}B! Current read position={Position}");
+            if (Position + length > BufferSize)
+                Assert.IsTrue(Position + length <= Length, $"Could not read data of length {length} from message with id={MessageId} and size of {Length}B! Current read position={Position}");
             Utils.MemoryCopy(new IntPtr(buffer), new IntPtr(Buffer + Position), (ulong)length);
             Position += (uint)length;
         }
@@ -61,7 +64,8 @@ namespace FlaxEngine.Networking
         /// <param name="length">The minimal amount of bytes that the buffer contains.</param>
         public void ReadBytes(byte* buffer, int start, int length)
         {
-            Assert.IsTrue(Position + length <= Length, $"Could not read data of length {length} from message with id={MessageId} and size of {Length}B! Current read position={Position}");
+            if (Position + length > BufferSize)
+                Assert.IsTrue(Position + length <= Length, $"Could not read data of length {length} from message with id={MessageId} and size of {Length}B! Current read position={Position}");
             Utils.MemoryCopy(new IntPtr(buffer + start), new IntPtr(Buffer + Position), (ulong)length);
             Position += (uint)length;
         }
