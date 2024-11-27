@@ -442,19 +442,21 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Local Triplanar Texture",
                 Description = "Projects a texture using local-space coordinates with offset.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 140),  // Increased size to accommodate new input
+                Size = new Float2(280, 160),  // Increased size to accommodate new input
                 DefaultValues = new object[]
                 {
                     1.0f,
                     1.0f,
-                    new Float3(0, 0, 0)  // Default offset
+                    new Float3(0, 0, 0),  // Default offset,
+                    new Float3(0, 1, 0)  // no normal
                 },
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Input(0, "Texture", true, typeof(FlaxEngine.Object), 0),
                     NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float3), 1, 0),
                     NodeElementArchetype.Factory.Input(2, "Blend", true, typeof(float), 2, 1),
-                    NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float3), 3, 2),  // New input for offset
+                    NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float3), 3, 2),  
+                    NodeElementArchetype.Factory.Input(4, "Normal", true, typeof(Float3), 4, 3),
                     NodeElementArchetype.Factory.Output(0, "Color", typeof(Float3), 5)
                 }
             }
@@ -544,6 +546,33 @@ namespace FlaxEditor.Surface.Archetypes
                 {
                     NodeElementArchetype.Factory.Output(0, "Pos", typeof(Float3), 0)
                 }
+            },
+            new NodeArchetype
+            {
+                TypeID = 24,
+                Title = "Tangent To World Space",
+                Description = "Transforms a normal from tangent space to world space",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(180, 40),
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Input(0, "Tangent Normal", true, typeof(Float3), 0),
+                    NodeElementArchetype.Factory.Output(0, "World Normal", typeof(Float3), 1)
+                }
+            },
+            new NodeArchetype
+            {
+                TypeID = 25,
+                Title = "World To Tangent Space",
+                Description = "Transforms a normal from world space to tangent space",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(180, 40),
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Input(0, "World Normal", true, typeof(Float3), 0),
+                    NodeElementArchetype.Factory.Output(0, "Tangent Normal", typeof(Float3), 1)
+                }
+
             }
         };
     }
