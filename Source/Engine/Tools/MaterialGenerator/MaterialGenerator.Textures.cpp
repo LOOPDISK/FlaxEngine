@@ -899,67 +899,83 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 
         auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
 
-        //),
-        //texture.Value, //  {0}
-        //scale.Value,   //  {1}
-        //blend.Value,   //  {2}
-        //result.Value,   //  {3}
-        //offset.Value      // {4} - New offset parameter
-        //);
 
         const String triplanarNormalMap = ShaderBuilder()
             .Code(TEXT(R"(
 
             {
-              // Get local space position
-               float3 localPos = input.WorldPosition - GetObjectPosition(input);
-               float3 localScale = GetObjectScale(input);
-               localPos = TransformWorldVectorToLocal(input, localPos);
-            
-               // Apply the scale parameter in local space
+                // Get local space position and scale
+                float3 localPos = input.WorldPosition - GetObjectPosition(input);
+                float3 localScale = GetObjectScale(input);
+                localPos = TransformWorldVectorToLocal(input, localPos);
+    
+                // Scale and normalize local position
                 localPos = localPos * %SCALE% * 0.001f + %OFFSET%;
-               localPos /= localScale;
-            
-               // Get local normal\n"
-               float3 localNormal = normalize(TransformWorldVectorToLocal(input, input.TBN[2]));
-            
-               // Calculate blend weights
-               float3 blendWeights = abs(localNormal);
-               blendWeights = pow(blendWeights, %BLEND%);
-               blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);
-            
-               // Sample and unpack normal maps
-               float2 uvX = localPos.yz;
-               float2 uvY = localPos.xz;
-               float2 uvZ = localPos.xy;
-            
-               float3 tnormalX = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvX).rg * 2.0 - 1.0, 0);
-               tnormalX.y = -tnormalX.y;
-               tnormalX.z = sqrt(1.0 - saturate(dot(tnormalX.xy, tnormalX.xy)));
-            
-               float3 tnormalY = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvY).rg * 2.0 - 1.0, 0);
-               tnormalY.y = -tnormalY.y;
-               tnormalY.z = sqrt(1.0 - saturate(dot(tnormalY.xy, tnormalY.xy)));
-            
-               float3 tnormalZ = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvZ).rg * 2.0 - 1.0, 0);
-               tnormalZ.y = -tnormalZ.y;
-               tnormalZ.z = sqrt(1.0 - saturate(dot(tnormalZ.xy, tnormalZ.xy)));
-            
-               // Apply Whiteout blend
-               float3 axisSign = sign(localNormal);
-               tnormalX = float3(tnormalX.xy + localNormal.zy, abs(tnormalX.z) * localNormal.x);
-               tnormalY = float3(tnormalY.xy + localNormal.xz, abs(tnormalY.z) * localNormal.y);
-               tnormalZ = float3(tnormalZ.xy + localNormal.xy, abs(tnormalZ.z) * localNormal.z);
-            
-               // Swizzle tangent normals to match local orientation and blend
-               float3 localTriplanarNormal = normalize(
-                   tnormalX.zxy * blendWeights.x +
-                   tnormalY.xzy * blendWeights.y +
-                   tnormalZ.xyz * blendWeights.z
-               );
-            
-               // Transform the blended normal back to world space
-               %RESULT% = normalize(TransformLocalVectorToWorld(input, localTriplanarNormal));
+                localPos /= localScale;
+    
+                // Get local normal and create blend weights
+                float3 localNormal = normalize(TransformWorldVectorToLocal(input, input.TBN[2]));
+                float3 blendWeights = pow(abs(localNormal), %BLEND%);
+                blendWeights /= dot(blendWeights, float3(1,1,1));
+    
+                // Sample normal maps for each axis
+                float2 uvX = localPos.yz;
+                float2 uvY = localPos.xz;
+                float2 uvZ = localPos.xy;
+    
+                // Unpack normal maps and handle neutral values correctly
+                float3 tnormalX = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvX).rg * 2.0 - 1.0, 0);
+                float3 tnormalY = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvY).rg * 2.0 - 1.0, 0);
+                float3 tnormalZ = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvZ).rg * 2.0 - 1.0, 0);
+    
+                // Reconstruct Z components
+                tnormalX.z = sqrt(1.0 - saturate(dot(tnormalX.xy, tnormalX.xy)));
+                tnormalY.z = sqrt(1.0 - saturate(dot(tnormalY.xy, tnormalY.xy)));
+                tnormalZ.z = sqrt(1.0 - saturate(dot(tnormalZ.xy, tnormalZ.xy)));
+    
+                // Apply proper whiteout blend
+                float3 axisSign = sign(localNormal);
+    
+    //            tnormalX = float3(
+    //                tnormalX.xy + localNormal.zy,
+    //                length(tnormalX.xy) * localNormal.x
+    //            );
+    //
+    //            tnormalY = float3(
+    //                tnormalY.xy + localNormal.xz,
+    //                length(tnormalY.xy) * localNormal.y
+    //            );
+    //
+    //            tnormalZ = float3(
+    //                tnormalZ.xy + localNormal.xy,
+    //                length(tnormalZ.xy) * localNormal.z
+    //            );
+
+                tnormalX = float3(
+                    tnormalX.xy + localNormal.zy,
+                    sqrt(1.0 - saturate(dot(tnormalX.xy + localNormal.zy, tnormalX.xy + localNormal.zy))) * axisSign.x
+                );
+
+                tnormalY = float3(
+                    tnormalY.xy + localNormal.xz,
+                    sqrt(1.0 - saturate(dot(tnormalY.xy + localNormal.xz, tnormalY.xy + localNormal.xz))) * axisSign.y
+                );
+
+                tnormalZ = float3(
+                    tnormalZ.xy + localNormal.xy,
+                    sqrt(1.0 - saturate(dot(tnormalZ.xy + localNormal.xy, tnormalZ.xy + localNormal.xy))) * axisSign.z
+                );
+    
+                // Transform back to world space with proper axis handling
+                float3 worldNormal = normalize(
+                    TransformLocalVectorToWorld(input, 
+                        tnormalX.zyx * blendWeights.x +
+                        tnormalY.xzy * blendWeights.y +
+                        tnormalZ.xyz * blendWeights.z
+                    )
+                );
+    
+                %RESULT% = worldNormal;
             }
         )"))
             .Replace(TEXT("%TEXTURE%"), texture.Value)
