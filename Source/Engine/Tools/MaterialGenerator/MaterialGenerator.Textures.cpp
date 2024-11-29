@@ -806,67 +806,49 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         auto scaleBox = node->GetBox(1);
         auto blendBox = node->GetBox(2);
         auto offsetBox = node->GetBox(3);
-        auto normalBox = node->GetBox(4);
-
         if (!textureBox->HasConnection())
         {
             value = Value::Zero;
             break;
         }
-
         const auto texture = eatBox(textureBox->GetParent<Node>(), textureBox->FirstConnection());
-        const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat3();
+        const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat2();
         const auto blend = tryGetValue(blendBox, node->Values[1]).AsFloat();
-        const auto offset = tryGetValue(offsetBox, node->Values[2]).AsFloat3();
-        const auto modnormal = tryGetValue(normalBox, node->Values[3]).AsFloat3();
-        // Get input normal in tangent space
-        //Value modnormal = tryGetValue(normalBox, Value(VariantType::Float3, TEXT("float3(0,0,1)"))).AsFloat3();
+        const auto offset = tryGetValue(offsetBox, node->Values[2]).AsFloat2();
         auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
-
         const String triplanarTexture = ShaderBuilder()
-        .Code(TEXT(R"(
-        {
-            // Transform position to local space coordinates
-            float3 localPos = input.WorldPosition - GetObjectPosition(input);
-            float3 localScale = GetObjectScale(input);
-            localPos = TransformWorldVectorToLocal(input, localPos);
-            
-            // Apply scaling and offset transformations
-            localPos = localPos * %SCALE% * 0.001f + %OFFSET%;
-            localPos /= localScale;
-            
-
-            float3 localNormal = TransformWorldVectorToLocal(input, %MODNORMAL%);
-            
-            // Transform normal to local space for proper projection weights
-            //float3 localNormal = TransformWorldVectorToLocal(input, input.TBN[2]);
-            
-            // Compute triplanar blend weights using power distribution
-            float3 blendWeights = pow(abs(localNormal), %BLEND%);
-            blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);
-            
-            // Sample texture across orthogonal planes in local space
-            float3 xProjection = %TEXTURE%.Sample(SamplerLinearWrap, localPos.yz).rgb;
-            float3 yProjection = %TEXTURE%.Sample(SamplerLinearWrap, localPos.xz).rgb;
-            float3 zProjection = %TEXTURE%.Sample(SamplerLinearWrap, localPos.xy).rgb;
-            
-            // Blend projections using computed weights
-            %RESULT% = xProjection * blendWeights.x + 
-                      yProjection * blendWeights.y + 
-                      zProjection * blendWeights.z;
-
-
-            //%RESULT% = %MODNORMAL%;
-        }
-        )"))
-        .Replace(TEXT("%TEXTURE%"), texture.Value)
-        .Replace(TEXT("%SCALE%"), scale.Value)
-        .Replace(TEXT("%BLEND%"), blend.Value)
-        .Replace(TEXT("%OFFSET%"), offset.Value)
-        .Replace(TEXT("%MODNORMAL%"), modnormal.Value)
-        .Replace(TEXT("%RESULT%"), result.Value)
-        .Build();
-
+            .Code(TEXT(R"(
+            {
+                // Transform position to local space coordinates
+                float3 localPos = input.WorldPosition - GetObjectPosition(input);
+                float3 localScale = GetObjectScale(input);
+                localPos = TransformWorldVectorToLocal(input, localPos);
+        
+                // Apply local scale without affecting texture scale
+                localPos /= localScale;
+        
+                float3 localNormal = normalize(TransformWorldVectorToLocal(input, input.TBN[2]));
+        
+                // Compute triplanar blend weights using power distribution
+                float3 blendWeights = pow(abs(localNormal), %BLEND%);
+                blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);
+        
+                float3 xProjection = %TEXTURE%.Sample(SamplerLinearWrap, localPos.yz * %SCALE%.xy  * 0.001f + %OFFSET%.xy).rgb;
+                float3 yProjection = %TEXTURE%.Sample(SamplerLinearWrap, localPos.xz * %SCALE%.xy * 0.001f + %OFFSET%.xy).rgb;
+                float3 zProjection = %TEXTURE%.Sample(SamplerLinearWrap, localPos.xy * %SCALE%.xy * 0.001f + %OFFSET%.xy).rgb;
+        
+                // Blend projections using computed weights
+                %RESULT% = xProjection * blendWeights.x + 
+                          yProjection * blendWeights.y + 
+                          zProjection * blendWeights.z;
+            }
+            )"))
+            .Replace(TEXT("%TEXTURE%"), texture.Value)
+            .Replace(TEXT("%SCALE%"), scale.Value)
+            .Replace(TEXT("%BLEND%"), blend.Value)
+            .Replace(TEXT("%OFFSET%"), offset.Value)
+            .Replace(TEXT("%RESULT%"), result.Value)
+            .Build();
         _writer.Write(*triplanarTexture);
         value = result;
         break;
@@ -879,113 +861,91 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         auto textureBox = node->GetBox(0);
         auto scaleBox = node->GetBox(1);
         auto blendBox = node->GetBox(2);
-        auto offsetBox = node->GetBox(3); // New input box for offset
+        auto offsetBox = node->GetBox(3);
         if (!textureBox->HasConnection())
         {
-            // No texture to sample
             value = Value::Zero;
             break;
         }
         if (!CanUseSample(_treeType))
         {
-            // Must sample texture in pixel shader
             value = Value::Zero;
             break;
         }
         const auto texture = eatBox(textureBox->GetParent<Node>(), textureBox->FirstConnection());
-        const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat3();
+        const auto scale = tryGetValue(scaleBox, node->Values[0]).AsFloat2();
         const auto blend = tryGetValue(blendBox, node->Values[1]).AsFloat();
-        const auto offset = tryGetValue(offsetBox, node->Values[2]).AsFloat3(); // New offset value
+        const auto offset = tryGetValue(offsetBox, node->Values[2]).AsFloat2();
 
         auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
 
-
         const String triplanarNormalMap = ShaderBuilder()
             .Code(TEXT(R"(
+        {
+            // Get local space position and scale
+            float3 localPos = input.WorldPosition - GetObjectPosition(input);
+            float3 localScale = GetObjectScale(input);
+            localPos = TransformWorldVectorToLocal(input, localPos);
 
-            {
-                // Get local space position and scale
-                float3 localPos = input.WorldPosition - GetObjectPosition(input);
-                float3 localScale = GetObjectScale(input);
-                localPos = TransformWorldVectorToLocal(input, localPos);
-    
-                // Scale and normalize local position
-                localPos = localPos * %SCALE% * 0.001f + %OFFSET%;
-                localPos /= localScale;
-    
-                // Get local normal and create blend weights
-                float3 localNormal = normalize(TransformWorldVectorToLocal(input, input.TBN[2]));
-                float3 blendWeights = pow(abs(localNormal), %BLEND%);
-                blendWeights /= dot(blendWeights, float3(1,1,1));
-    
-                // Sample normal maps for each axis
-                float2 uvX = localPos.yz;
-                float2 uvY = localPos.xz;
-                float2 uvZ = localPos.xy;
-    
-                // Unpack normal maps and handle neutral values correctly
-                float3 tnormalX = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvX).rg * 2.0 - 1.0, 0);
-                float3 tnormalY = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvY).rg * 2.0 - 1.0, 0);
-                float3 tnormalZ = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvZ).rg * 2.0 - 1.0, 0);
-    
-                // Reconstruct Z components
-                tnormalX.z = sqrt(1.0 - saturate(dot(tnormalX.xy, tnormalX.xy)));
-                tnormalY.z = sqrt(1.0 - saturate(dot(tnormalY.xy, tnormalY.xy)));
-                tnormalZ.z = sqrt(1.0 - saturate(dot(tnormalZ.xy, tnormalZ.xy)));
-    
-                // Apply proper whiteout blend
-                float3 axisSign = sign(localNormal);
-    
-    //            tnormalX = float3(
-    //                tnormalX.xy + localNormal.zy,
-    //                length(tnormalX.xy) * localNormal.x
-    //            );
-    //
-    //            tnormalY = float3(
-    //                tnormalY.xy + localNormal.xz,
-    //                length(tnormalY.xy) * localNormal.y
-    //            );
-    //
-    //            tnormalZ = float3(
-    //                tnormalZ.xy + localNormal.xy,
-    //                length(tnormalZ.xy) * localNormal.z
-    //            );
+            // Scale and normalize local position
+            localPos /= localScale;
 
-                tnormalX = float3(
-                    tnormalX.xy + localNormal.zy,
-                    sqrt(1.0 - saturate(dot(tnormalX.xy + localNormal.zy, tnormalX.xy + localNormal.zy))) * axisSign.x
-                );
+            // Get local normal and create blend weights
+            float3 localNormal = normalize(TransformWorldVectorToLocal(input, input.TBN[2]));
+            float3 blendWeights = pow(abs(localNormal), %BLEND%);
+            blendWeights /= dot(blendWeights, float3(1,1,1));
 
-                tnormalY = float3(
-                    tnormalY.xy + localNormal.xz,
-                    sqrt(1.0 - saturate(dot(tnormalY.xy + localNormal.xz, tnormalY.xy + localNormal.xz))) * axisSign.y
-                );
+            // Sample normal maps for each axis with proper 2D scaling
+            float2 uvX = localPos.yz * %SCALE%.xy * 0.001f + %OFFSET%.xy;
+            float2 uvY = localPos.xz * %SCALE%.xy * 0.001f + %OFFSET%.xy;
+            float2 uvZ = localPos.xy * %SCALE%.xy * 0.001f+ %OFFSET%.xy;
 
-                tnormalZ = float3(
-                    tnormalZ.xy + localNormal.xy,
-                    sqrt(1.0 - saturate(dot(tnormalZ.xy + localNormal.xy, tnormalZ.xy + localNormal.xy))) * axisSign.z
-                );
-    
-                // Transform back to world space with proper axis handling
-                float3 worldNormal = normalize(
-                    TransformLocalVectorToWorld(input, 
-                        tnormalX.zyx * blendWeights.x +
-                        tnormalY.xzy * blendWeights.y +
-                        tnormalZ.xyz * blendWeights.z
-                    )
-                );
-    
-                %RESULT% = worldNormal;
-            }
-        )"))
+            // Unpack normal maps and handle neutral values correctly
+            float3 tnormalX = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvX).rg * 2.0 - 1.0, 0);
+            float3 tnormalY = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvY).rg * 2.0 - 1.0, 0);
+            float3 tnormalZ = float3(%TEXTURE%.Sample(SamplerLinearWrap, uvZ).rg * 2.0 - 1.0, 0);
+
+            // Reconstruct Z components
+            tnormalX.z = sqrt(1.0 - saturate(dot(tnormalX.xy, tnormalX.xy)));
+            tnormalY.z = sqrt(1.0 - saturate(dot(tnormalY.xy, tnormalY.xy)));
+            tnormalZ.z = sqrt(1.0 - saturate(dot(tnormalZ.xy, tnormalZ.xy)));
+
+            // Apply proper whiteout blend
+            float3 axisSign = sign(localNormal);
+
+            tnormalX = float3(
+                tnormalX.xy + localNormal.zy,
+                sqrt(1.0 - saturate(dot(tnormalX.xy + localNormal.zy, tnormalX.xy + localNormal.zy))) * axisSign.x
+            );
+
+            tnormalY = float3(
+                tnormalY.xy + localNormal.xz,
+                sqrt(1.0 - saturate(dot(tnormalY.xy + localNormal.xz, tnormalY.xy + localNormal.xz))) * axisSign.y
+            );
+
+            tnormalZ = float3(
+                tnormalZ.xy + localNormal.xy,
+                sqrt(1.0 - saturate(dot(tnormalZ.xy + localNormal.xy, tnormalZ.xy + localNormal.xy))) * axisSign.z
+            );
+
+            // Transform back to world space with proper axis handling
+            float3 worldNormal = normalize(
+                TransformLocalVectorToWorld(input, 
+                    tnormalX.zyx * blendWeights.x +
+                    tnormalY.xzy * blendWeights.y +
+                    tnormalZ.xyz * blendWeights.z
+                )
+            );
+
+            %RESULT% = worldNormal;
+        }
+    )"))
             .Replace(TEXT("%TEXTURE%"), texture.Value)
             .Replace(TEXT("%SCALE%"), scale.Value)
             .Replace(TEXT("%BLEND%"), blend.Value)
             .Replace(TEXT("%OFFSET%"), offset.Value)
             .Replace(TEXT("%RESULT%"), result.Value)
             .Build();
-
-
 
         _writer.Write(*triplanarNormalMap);
         value = result;

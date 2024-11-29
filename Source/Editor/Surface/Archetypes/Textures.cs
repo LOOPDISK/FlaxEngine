@@ -445,18 +445,16 @@ namespace FlaxEditor.Surface.Archetypes
                 Size = new Float2(280, 160),  // Increased size to accommodate new input
                 DefaultValues = new object[]
                 {
+                    new Float2(1, 1),
                     1.0f,
-                    1.0f,
-                    new Float3(0, 0, 0),  // Default offset,
-                    new Float3(0, 1, 0)  // no normal
+                    new Float2(0, 0),  // Default offset,
                 },
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Input(0, "Texture", true, typeof(FlaxEngine.Object), 0),
-                    NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float3), 1, 0),
+                    NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float2), 1, 0),
                     NodeElementArchetype.Factory.Input(2, "Blend", true, typeof(float), 2, 1),
-                    NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float3), 3, 2),  
-                    NodeElementArchetype.Factory.Input(4, "Normal", true, typeof(Float3), 4, 3),
+                    NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float2), 3, 2), 
                     NodeElementArchetype.Factory.Output(0, "Color", typeof(Float3), 5)
                 }
             }
@@ -472,14 +470,14 @@ namespace FlaxEditor.Surface.Archetypes
                 {
                     1.0f,
                     1.0f,
-                    new Float3(0, 0, 0)  // Default offset
+                    new Float2(0, 0)  // Default offset
                 },
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Input(0, "Texture", true, typeof(FlaxEngine.Object), 0),
-                    NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float3), 1, 0),
+                    NodeElementArchetype.Factory.Input(1, "Scale", true, typeof(Float2), 1, 0),
                     NodeElementArchetype.Factory.Input(2, "Blend", true, typeof(float), 2, 1),
-                    NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float3), 3, 2),
+                    NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float2), 3, 2),
                     NodeElementArchetype.Factory.Output(0, "Vector", typeof(Float3), 5)
                 }
             },
