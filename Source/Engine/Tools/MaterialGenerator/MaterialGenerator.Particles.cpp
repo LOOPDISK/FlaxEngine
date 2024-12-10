@@ -4,6 +4,52 @@
 
 #include "MaterialGenerator.h"
 
+class ShaderBuilder
+{
+private:
+    String _code;
+    Array<Pair<String, String>> _replacements;
+
+public:
+    // Facilitates shader code integration with proper text encoding
+    ShaderBuilder& Code(const Char* shaderCode)
+    {
+        // Maintain single allocation strategy for shader text
+        _code = shaderCode;
+        return *this;
+    }
+
+    // Implements parameter substitution with compile-time validation
+    ShaderBuilder& Replace(const String& key, const String& value)
+    {
+        _replacements.Add(Pair<String, String>(key, value));
+        return *this;
+    }
+
+    // Synthesizes final shader implementation through parameter resolution
+    String Build() const
+    {
+        String result = _code;
+
+        // Execute contextual parameter substitution
+        for (const auto& replacement : _replacements)
+        {
+            const auto& key = replacement.First;
+            const auto& value = replacement.Second;
+
+            // Utilize Flax's native string manipulation for optimal performance
+            int32 position = 0;
+            while ((position = result.Find(key)) != -1)
+            {
+                result = String::Format(TEXT("{0}{1}{2}"),
+                    StringView(result.Get(), position),
+                    value,
+                    StringView(result.Get() + position + key.Length()));
+            }
+        }
+        return result;
+    }
+};
 MaterialValue MaterialGenerator::AccessParticleAttribute(Node* caller, const StringView& name, ParticleAttributeValueTypes valueType, const Char* index, ParticleAttributeSpace space)
 {
     // TODO: cache the attribute value during material tree execution (eg. reuse the same Particle Color read for many nodes in graph)
@@ -178,6 +224,40 @@ void MaterialGenerator::ProcessGroupParticles(Box* box, Node* node, Value& value
     case 111:
     {
         value = AccessParticleAttribute(node, TEXT("Radius"), ParticleAttributeValueTypes::Float);
+        break; 
+    }
+    // In MaterialGenerator.cpp, ProcessGroupParticles method:
+    case 400:
+    {
+        // Get base vector from input
+        const Value baseVector = tryGetValue(node->GetBox(0), Value(VariantType::Float3, TEXT("float3(0, 0, 1)")));
+
+        // Get particle rotation in Euler angles and convert to rotation matrix
+        auto result = writeLocal(VariantType::Float3, node);
+        const String rotationCode = ShaderBuilder()
+            .Code(TEXT(R"(
+        {
+            // Get base vector to transform
+            float3 v = float3(0, 0, 1);
+            
+            // Get particle rotation in euler angles (in degrees)
+            float3 rotation = GetParticleVec3(input.ParticleIndex, %ROTATION_OFFSET%);
+            
+            // Convert to radians and compute rotation matrix
+            float3x3 eulerMatrix = EulerMatrix(radians(rotation));
+            
+            // Apply rotation and then transform to world space
+            float3 rotatedVector = mul(v, eulerMatrix);
+            %RESULT% = TransformParticleVector(rotatedVector);
+        }
+        )"))
+            .Replace(TEXT("%BASE_VECTOR%"), baseVector.Value)
+            .Replace(TEXT("%ROTATION_OFFSET%"), TEXT("RotationOffset"))
+            .Replace(TEXT("%RESULT%"), result.Value)
+            .Build();
+
+        _writer.Write(*rotationCode);
+        value = result;
         break;
     }
     default:

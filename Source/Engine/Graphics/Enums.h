@@ -905,6 +905,21 @@ API_ENUM() enum class ViewMode
     /// Draw Global Illumination debug preview (eg. irradiance probes).
     /// </summary>
     GlobalIllumination = 26,
+
+    /// <summary>
+    /// Draw ClearcoatIntensity debug preview 
+    /// </summary>
+    ClearcoatIntensity = 27,
+
+    /// <summary>
+    /// Draw ClearcoatRoughness debug preview 
+    /// </summary>
+    ClearcoatRoughness = 28,
+
+    /// <summary>
+    /// Draw ClearcoatNormal debug preview 
+    /// </summary>
+    ClearcoatNormal = 29,
 };
 
 /// <summary>

@@ -48,6 +48,13 @@ public:
             Guid Texture = Guid::Empty;
         } Normals;
 
+        struct
+        {
+            float Intensity = 0.0f;
+            float Roughness = 0.5f;
+            Guid ClearcoatNormal = Guid::Empty;
+        } Clearcoat;
+
         Options();
     };
 

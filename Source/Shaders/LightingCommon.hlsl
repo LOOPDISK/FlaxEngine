@@ -51,6 +51,7 @@ struct LightingData
     float3 Diffuse;
     float3 Specular;
     float3 Transmission;
+    float3 ClearcoatSpecular; // New addition for clearcoat
 };
 
 // Calculates radial light (point or spot) attenuation factors (distance, spot and radius mask)

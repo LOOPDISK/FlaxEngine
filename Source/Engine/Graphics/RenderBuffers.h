@@ -9,7 +9,7 @@
 
 // GBuffer render targets formats
 #define GBUFFER0_FORMAT PixelFormat::R8G8B8A8_UNorm
-#define GBUFFER1_FORMAT PixelFormat::R10G10B10A2_UNorm
+#define GBUFFER1_FORMAT PixelFormat::R16G16B16A16_UNorm
 #define GBUFFER2_FORMAT PixelFormat::R8G8B8A8_UNorm
 #define GBUFFER3_FORMAT PixelFormat::R8G8B8A8_UNorm
 

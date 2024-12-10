@@ -106,6 +106,9 @@ void MaterialGenerator::ProcessGroupLayers(Box* box, Node* node, Value& value)
                     EAT_BOX(Mask);
                     EAT_BOX(Emissive);
                     EAT_BOX(SubsurfaceColor);
+                    EAT_BOX(ClearcoatIntensity);
+                    EAT_BOX(ClearcoatRoughness);
+                    EAT_BOX(ClearcoatNormal);
                     if ((GetRootLayer()->FeaturesFlags & MaterialFeaturesFlags::InputWorldSpaceNormal) != (layer->FeaturesFlags & MaterialFeaturesFlags::InputWorldSpaceNormal))
                     {
                         // TODO convert normal vector to match the output layer properties
@@ -208,6 +211,9 @@ void MaterialGenerator::ProcessGroupLayers(Box* box, Node* node, Value& value)
             EAT_BOX(Mask);
             EAT_BOX(Emissive);
             EAT_BOX(SubsurfaceColor);
+            EAT_BOX(ClearcoatIntensity);
+            EAT_BOX(ClearcoatRoughness);
+            EAT_BOX(ClearcoatNormal);
             break;
         }
         default:
@@ -328,7 +334,9 @@ void MaterialGenerator::ProcessGroupLayers(Box* box, Node* node, Value& value)
             EAT_BOX(Mask);
             EAT_BOX(Emissive);
             EAT_BOX(SubsurfaceColor);
-
+            EAT_BOX(ClearcoatIntensity);
+            EAT_BOX(ClearcoatRoughness);
+            EAT_BOX(ClearcoatNormal);
             CHECK_MATERIAL_FEATURE(Emissive, UseEmissive);
             CHECK_MATERIAL_FEATURE(Normal, UseNormal);
             CHECK_MATERIAL_FEATURE(Mask, UseMask);

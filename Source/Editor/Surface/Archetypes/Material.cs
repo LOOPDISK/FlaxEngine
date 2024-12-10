@@ -40,6 +40,9 @@ namespace FlaxEditor.Surface.Archetypes
                 TessellationMultiplier = 12,
                 WorldDisplacement = 13,
                 SubsurfaceColor = 14,
+                ClearcoatIntensity = 15,
+                ClearcoatRoughness = 16,
+                ClearcoatNormal = 17,
             };
 
             /// <inheritdoc />
@@ -85,6 +88,9 @@ namespace FlaxEditor.Surface.Archetypes
                     GetBox(MaterialNodeBoxes.TessellationMultiplier).IsActive = false;
                     GetBox(MaterialNodeBoxes.WorldDisplacement).IsActive = false;
                     GetBox(MaterialNodeBoxes.SubsurfaceColor).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatIntensity).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatRoughness).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatNormal).IsActive = false;
                     return;
                 }
 
@@ -102,6 +108,7 @@ namespace FlaxEditor.Surface.Archetypes
                     bool isNotUnlit = info.ShadingModel != MaterialShadingModel.Unlit;
                     bool withTess = info.TessellationMode != TessellationMethod.None;
 
+
                     GetBox(MaterialNodeBoxes.Color).IsActive = isNotUnlit;
                     GetBox(MaterialNodeBoxes.Mask).IsActive = true;
                     GetBox(MaterialNodeBoxes.Emissive).IsActive = true;
@@ -116,6 +123,11 @@ namespace FlaxEditor.Surface.Archetypes
                     GetBox(MaterialNodeBoxes.TessellationMultiplier).IsActive = withTess;
                     GetBox(MaterialNodeBoxes.WorldDisplacement).IsActive = withTess;
                     GetBox(MaterialNodeBoxes.SubsurfaceColor).IsActive = info.ShadingModel == MaterialShadingModel.Subsurface || info.ShadingModel == MaterialShadingModel.Foliage;
+                    // Clearcoat-specific parameters
+                    GetBox(MaterialNodeBoxes.ClearcoatIntensity).IsActive = info.ShadingModel == MaterialShadingModel.Clearcoat;
+                    GetBox(MaterialNodeBoxes.ClearcoatRoughness).IsActive = info.ShadingModel  == MaterialShadingModel.Clearcoat;
+                    GetBox(MaterialNodeBoxes.ClearcoatNormal).IsActive = info.ShadingModel == MaterialShadingModel.Clearcoat;
+
                     break;
                 }
                 case MaterialDomain.PostProcess:
@@ -134,6 +146,9 @@ namespace FlaxEditor.Surface.Archetypes
                     GetBox(MaterialNodeBoxes.TessellationMultiplier).IsActive = false;
                     GetBox(MaterialNodeBoxes.WorldDisplacement).IsActive = false;
                     GetBox(MaterialNodeBoxes.SubsurfaceColor).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatIntensity).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatRoughness).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatNormal).IsActive = false;
                     break;
                 }
                 case MaterialDomain.Decal:
@@ -154,6 +169,9 @@ namespace FlaxEditor.Surface.Archetypes
                     GetBox(MaterialNodeBoxes.TessellationMultiplier).IsActive = false;
                     GetBox(MaterialNodeBoxes.WorldDisplacement).IsActive = false;
                     GetBox(MaterialNodeBoxes.SubsurfaceColor).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatIntensity).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatRoughness).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatNormal).IsActive = false;
                     break;
                 }
                 case MaterialDomain.GUI:
@@ -172,6 +190,9 @@ namespace FlaxEditor.Surface.Archetypes
                     GetBox(MaterialNodeBoxes.TessellationMultiplier).IsActive = false;
                     GetBox(MaterialNodeBoxes.WorldDisplacement).IsActive = false;
                     GetBox(MaterialNodeBoxes.SubsurfaceColor).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatIntensity).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatRoughness).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatNormal).IsActive = false;
                     break;
                 }
                 case MaterialDomain.VolumeParticle:
@@ -190,6 +211,9 @@ namespace FlaxEditor.Surface.Archetypes
                     GetBox(MaterialNodeBoxes.TessellationMultiplier).IsActive = false;
                     GetBox(MaterialNodeBoxes.WorldDisplacement).IsActive = false;
                     GetBox(MaterialNodeBoxes.SubsurfaceColor).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatIntensity).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatRoughness).IsActive = false;
+                    GetBox(MaterialNodeBoxes.ClearcoatNormal).IsActive = false;
                     break;
                 }
                 default: throw new ArgumentOutOfRangeException();
@@ -281,7 +305,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Material",
                 Description = "Main material node",
                 Flags = NodeFlags.MaterialGraph | NodeFlags.NoRemove | NodeFlags.NoSpawnViaGUI | NodeFlags.NoSpawnViaPaste | NodeFlags.NoCloseButton,
-                Size = new Float2(150, 300),
+                Size = new Float2(150, 500),
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Input(0, "", true, typeof(void), 0),
@@ -299,6 +323,9 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(12, "Tessellation Multiplier", true, typeof(float), 12),
                     NodeElementArchetype.Factory.Input(13, "World Displacement", true, typeof(Float3), 13),
                     NodeElementArchetype.Factory.Input(14, "Subsurface Color", true, typeof(Float3), 14),
+                    NodeElementArchetype.Factory.Input(15, "Clearcoat Intensity", true, typeof(float), 15),
+                    NodeElementArchetype.Factory.Input(16, "Clearcoat Roughness", true, typeof(float), 16),
+                    NodeElementArchetype.Factory.Input(17, "Clearcoat Normal", true, typeof(Float3), 17),
                 }
             },
             new NodeArchetype

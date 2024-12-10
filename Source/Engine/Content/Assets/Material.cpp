@@ -419,10 +419,26 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
     // Ensure that this call is valid (material features switches may depend on target compilation platform)
     ASSERT(options.Profile != ShaderProfile::Unknown);
 
+
+    
     // Prepare
     auto& info = _shaderHeader.Material.Info;
+
+    // Replace your current printf(info) with:
+    printf("Material Info:\n"
+        "Domain: %d\n"
+        "Blend Mode: %d\n"
+        "Shading Model: %d\n"
+        "Usage Flags: 0x%X\n",
+        static_cast<int>(info.Domain),
+        static_cast<int>(info.BlendMode),
+        static_cast<int>(info.ShadingModel),
+        static_cast<unsigned int>(info.UsageFlags));
+
     const bool isSurfaceOrTerrainOrDeformable = info.Domain == MaterialDomain::Surface || info.Domain == MaterialDomain::Terrain || info.Domain == MaterialDomain::Deformable;
-    const bool useCustomData = info.ShadingModel == MaterialShadingModel::Subsurface || info.ShadingModel == MaterialShadingModel::Foliage;
+    const bool useCustomData = info.ShadingModel == MaterialShadingModel::Subsurface ||
+        info.ShadingModel == MaterialShadingModel::Foliage ||
+        info.ShadingModel == MaterialShadingModel::Clearcoat;  // Add clearcoat
     const bool useForward = ((info.Domain == MaterialDomain::Surface || info.Domain == MaterialDomain::Deformable) && info.BlendMode != MaterialBlendMode::Opaque) || info.Domain == MaterialDomain::Particle;
     const bool useTess =
             info.TessellationMode != TessellationMethod::None &&

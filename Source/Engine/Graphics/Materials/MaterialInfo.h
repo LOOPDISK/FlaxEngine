@@ -103,6 +103,11 @@ API_ENUM() enum class MaterialShadingModel : byte
     /// The foliage material. Intended for foliage materials like leaves and grass that need light scattering to transport simulation through the thin object.
     /// </summary>
     Foliage = 3,
+
+    /// <summary>
+    /// The Clearcoat material. Intended for sparkly materials and surfaces with microfaceted details, useful for car paint, and things like glitter sand. 
+    /// </summary>
+    Clearcoat = 4,
 };
 
 /// <summary>
@@ -213,6 +218,10 @@ enum class MaterialFlags_Deprecated : uint32
     /// The flag used to indicate that material uses refraction feature.
     /// </summary>
     UseRefraction = 1 << 15,
+
+
+
+
 };
 
 DECLARE_ENUM_OPERATORS(MaterialFlags_Deprecated);
@@ -329,6 +338,20 @@ API_ENUM(Attributes="Flags") enum class MaterialUsageFlags : uint32
     /// The flag used to indicate that material uses refraction feature.
     /// </summary>
     UseRefraction = 1 << 6,
+
+    /// <summary>
+    /// The material implements a clearcoat layer with independent normal mapping and roughness.
+    /// This enables high-frequency specular reflection modeling for phenomena such as
+    /// moisture films, lacquer finishes, and granular surface interactions.
+    /// </summary>
+    UseClearcoat = 1 << 7,
+
+    /// <summary>
+    /// The material's clearcoat layer utilizes a high-frequency normal map for
+    /// micro-surface detail representation. This enables accurate modeling of
+    /// surface perturbations at the clearcoat interface.
+    /// </summary>
+    UseClearcoatNormal = 1 << 8,
 };
 
 DECLARE_ENUM_OPERATORS(MaterialUsageFlags);

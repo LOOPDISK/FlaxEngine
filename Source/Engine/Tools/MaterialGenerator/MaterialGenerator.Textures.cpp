@@ -4,7 +4,6 @@
 
 #include "MaterialGenerator.h"
 
-
 class ShaderBuilder
 {
 private:
@@ -51,7 +50,6 @@ public:
         return result;
     }
 };
-
 
 MaterialValue* MaterialGenerator::sampleTextureRaw(Node* caller, Value& value, Box* box, SerializedMaterialParam* texture)
 {
@@ -476,7 +474,8 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             auto gBuffer1Sample = sampleTextureRaw(node, value, box, &gBuffer1Param);
             if (gBuffer1Sample == nullptr)
                 break;
-            value = writeLocal(VariantType::Int, String::Format(TEXT("(int)({0}.a * 3.999)"), gBuffer1Sample->Value), node);
+            value = writeLocal(VariantType::Int, String::Format(TEXT("(int)({0}.a * 4.999)"), gBuffer1Sample->Value), node);
+
             break;
         }
         case MaterialSceneTextures::WorldPosition:

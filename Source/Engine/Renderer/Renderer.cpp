@@ -354,6 +354,9 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         case ViewMode::Specular:
         case ViewMode::SpecularColor:
         case ViewMode::SubsurfaceColor:
+        case ViewMode::ClearcoatIntensity:
+        case ViewMode::ClearcoatRoughness:
+        case ViewMode::ClearcoatNormal:
         case ViewMode::ShadingModel:
         case ViewMode::Reflections:
         case ViewMode::GlobalSDF:

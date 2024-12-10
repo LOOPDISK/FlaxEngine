@@ -137,6 +137,7 @@ CreateMaterial::Options::Options()
     Info.OpacityThreshold = 0.12f;
     Info.TessellationMode = TessellationMethod::None;
     Info.MaxTessellationFactor = 15;
+
 }
 
 CreateAssetResult CreateMaterial::Create(CreateAssetContext& context)
@@ -178,7 +179,7 @@ CreateAssetResult CreateMaterial::Create(CreateAssetContext& context)
         // Opacity
         AddInput(layer, meta, MaterialGraphBoxes::Opacity, options.Opacity.Texture, options.Opacity.Value, 1.0f, Float2(0, 400));
 
-        // Opacity
+        // Roughness
         AddInput(layer, meta, MaterialGraphBoxes::Roughness, options.Roughness.Texture, options.Roughness.Value, 0.5f, Float2(200, 400));
 
         // Normal
@@ -188,6 +189,31 @@ CreateAssetResult CreateMaterial::Create(CreateAssetContext& context)
             CONNECT(layer->Root->Boxes[static_cast<int32>(MaterialGraphBoxes::Normal)], normalMap->Boxes[1]);
             SET_POS(normalMap, Float2(-893.5272f, -200.926111f));
         }
+
+
+        // Clearcoat Intensity placement
+        AddInput(layer, meta, MaterialGraphBoxes::ClearcoatIntensity,
+            Guid::Empty,  // Intensity uses scalar input only
+            options.Clearcoat.Intensity,
+            0.0f,
+            Float2(0, 600));  // Positioned below base material parameters
+
+        // Clearcoat Roughness placement
+        AddInput(layer, meta, MaterialGraphBoxes::ClearcoatRoughness,
+            Guid::Empty,  // Roughness uses scalar input only
+            options.Clearcoat.Roughness,
+            0.5f,
+            Float2(200, 600));  // Horizontally offset from intensity
+
+        // High-frequency Clearcoat Normal Map
+        auto clearcoatNormal = AddTextureNode(layer, options.Clearcoat.ClearcoatNormal, true);
+        if (clearcoatNormal)
+        {
+            CONNECT(layer->Root->Boxes[static_cast<int32>(MaterialGraphBoxes::ClearcoatNormal)],
+                clearcoatNormal->Boxes[1]);
+            SET_POS(clearcoatNormal, Float2(-893.5272f, 600.926111f));  // Aligned with primary normal map X position
+        }
+
 
         MemoryWriteStream stream(512);
         layer->Graph.Save(&stream, true);

@@ -846,6 +846,25 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(uint), 0),
                 }
             },
+
+            new NodeArchetype
+            {
+                TypeID = 400,
+                Title = "Particle Facing Vector",
+                Description = "Computes particle facing direction in world-space using quaternion rotation.",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(240, 40),
+                DefaultValues = new object[]
+                {
+                    new Float3(0, 0, 1), // Default forward vector
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Output(0, "Direction", new ScriptType(typeof(Float3)), 0),
+                    NodeElementArchetype.Factory.Input(0, "Base Vector", true, new ScriptType(typeof(Float3)), 1, 0)
+                }
+            },
+
         };
     }
 }

@@ -56,7 +56,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Pack Material Layer",
                 Description = "Pack material properties",
                 Flags = NodeFlags.MaterialGraph | NodeFlags.NoSpawnViaGUI | NodeFlags.NoSpawnViaPaste,
-                Size = new Float2(200, 240),
+                Size = new Float2(200, 320),
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Output(0, "", typeof(void), 0),
@@ -121,7 +121,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Pack Material Layer",
                 Description = "Pack material properties",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(200, 280),
+                Size = new Float2(200, 340),
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Output(0, "", typeof(void), 0),
@@ -139,6 +139,10 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(11, "Tessellation Multiplier", true, typeof(float), 12),
                     NodeElementArchetype.Factory.Input(12, "World Displacement", true, typeof(Float3), 13),
                     NodeElementArchetype.Factory.Input(13, "Subsurface Color", true, typeof(Float3), 14),
+                    NodeElementArchetype.Factory.Input(14, "Clearcoat Intensity", true, typeof(float), 15),
+                    NodeElementArchetype.Factory.Input(15, "Clearcoat Roughness", true, typeof(float), 16),
+                    NodeElementArchetype.Factory.Input(16, "Clearcoat Normal", true, typeof(Float3), 17),
+
                 }
             },
             new NodeArchetype
@@ -147,7 +151,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Unpack Material Layer",
                 Description = "Unpack material properties",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(210, 280),
+                Size = new Float2(210, 340),
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Input(0, "", true, typeof(void), 0),
@@ -165,6 +169,9 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Output(11, "Tessellation Multiplier", typeof(float), 12),
                     NodeElementArchetype.Factory.Output(12, "World Displacement", typeof(Float3), 13),
                     NodeElementArchetype.Factory.Output(13, "Subsurface Color", typeof(Float3), 14),
+                    NodeElementArchetype.Factory.Input(14, "Clearcoat Intensity", true, typeof(float), 15),
+                    NodeElementArchetype.Factory.Input(15, "Clearcoat Roughness", true, typeof(float), 16),
+                    NodeElementArchetype.Factory.Input(16, "Clearcoat Normal", true, typeof(Float3), 17),
                 }
             },
             new NodeArchetype

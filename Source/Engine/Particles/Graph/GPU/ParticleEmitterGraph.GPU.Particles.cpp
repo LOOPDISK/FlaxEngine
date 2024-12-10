@@ -484,6 +484,29 @@ void ParticleEmitterGPUGenerator::ProcessGroupParticles(Box* box, Node* node, Va
     case 302:
         value = Value(VariantType::Uint, TEXT("context.ParticlesCount"));
         break;
+    //Particles transform
+    case 400:
+    {
+        // Get base vector input, following the established pattern for input acquisition
+        const auto baseVector = tryGetValue(node->GetBox(0), node->Values[0]);
+
+        // Generate local variable name for shader code
+        const String localName = getLocalName(_localIndex++);
+
+        // Write optimized quaternion-vector multiplication using established writer patterns
+        _writer.Write(TEXT("\tfloat3 {0};\n"), localName);
+        _writer.Write(TEXT("\t{\n"));
+        _writer.Write(TEXT("\t\tfloat3 qvec = EffectRotation.xyz;\n"));
+        _writer.Write(TEXT("\t\tfloat3 v = {1};\n"), baseVector.Value);
+        _writer.Write(TEXT("\t\tfloat3 uv = cross(qvec, v);\n"));
+        _writer.Write(TEXT("\t\tfloat3 uuv = cross(qvec, uv);\n"));
+        _writer.Write(TEXT("\t\t{0} = normalize(v + ((uv * EffectRotation.w) + uuv) * 2.0);\n"), localName);
+        _writer.Write(TEXT("\t}\n"));
+
+        // Return transformed direction vector following node output pattern
+        value = Value(VariantType::Float3, localName);
+        break;
+    }
     default:
         break;
     }

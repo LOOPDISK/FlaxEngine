@@ -33,15 +33,19 @@ DECLARE_GBUFFERDATA_ACCESS(GBuffer)
 #define View_Mode_MotionVectors 15
 #define View_Mode_SubsurfaceColor 16
 #define View_Mode_Unlit 17
+#define View_Mode_ClearcoatIntensity 18
+#define View_Mode_ClearcoatRoughness 19
+#define View_Mode_ClearcoatNormal 20
 
 float3 GetShadingModelColor(GBufferSample gBuffer)
 {
 	switch (gBuffer.ShadingModel)
 	{
-		case SHADING_MODEL_UNLIT: return float3(1.0f, 0.44f, 0.929f);
-		case SHADING_MODEL_LIT: return float3(0.768f, 0.988f, 0.388f);
-		case SHADING_MODEL_SUBSURFACE: return float3(0.478f, 0.086, 0.098);
-		case SHADING_MODEL_FOLIAGE: return float3(0.182f, 0.711, 0.235);
+		case SHADING_MODEL_UNLIT: return float3(1.0f, 0.0f, 0.0f);
+		case SHADING_MODEL_LIT: return float3(0.0f, 1.0f, 0.0f);
+		case SHADING_MODEL_SUBSURFACE: return float3(0.0f, 0.0, 1.0);
+		case SHADING_MODEL_FOLIAGE: return float3(1.0, 1.0, 0.1);
+        case SHADING_MODEL_CLEARCOAT: return float3(0.0, 1.0, 1.0);
 	}
 	return 1;
 }
@@ -65,6 +69,9 @@ float4 PS_DebugView(Quad_VS2PS input) : SV_Target
 		case View_Mode_SpecularColor: result = GetSpecularColor(gBuffer); break;
 		case View_Mode_ShadingModel: result = GetShadingModelColor(gBuffer); break;
 		case View_Mode_SubsurfaceColor: result = gBuffer.CustomData.rgb; break;
+        case View_Mode_ClearcoatIntensity: result = gBuffer.CustomData.rgb; break;
+        case View_Mode_ClearcoatRoughness: result = gBuffer.CustomData.rgb; break;
+        case View_Mode_ClearcoatNormal: result = gBuffer.CustomData.rgb; break;
 		case View_Mode_Unlit: result = gBuffer.Color * gBuffer.AO; break;
 	}
 	return float4(result, 1);

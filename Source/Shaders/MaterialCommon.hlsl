@@ -86,6 +86,9 @@ struct Material
     float3 WorldDisplacement;
     float Mask;
     float TessellationMultiplier;
+    float ClearcoatIntensity;
+    float ClearcoatRoughness;
+    float3 ClearcoatNormal;
 #if USE_CUSTOM_VERTEX_INTERPOLATORS
 	float4 CustomVSToPS[CUSTOM_VERTEX_INTERPOLATORS_COUNT];
 #endif

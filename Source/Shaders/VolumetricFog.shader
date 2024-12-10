@@ -244,9 +244,10 @@ float4 PS_InjectLight(Quad_GS2PS input) : SV_Target0
 
 RWTexture3D<float4> RWVBufferA : register(u0);
 RWTexture3D<float4> RWVBufferB : register(u1);
-
+/*
 META_CS(true, FEATURE_LEVEL_SM5)
 [numthreads(4, 4, 4)]
+
 void CS_Initialize(uint3 GroupId : SV_GroupID, uint3 DispatchThreadId : SV_DispatchThreadID, uint3 GroupThreadId : SV_GroupThreadID)
 {
 	uint3 gridCoordinate = DispatchThreadId;
@@ -271,7 +272,44 @@ void CS_Initialize(uint3 GroupId : SV_GroupID, uint3 DispatchThreadId : SV_Dispa
 		RWVBufferA[gridCoordinate] = float4(scattering, absorption);
 		RWVBufferB[gridCoordinate] = float4(GlobalEmissive, 0);
 	}
+}*/
+META_CS(true, FEATURE_LEVEL_SM5)
+[numthreads(4, 4, 4)]
+void CS_Initialize(uint3 GroupId : SV_GroupID, uint3 DispatchThreadId : SV_DispatchThreadID, uint3 GroupThreadId : SV_GroupThreadID)
+{
+    uint3 gridCoordinate = DispatchThreadId;
+    float voxelOffset = 0.5f;
+    float3 positionWS = GetCellPositionWS(gridCoordinate, voxelOffset);
+
+    // Unpack fog parameters
+    float fogDensity = FogParameters.x;
+    float fogHeight = FogParameters.y;
+    float fogHeightFalloff = FogParameters.z;
+
+    // Calculate height-based density
+    float heightFactor = exp2(-fogHeightFalloff * (positionWS.y - fogHeight));
+    
+    // Calculate distance-based rational falloff
+    float distanceToCamera = length(positionWS - GBuffer.ViewPos);
+    float normalizedDistance = distanceToCamera * fogDensity;
+    float distanceSquared = normalizedDistance * normalizedDistance;
+    float rationalFalloff = (4.0f * distanceSquared) / (4.0f * distanceSquared + 1.0f);
+
+    // Combine height and distance components
+    float globalDensity = fogDensity * heightFactor * rationalFalloff;
+    float extinction = max(0.0f, globalDensity * GlobalExtinctionScale * 0.24f);
+
+    float3 scattering = GlobalAlbedo * extinction;
+    float absorption = max(0.0f, extinction - Luminance(scattering));
+
+    if (all(gridCoordinate < GridSizeInt))
+    {
+        RWVBufferA[gridCoordinate] = float4(scattering, absorption);
+        RWVBufferB[gridCoordinate] = float4(GlobalEmissive, 0);
+    }
 }
+
+
 
 #elif defined(_CS_LightScattering)
 
@@ -290,10 +328,13 @@ Texture2D<float4> ProbesIrradiance : register(t7);
 TextureCube SkyLightImage : register(t5);
 #endif
 
+
+/*
 META_CS(true, FEATURE_LEVEL_SM5)
 META_PERMUTATION_1(USE_DDGI=0)
 META_PERMUTATION_1(USE_DDGI=1)
 [numthreads(4, 4, 4)]
+
 void CS_LightScattering(uint3 GroupId : SV_GroupID, uint3 DispatchThreadId : SV_DispatchThreadID, uint3 GroupThreadId : SV_GroupThreadID)
 {
 	uint3 gridCoordinate = DispatchThreadId;
@@ -368,6 +409,89 @@ void CS_LightScattering(uint3 GroupId : SV_GroupID, uint3 DispatchThreadId : SV_
 		scatteringAndExtinction = isnan(scatteringAndExtinction) || isinf(scatteringAndExtinction) ? 0 : scatteringAndExtinction;
 		RWLightScattering[gridCoordinate] = max(scatteringAndExtinction, 0);
 	}
+}
+*/
+META_CS(true, FEATURE_LEVEL_SM5)
+META_PERMUTATION_1(USE_DDGI=0)
+META_PERMUTATION_1(USE_DDGI=1)
+[numthreads(4, 4, 4)]
+void CS_LightScattering(uint3 GroupId : SV_GroupID, uint3 DispatchThreadId : SV_DispatchThreadID, uint3 GroupThreadId : SV_GroupThreadID)
+{
+    uint3 gridCoordinate = DispatchThreadId;
+    float3 lightScattering = 0;
+    uint samplesCount = 1;
+
+    float3 historyUV = GetVolumeUV(GetCellPositionWS(gridCoordinate, 0.5f), PrevWorldToClip);
+    float historyAlpha = HistoryWeight;
+    FLATTEN
+    if (any(historyUV < 0) || any(historyUV > 1))
+        historyAlpha = 0;
+    samplesCount = historyAlpha < 0.001f && all(gridCoordinate < GridSizeInt) ? MissedHistorySamplesCount : 1;
+
+    for (uint sampleIndex = 0; sampleIndex < samplesCount; sampleIndex++)
+    {
+        float3 cellOffset = FrameJitterOffsets[sampleIndex].xyz;
+        float sceneDepth;
+        float3 positionWS = GetCellPositionWS(gridCoordinate, cellOffset, sceneDepth);
+        
+        // Calculate distance-based attenuation using rational function
+        float distanceToCamera = length(positionWS - GBuffer.ViewPos);
+        float normalizedDistance = distanceToCamera * FogParameters.x;
+        float distanceSquared = normalizedDistance * normalizedDistance;
+        float rationalAttenuation = (4.0f * distanceSquared) / (4.0f * distanceSquared + 1.0f);
+
+        float3 cameraVector = positionWS - GBuffer.ViewPos;
+        float cameraVectorLength = length(cameraVector);
+        float3 cameraVectorNormalized = cameraVector / cameraVectorLength;
+
+        // Process directional light with rational attenuation
+        BRANCH
+        if (DirectionalLightShadow.NumCascades < 10)
+        {
+            float shadow = 1;
+            if (DirectionalLightShadow.NumCascades > 0)
+            {
+                shadow = SampleShadow(DirectionalLight, DirectionalLightShadow, ShadowMapCSM, positionWS, cameraVectorLength);
+            }
+
+            float phaseFunction = GetPhase(PhaseG, dot(DirectionalLight.Direction, cameraVectorNormalized));
+            lightScattering += DirectionalLight.Color * (8 * shadow * phaseFunction * rationalAttenuation);
+        }
+
+#if USE_DDGI
+        float3 irradiance = SampleDDGIIrradiance(DDGI, ProbesData, ProbesDistance, ProbesIrradiance, positionWS, cameraVectorNormalized, 0.0f, cellOffset.x);
+        lightScattering += float4(irradiance * rationalAttenuation, 1);
+#else
+        if (SkyLight.VolumetricScatteringIntensity > 0)
+        {
+            float3 skyLighting = SkyLightImage.SampleLevel(SamplerLinearClamp, float3(0, 0, 0), 10000).rgb;
+            skyLighting = skyLighting * SkyLight.MultiplyColor + SkyLight.AdditiveColor;
+            lightScattering += skyLighting * SkyLight.VolumetricScatteringIntensity * rationalAttenuation;
+        }
+#endif
+    }
+    lightScattering /= (float)samplesCount;
+
+    // Integrate local light scattering with rational attenuation
+    lightScattering += LocalShadowedLightScattering[gridCoordinate].rgb;
+
+    float4 materialScatteringAndAbsorption = VBufferA[gridCoordinate];
+    float extinction = materialScatteringAndAbsorption.w + Luminance(materialScatteringAndAbsorption.xyz);
+    float3 materialEmissive = VBufferB[gridCoordinate].xyz;
+    float4 scatteringAndExtinction = float4(lightScattering * materialScatteringAndAbsorption.xyz + materialEmissive, extinction);
+
+    BRANCH
+    if (historyAlpha > 0)
+    {
+        float4 historyScatteringAndExtinction = LightScatteringHistory.SampleLevel(SamplerLinearClamp, historyUV, 0);
+        scatteringAndExtinction = lerp(scatteringAndExtinction, historyScatteringAndExtinction, historyAlpha);
+    }
+
+    if (all(gridCoordinate < GridSizeInt))
+    {
+        scatteringAndExtinction = isnan(scatteringAndExtinction) || isinf(scatteringAndExtinction) ? 0 : scatteringAndExtinction;
+        RWLightScattering[gridCoordinate] = max(scatteringAndExtinction, 0);
+    }
 }
 
 #elif defined(_CS_FinalIntegration)

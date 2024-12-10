@@ -87,7 +87,9 @@ float3 SampleNormal(float2 uv, out int shadingModel)
     float4 gBuffer1 = SAMPLE_RT(GBuffer1, uv);
 
     // Decode normal and shading model
-    shadingModel = (int)(gBuffer1.a * 3.999);
+    shadingModel = (int)(gBuffer1.a * 4.999);
+    
+
     return DecodeNormal(gBuffer1.rgb);
 }
 
@@ -106,7 +108,8 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
 
     // Decode normal and shading model
     result.Normal = DecodeNormal(gBuffer1.rgb);
-    result.ShadingModel = (int)(gBuffer1.a * 3.999);
+    result.ShadingModel = (int)(gBuffer1.a * 4.999);
+    
 
     // Calculate view space and world space positions
     result.ViewPos = GetViewPos(gBuffer, uv);
@@ -135,7 +138,7 @@ GBufferSample SampleGBufferFast(GBufferData gBuffer, float2 uv)
 
     // Decode normal and shading model
     result.Normal = DecodeNormal(gBuffer1.rgb);
-    result.ShadingModel = (int)(gBuffer1.a * 3.999);
+    result.ShadingModel = (int)(gBuffer1.a * 4.999);
 
     // Calculate view space position
     result.ViewPos = GetViewPos(gBuffer, uv);

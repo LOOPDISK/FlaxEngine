@@ -59,6 +59,10 @@ namespace
     CriticalSection FeaturesLock;
 }
 
+
+
+
+
 bool FeatureData::Init()
 {
     // Load template file
@@ -264,6 +268,10 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Refraction);
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::SubsurfaceColor);
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Mask);
+            eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::ClearcoatIntensity);
+            eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::ClearcoatRoughness);
+            eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::ClearcoatNormal);
+
         }
         else if (baseLayer->Domain == MaterialDomain::Decal)
         {
@@ -279,6 +287,10 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::AmbientOcclusion);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Refraction);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::SubsurfaceColor);
+
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatIntensity);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatRoughness);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatNormal);
         }
         else if (baseLayer->Domain == MaterialDomain::PostProcess)
         {
@@ -294,6 +306,9 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Refraction);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Mask);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::SubsurfaceColor);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatIntensity);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatRoughness);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatNormal);
         }
         else if (baseLayer->Domain == MaterialDomain::GUI)
         {
@@ -309,6 +324,9 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Roughness);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Refraction);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::SubsurfaceColor);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatIntensity);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatRoughness);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatNormal);
         }
         else if (baseLayer->Domain == MaterialDomain::VolumeParticle)
         {
@@ -324,6 +342,9 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Roughness);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Refraction);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::SubsurfaceColor);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatIntensity);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatRoughness);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::ClearcoatNormal);
         }
         else
         {

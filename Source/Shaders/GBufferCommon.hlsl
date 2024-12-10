@@ -27,6 +27,11 @@ bool IsSubsurfaceMode(int shadingModel)
     return shadingModel == SHADING_MODEL_SUBSURFACE || shadingModel == SHADING_MODEL_FOLIAGE;
 }
 
+bool IsClearcoatMode(int shadingModel)
+{
+    return shadingModel == SHADING_MODEL_CLEARCOAT;
+}
+
 float3 GetDiffuseColor(in float3 color, in float metalness)
 {
     return color - color * metalness;
@@ -64,5 +69,7 @@ float3 DecodeNormal(float3 enc)
     // Unpack from [0;1] range
     return normalize(enc * 2 - 1);
 }
+
+
 
 #endif

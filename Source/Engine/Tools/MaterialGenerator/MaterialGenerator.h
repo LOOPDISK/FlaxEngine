@@ -90,6 +90,22 @@ enum class MaterialGraphBoxes
     SubsurfaceColor = 14,
 
     /// <summary>
+    /// The clearcoat intensity input.
+    /// </summary>
+    ClearcoatIntensity = 15,
+
+    /// <summary>
+    /// The clearcoat roughness input.
+    /// </summary>
+    ClearcoatRoughness = 16,
+
+    /// <summary>
+    /// The clearcoat normal input.
+    /// </summary>
+    ClearcoatNormal = 17,
+
+
+    /// <summary>
     /// The amount of input boxes.
     /// </summary>
     MAX

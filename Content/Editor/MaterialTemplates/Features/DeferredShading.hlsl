@@ -56,7 +56,7 @@ void PS_GBuffer(
 
 	// Pack material properties to GBuffer
 	RT0 = float4(material.Color, material.AO);
-	RT1 = float4(material.WorldNormal * 0.5 + 0.5, MATERIAL_SHADING_MODEL * (1.0 / 3.0));
+	RT1 = float4(material.WorldNormal * 0.5 + 0.5, MATERIAL_SHADING_MODEL * (1.0 / 4.0));
 	RT2 = float4(material.Roughness, material.Metalness, material.Specular, 0);
 
 	// Custom data
@@ -65,8 +65,10 @@ void PS_GBuffer(
 	RT3 = float4(material.SubsurfaceColor, material.Opacity);
 #elif MATERIAL_SHADING_MODEL == SHADING_MODEL_FOLIAGE
 	RT3 = float4(material.SubsurfaceColor, material.Opacity);
+#elif MATERIAL_SHADING_MODEL == SHADING_MODEL_CLEARCOAT
+	RT3 = float4(material.ClearcoatIntensity, material.ClearcoatRoughness, material.ClearcoatNormal.xy);
 #else
-	RT3 = float4(0, 0, 0, 0);
+	RT3 = float4(0.5, 0, 0, 0);
 #endif
 #endif
 

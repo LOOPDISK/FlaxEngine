@@ -61,9 +61,141 @@ LightingData StandardShading(GBufferSample gBuffer, float energy, float3 L, floa
 #endif
 
     lighting.Transmission = 0;
+    lighting.ClearcoatSpecular = 0;
     return lighting;
 }
-
+/*
+LightingData ClearcoatShading(GBufferSample gBuffer, float energy, float3 L, float3 V, half3 N)
+{
+    LightingData lighting = StandardShading(gBuffer, energy, L, V, N);
+#if defined(USE_GBUFFER_CUSTOM_DATA)
+    float clearcoatIntensity = gBuffer.CustomData.r * 10.0;
+    float spread = gBuffer.CustomData.g;
+    float2 noise = gBuffer.CustomData.ba * 2.0 - 1.0;
+    
+    float3 clearcoatN = normalize(N + float3(noise.x, noise.y, 0) * 0.2);
+    float3 R = reflect(-V, N);
+    float RdotL = dot(R, L);
+    
+    // Convert RdotL from [-1,1] to [0,1]
+    float alignmentFactor = (RdotL * 0.5 + 0.5);
+    
+    // Use spread to control falloff power
+    // When spread is 0, power is very high (tight spot)
+    // When spread is 1, power is 1 (full hemisphere)
+    float power = lerp(50.0, 1.0, spread);
+    float glintMask = pow(alignmentFactor, power);
+    
+    float3 H = normalize(V + L);
+    float NoH = saturate(dot(clearcoatN, H));
+    float NoV = max(dot(clearcoatN, V), 1e-5);
+    float NoL = saturate(dot(clearcoatN, L));
+    float VoH = saturate(dot(V, H));
+    
+    float3 clearcoatF0 = 0.04;
+    float3 F = F_Schlick(clearcoatF0, VoH);
+    
+    const float fixedRoughness = 0.1;
+    float D = D_GGX(fixedRoughness, NoH);
+    float Vis = Vis_SmithJointApprox(fixedRoughness, NoV, NoL);
+    
+    float glintBoost = 1.0;
+    lighting.ClearcoatSpecular = (D * Vis) * F * energy * glintBoost * clearcoatIntensity * glintMask;
+#endif
+    return lighting;
+}
+*/
+/* first good colored
+LightingData ClearcoatShading(GBufferSample gBuffer, float energy, float3 L, float3 V, half3 N)
+{
+    LightingData lighting = StandardShading(gBuffer, energy, L, V, N);
+#if defined(USE_GBUFFER_CUSTOM_DATA)
+    float clearcoatIntensity = gBuffer.CustomData.r * 10.0;
+    float spread = gBuffer.CustomData.g;
+    float2 noise = gBuffer.CustomData.ba * 2.0 - 1.0;
+    
+    float3 clearcoatN = normalize(N + float3(noise.x, noise.y, 0) * 0.2);
+    float3 R = reflect(-V, N);
+    float RdotL = dot(R, L);
+    
+    float alignmentFactor = (RdotL * 0.5 + 0.5);
+    float power = lerp(50.0, 1.0, spread);
+    float glintMask = pow(alignmentFactor, power);
+    
+    float3 H = normalize(V + L);
+    float NoH = saturate(dot(clearcoatN, H));
+    float NoV = max(dot(clearcoatN, V), 1e-5);
+    float NoL = saturate(dot(clearcoatN, L));
+    float VoH = saturate(dot(V, H));
+    
+    // Color variation based on viewing angle
+    float3 warmColor = float3(1.0, 0.6, 0.3);  // Orange/gold
+    float3 coolColor = float3(0.3, 0.6, 1.0);  // Blue
+    float colorBlend = pow(1.0 - abs(dot(V, N)), 2.0); // Fresnel-like blend
+    float3 glintColor = lerp(warmColor, coolColor, colorBlend);
+    
+    // Add some noise to the color
+    float colorNoise = (noise.x * noise.y) * 0.5 + 0.5;
+    glintColor = lerp(glintColor, glintColor * float3(1.2, 0.8, 0.6), colorNoise);
+    
+    float3 clearcoatF0 = 0.04;
+    float3 F = F_Schlick(clearcoatF0, VoH);
+    
+    const float fixedRoughness = 0.3;
+    float D = D_GGX(fixedRoughness, NoH);
+    float Vis = Vis_SmithJointApprox(fixedRoughness, NoV, NoL);
+    
+    float glintBoost = 1.0;
+    lighting.ClearcoatSpecular = (D * Vis) * F * energy * glintBoost * clearcoatIntensity * glintMask * glintColor;
+#endif
+    return lighting;
+}
+*/
+LightingData ClearcoatShading(GBufferSample gBuffer, float energy, float3 L, float3 V, half3 N)
+{
+    LightingData lighting = StandardShading(gBuffer, energy, L, V, N);
+#if defined(USE_GBUFFER_CUSTOM_DATA)
+    float clearcoatIntensity = gBuffer.CustomData.r * 10.0;
+    float spread = gBuffer.CustomData.g;
+    float2 noise = gBuffer.CustomData.ba * 2.0 - 1.0;
+    
+    float3 clearcoatN = normalize(N + float3(noise.x, noise.y, 0) * 0.2);
+    float3 R = reflect(-V, N);
+    float RdotL = dot(R, L);
+    
+    float alignmentFactor = (RdotL * 0.5 + 0.5);
+    float power = lerp(50.0, 1.0, spread);
+    float glintMask = pow(alignmentFactor, power);
+    
+    float3 H = normalize(V + L);
+    float NoH = saturate(dot(clearcoatN, H));
+    float NoV = max(dot(clearcoatN, V), 1e-5);
+    float NoL = saturate(dot(clearcoatN, L));
+    float VoH = saturate(dot(V, H));
+    
+    // Use noise to create per-glint color variation
+    float phase = frac(noise.x * noise.y * 8.0) * 6.28318; // Scale up noise variation
+    
+    // Create more dramatic spectral colors
+    float3 color;
+    color.r = saturate(sin(phase) + 0.5);
+    color.g = saturate(sin(phase + 2.094) + 0.5); // 2pi/3
+    color.b = saturate(sin(phase + 4.189) + 0.5); // 4pi/3
+    
+    color = pow(color, 0.4) * 3.0; // Boost intensity
+    
+    float3 clearcoatF0 = 0.04;
+    float3 F = F_Schlick(clearcoatF0, VoH);
+    
+    const float fixedRoughness = 0.5;
+    float D = D_GGX(fixedRoughness, NoH);
+    float Vis = Vis_SmithJointApprox(fixedRoughness, NoV, NoL);
+    
+    float glintBoost = 2.0;
+    lighting.ClearcoatSpecular = (D * Vis) * F * energy * glintBoost * clearcoatIntensity * glintMask * color;
+#endif
+    return lighting;
+}
 
 LightingData SubsurfaceShading(GBufferSample gBuffer, float energy, float3 L, float3 V, half3 N)
 {
@@ -78,6 +210,8 @@ LightingData SubsurfaceShading(GBufferSample gBuffer, float energy, float3 L, fl
     float backScatter = gBuffer.AO * normalContribution / (PI * 2.0f);
     lighting.Transmission = lerp(backScatter, 1, inscatter) * subsurfaceColor;
 #endif
+    
+
     return lighting;
 }
 
@@ -92,6 +226,9 @@ LightingData FoliageShading(GBufferSample gBuffer, float energy, float3 L, float
     float scatter = D_GGX(0.36, saturate(-VoL));
     lighting.Transmission = subsurfaceColor * (wrapNoL * scatter);
 #endif
+    
+    
+    //lighting.Diffuse = 0.0;
     return lighting;
 }
 
@@ -106,6 +243,9 @@ LightingData SurfaceShading(GBufferSample gBuffer, float energy, float3 L, float
             return SubsurfaceShading(gBuffer, energy, L, V, N);
         case SHADING_MODEL_FOLIAGE:
             return FoliageShading(gBuffer, energy, L, V, N);
+        case SHADING_MODEL_CLEARCOAT:
+            return ClearcoatShading(gBuffer, energy, L, V, N);
+            
         default:
             return (LightingData) 0;
     }
@@ -232,14 +372,17 @@ float4 GetLighting(float3 viewPos, LightData lightData, GBufferSample gBuffer, f
             case SHADING_MODEL_FOLIAGE:
                 lighting = FoliageShading(gBuffer, energy, L, V, N);
                 break;
+            case SHADING_MODEL_CLEARCOAT:
+                lighting = ClearcoatShading(gBuffer, energy, L, V, N);
+                break;
             default:
                 lighting = (LightingData) 0;
                 break;
         }
 
         // Combine direct lighting (with improved energy conservation)
-        float3 surfaceLight = (lighting.Diffuse + lighting.Specular) * NoL * shadow.SurfaceShadow;
-        
+        float3 surfaceLight = (lighting.Diffuse + lighting.Specular + lighting.ClearcoatSpecular) * NoL * shadow.SurfaceShadow;
+
         // Handle transmission separately since it doesn't use NoL the same way
         float3 subsurfaceLight = lighting.Transmission * shadow.TransmissionShadow;
         
