@@ -1371,6 +1371,10 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         const auto startTimePos = (float)tryGetValue(node->GetBox(3), node->Values[3]);
         auto& data = node->Data.MultiBlend1D;
 
+        // Add position override check
+        auto positionOverrideBox = node->TryGetBox(5);
+        const bool hasPositionOverride = positionOverrideBox && positionOverrideBox->HasConnection();
+
         // Check if not valid animation binded
         if (data.Count == 0)
             break;
@@ -1393,12 +1397,33 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             break;
 
         // Calculate new time position
-        if (speed < 0.0f && bucket.LastUpdateFrame < context.CurrentFrameIndex - 1)
+        float newTimePos;
+        if (hasPositionOverride)
         {
-            // If speed is negative and it's the first node update then start playing from end
-            bucket.TimePosition = data.Length;
+            // Use position override if connected
+            float positionOverride = (float)tryGetValue(positionOverrideBox, 0.0f);
+            if (loop)
+            {
+                // When looping, wrap the position value
+                positionOverride = Math::Mod(positionOverride, 1.0f);
+                if (positionOverride < 0.0f)
+                    positionOverride += 1.0f;
+            }
+            else
+            {
+                // When not looping, clamp the position value
+                positionOverride = Math::Saturate(positionOverride);
+            }
+            newTimePos = data.Length * positionOverride;
         }
-        float newTimePos = bucket.TimePosition + context.DeltaTime * speed;
+        else
+        {
+            if (speed < 0.0f && bucket.LastUpdateFrame < context.CurrentFrameIndex - 1)
+            {
+                bucket.TimePosition = data.Length;
+            }
+            newTimePos = bucket.TimePosition + context.DeltaTime * speed;
+        }
 
         ANIM_GRAPH_PROFILE_EVENT("Multi Blend 1D");
 

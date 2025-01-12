@@ -649,6 +649,9 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(1, "Loop", true, typeof(bool), 2, 2),
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
 
+                    // Position Override
+                    NodeElementArchetype.Factory.Input(4, "Position Override", true, typeof(float), 5), 
+
                     // Axis X
                     NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
                     NodeElementArchetype.Factory.Text(30, 3 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
@@ -686,7 +689,7 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
                     
                     // Position Override
-                    NodeElementArchetype.Factory.Input(5, "Position Override", true, typeof(float), 6), // New input
+                    NodeElementArchetype.Factory.Input(5, "Position Override", true, typeof(float), 6),
                     
                     // Axis X
                     NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
