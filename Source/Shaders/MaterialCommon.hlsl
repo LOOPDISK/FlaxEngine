@@ -214,15 +214,34 @@ float3 AOMultiBounce(float visibility, float3 albedo)
     return max(visibility, ((visibility * a + b) * visibility + c) * visibility);
 }
 
-float2 Flipbook(float2 uv, float frame, float2 sizeXY, float2 flipXY = 0.0f, float2 texAspect = float2(1.0, 1.0))
+float2 Flipbook(float2 uv, float frame, float2 sizeXY, float2 flip = 0.0f, float2 texAspect = float2(1.0, 1.0))
 {
-    float2 frameXY = float2((uint) frame % (uint) sizeXY.y, (uint) frame / (uint) sizeXY.x);
-    float2 flipFrameXY = sizeXY - frameXY - float2(1, 1);
-    frameXY = lerp(frameXY, flipFrameXY, flipXY);
-
-    // Adjust for non-square textures using the texture aspect ratio
-    float2 aspectCorrectedUV = uv * texAspect;
-    return (aspectCorrectedUV + frameXY) / sizeXY;
+    // Ensure we have valid dimensions
+    sizeXY = max(float2(1.0, 1.0), floor(sizeXY));
+    
+    // Calculate total number of frames
+    float totalFrames = sizeXY.x * sizeXY.y;
+    
+    // Wrap frame index to valid range
+    frame = frame - floor(frame / totalFrames) * totalFrames;
+    
+    // Calculate frame coordinates (X: columns, Y: rows)
+    float2 frameXY = float2(
+        fmod(frame, sizeXY.x),                // X coordinate (column)
+        floor(frame / sizeXY.x)               // Y coordinate (row)
+    );
+    
+    // Calculate flipped coordinates if needed
+    float2 flipFrameXY = sizeXY - frameXY - 1.0;
+    frameXY = lerp(frameXY, flipFrameXY, saturate(flip));
+    
+    // Calculate base UV coordinates for the frame
+    float2 frameUV = (uv + frameXY) / sizeXY;
+    
+    // Apply aspect ratio correction
+    float2 aspectCorrected = frameUV * saturate(texAspect);
+    
+    return aspectCorrected;
 }
 
 
