@@ -751,10 +751,10 @@ CreateAssetResult ImportModel::CreatePrefab(CreateAssetContext& context, const M
                 currentNode = &data.Nodes[currentNode->ParentIndex];
             }
 
-            // Only set translation, since scale and rotation is applied earlier.
             Transform positionOffset = Transform::Identity;
             positionOffset.Translation = node.LocalTransform.Translation * scale;
-
+            positionOffset.Orientation = node.LocalTransform.Orientation; // Add this line
+            // to include rotation
             if (options.UseLocalOrigin)
             {
                 positionOffset.Translation += data.Nodes[0].LocalTransform.Translation;
