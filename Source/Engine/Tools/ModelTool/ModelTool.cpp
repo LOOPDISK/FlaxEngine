@@ -1102,20 +1102,15 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
     LOG(Info, "Importing model from \'{0}\'", path);
     const auto startTime = DateTime::NowUTC();
 
-    // Import data
     switch (options.Type)
     {
     case ModelType::Model:
-        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes;
-        if (options.ImportMaterials)
-            options.ImportTypes |= ImportDataTypes::Materials;
+        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Materials;
         if (options.ImportTextures)
             options.ImportTypes |= ImportDataTypes::Textures;
         break;
     case ModelType::SkinnedModel:
-        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Skeleton;
-        if (options.ImportMaterials)
-            options.ImportTypes |= ImportDataTypes::Materials;
+        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Skeleton | ImportDataTypes::Materials;
         if (options.ImportTextures)
             options.ImportTypes |= ImportDataTypes::Textures;
         break;
@@ -1125,15 +1120,14 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
             options.ImportTypes |= ImportDataTypes::Skeleton;
         break;
     case ModelType::Prefab:
-        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Animations;
-        if (options.ImportMaterials)
-            options.ImportTypes |= ImportDataTypes::Materials;
+        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Animations | ImportDataTypes::Materials;
         if (options.ImportTextures)
             options.ImportTypes |= ImportDataTypes::Textures;
         break;
     default:
         return true;
     }
+
     if (ImportData(path, data, options, errorMsg))
         return true;
 
@@ -1449,7 +1443,6 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
 #endif
     }
 
-    // Prepare materials
     for (int32 i = 0; i < data.Materials.Count(); i++)
     {
         auto& material = data.Materials[i];
@@ -1457,9 +1450,12 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
         if (material.Name.IsEmpty())
             material.Name = TEXT("Material ") + StringUtils::ToString(i);
 
-        // Auto-import materials
-        if (autoImportOutput.IsEmpty() || EnumHasNoneFlags(options.ImportTypes, ImportDataTypes::Materials) || !material.UsesProperties())
+        material.AssetID = Guid::New();  // Ensure unique ID for material slot reference
+
+        // Auto-import materials - check options.ImportMaterials directly
+        if (autoImportOutput.IsEmpty() || !options.ImportMaterials || !material.UsesProperties())
             continue;
+
         String assetPath = GetAdditionalImportPath(autoImportOutput, importedFileNames, material.Name);
 #if COMPILE_WITH_ASSETS_IMPORTER
         // When splitting imported meshes allow only the first mesh to import assets (mesh[0] is imported after all following ones so import assets during mesh[1])

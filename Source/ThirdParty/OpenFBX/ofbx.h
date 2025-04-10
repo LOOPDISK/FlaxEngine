@@ -498,7 +498,27 @@ struct Vec2Attributes {
 	Vec2Attributes() {}
 	Vec2Attributes(const Vec2* v, const int* i, int c) : values(v), indices(i), count(c) {}
 
-	Vec2 get(int i) const { return indices ? values[indices[i]] : values[i]; }
+	//Vec2 get(int i) const { return indices ? values[indices[i]] : values[i]; }
+
+
+    Vec2 get(int i) const {
+        // First check if index is in range for the indices/values array
+        if (i < 0 || i >= count)
+            return Vec2{ 0,0 };
+
+        // Then check values pointer and indices access
+        if (!values)
+            return Vec2{ 0,0 };
+
+        // Now safely get the actual index
+        unsigned idx = indices ? indices[i] : i;
+
+        // Finally check if idx is in range for the values array
+        if (idx < 0 || idx >= count)
+            return Vec2{ 0,0 };
+
+        return values[idx];
+    }
 };
 
 struct Vec3Attributes {
@@ -510,8 +530,29 @@ struct Vec3Attributes {
 	Vec3Attributes() {}
 	Vec3Attributes(const Vec3* v, const int* i, int c, int vc) : values(v), indices(i), count(c), values_count(vc) {}
 
-	Vec3 get(int i) const { return indices ? values[indices[i]] : values[i]; }
+	//Vec3 get(int i) const { return indices ? values[indices[i]] : values[i]; }
+
+    Vec3 get(int i) const {
+        // First check if index is in range for the indices/values array
+        if (i < 0 || i >= count)
+            return Vec3{ 0,0,0 };
+
+        // Then check values pointer and indices access
+        if (!values)
+            return Vec3{ 0,0,0 };
+
+        // Now safely get the actual index
+        unsigned idx = indices ? indices[i] : i;
+
+        // Finally check if idx is in range for the values array
+        if (idx < 0 || idx >= values_count)
+            return Vec3{ 0,0,0 };
+
+        return values[idx];
+    }
 };
+
+
 
 struct Vec4Attributes {
 	const Vec4* values = nullptr;
@@ -521,7 +562,24 @@ struct Vec4Attributes {
 	Vec4Attributes() {}
 	Vec4Attributes(const Vec4* v, const int* i, int c) : values(v), indices(i), count(c) {}
 
-	Vec4 get(int i) const { return indices ? values[indices[i]] : values[i]; }
+    Vec4 get(int i) const {
+        // First check if index is in range for the indices/values array
+        if (i < 0 || i >= count)
+            return Vec4{ 0,0,0,0};
+
+        // Then check values pointer and indices access
+        if (!values)
+            return Vec4{ 0,0,0,0 };
+
+        // Now safely get the actual index
+        unsigned idx = indices ? indices[i] : i;
+
+        // Finally check if idx is in range for the values array
+        if (idx < 0 || idx >= count)
+            return Vec4{ 0,0,0,0 };
+
+        return values[idx];
+    }
 };
 
 // subset of polygons with same material
