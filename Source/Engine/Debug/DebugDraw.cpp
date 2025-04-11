@@ -874,7 +874,7 @@ void DebugDraw::Draw(RenderContext& renderContext, GPUTextureView* target, GPUTe
         Render2D::Features = (Render2D::RenderingFeatures)((uint32)features & ~(uint32)Render2D::RenderingFeatures::VertexSnapping);
 
         if (!DebugDrawFont)
-            DebugDrawFont = Content::LoadAsyncInternal<FontAsset>(TEXT("Editor/Fonts/Roboto-Regular"));
+            DebugDrawFont = Content::LoadAsyncInternal<FontAsset>(TEXT("Editor/Fonts/IBMPlexMono-Text"));
         if (DebugDrawFont && DebugDrawFont->IsLoaded())
         {
             Viewport viewport = renderContext.Task->GetViewport();
