@@ -781,95 +781,131 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         value = output;
         break;
     }
-    // Triplanar Normal Map
+//    // Triplanar Normal Map
+//    case 23:
+//    {
+//        auto textureBox = node->GetBox(0);
+//        if (!textureBox->HasConnection())
+//        {
+//            // No texture to sample
+//            value = Value::Zero;
+//            break;
+//        }
+//        const bool canUseSample = CanUseSample(_treeType);
+//        const auto texture = eatBox(textureBox->GetParent<Node>(), textureBox->FirstConnection());
+//        const auto scale = tryGetValue(node->GetBox(1), node->Values[0]).AsFloat3();
+//        const auto blend = tryGetValue(node->GetBox(2), node->Values[1]).AsFloat();
+//        const auto offset = tryGetValue(node->GetBox(6), node->Values[2]).AsFloat2();
+//        const bool local = node->Values.Count() >= 5 ? node->Values[4].AsBool : false;
+//
+//        const Char* samplerName;
+//        const int32 samplerIndex = node->Values[3].AsInt;
+//        if (samplerIndex == TextureGroup)
+//        {
+//            auto& textureGroupSampler = findOrAddTextureGroupSampler(node->Values[3].AsInt);
+//            samplerName = *textureGroupSampler.ShaderName;
+//        }
+//        else if (samplerIndex >= 0 && samplerIndex < ARRAY_COUNT(SamplerNames))
+//        {
+//            samplerName = SamplerNames[samplerIndex];
+//        }
+//        else
+//        {
+//            OnError(node, box, TEXT("Invalid texture sampler."));
+//            return;
+//        }
+//
+//        auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
+//
+//        // Reference: https://bgolus.medium.com/normal-mapping-for-a-triplanar-shader-10bf39dca05a
+//        const String triplanarNormalMap = ShaderStringBuilder()
+//                .Code(TEXT(R"(
+//        {
+//            // Get world position and normal
+//            float3 tiling = %SCALE% * 0.001f;
+//            float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
+//            float3 normal = normalize(%NORMAL%);
+//
+//            // Compute triplanar blend weights using power distribution
+//            float3 blendWeights = pow(abs(normal), %BLEND%);
+//            blendWeights /= dot(blendWeights, float3(1, 1, 1));
+//
+//            // Unpack normal maps
+//            float3 tnormalX = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.yz + %OFFSET%%SAMPLE_ARGS%).rg);
+//            float3 tnormalY = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.xz + %OFFSET%%SAMPLE_ARGS%).rg);
+//            float3 tnormalZ = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.xy + %OFFSET%%SAMPLE_ARGS%).rg);
+//
+//            // Apply proper whiteout blend
+//            normal = normalize(input.TBN[2]);
+//            float3 axisSign = sign(normal);
+//            float2 sumX = tnormalX.xy + normal.zy;
+//            float2 sumY = tnormalY.xy + normal.xz;
+//            float2 sumZ = tnormalZ.xy + normal.xy;
+//            tnormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+//            tnormalY = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+//            tnormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+//
+//            // Blend the normal maps using the blend weights
+//            float3 blendedNormal = normalize(
+//                tnormalX.zyx * blendWeights.x +
+//                tnormalY.xzy * blendWeights.y +
+//                tnormalZ.xyz * blendWeights.z
+//            );
+//
+//            // Transform to tangent space
+//            %RESULT% = normalize(TransformWorldVectorToTangent(input, blendedNormal));
+//        }
+//)"))
+//    .Replace(TEXT("%TEXTURE%"), texture.Value)
+//    .Replace(TEXT("%SCALE%"), scale.Value)
+//    .Replace(TEXT("%BLEND%"), blend.Value)
+//    .Replace(TEXT("%OFFSET%"), offset.Value)
+//    .Replace(TEXT("%RESULT%"), result.Value)
+//    .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
+//    .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+//    .Replace(TEXT("%SAMPLER%"), samplerName)
+//    .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
+//    .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
+//    .Build();
+//            _writer.Write(*triplanarNormalMap);
+//            value = result;
+//            break;
+//    }
+
+    // Local Space position
     case 23:
     {
-        auto textureBox = node->GetBox(0);
-        if (!textureBox->HasConnection())
-        {
-            // No texture to sample
-            value = Value::Zero;
-            break;
-        }
-        const bool canUseSample = CanUseSample(_treeType);
-        const auto texture = eatBox(textureBox->GetParent<Node>(), textureBox->FirstConnection());
-        const auto scale = tryGetValue(node->GetBox(1), node->Values[0]).AsFloat3();
-        const auto blend = tryGetValue(node->GetBox(2), node->Values[1]).AsFloat();
-        const auto offset = tryGetValue(node->GetBox(6), node->Values[2]).AsFloat2();
-        const bool local = node->Values.Count() >= 5 ? node->Values[4].AsBool : false;
-
-        const Char* samplerName;
-        const int32 samplerIndex = node->Values[3].AsInt;
-        if (samplerIndex == TextureGroup)
-        {
-            auto& textureGroupSampler = findOrAddTextureGroupSampler(node->Values[3].AsInt);
-            samplerName = *textureGroupSampler.ShaderName;
-        }
-        else if (samplerIndex >= 0 && samplerIndex < ARRAY_COUNT(SamplerNames))
-        {
-            samplerName = SamplerNames[samplerIndex];
-        }
-        else
-        {
-            OnError(node, box, TEXT("Invalid texture sampler."));
-            return;
-        }
-
         auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
+        const String local_pos = String::Format(TEXT(
+            "    {{\n"
+            "    // Get local space position\n"
 
-        // Reference: https://bgolus.medium.com/normal-mapping-for-a-triplanar-shader-10bf39dca05a
-        const String triplanarNormalMap = ShaderStringBuilder()
-                .Code(TEXT(R"(
-        {
-            // Get world position and normal
-            float3 tiling = %SCALE% * 0.001f;
-            float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
-            float3 normal = normalize(%NORMAL%);
+            "    float3 localPos = input.WorldPosition - GetObjectPosition(input) ;\n"
 
-            // Compute triplanar blend weights using power distribution
-            float3 blendWeights = pow(abs(normal), %BLEND%);
-            blendWeights /= dot(blendWeights, float3(1, 1, 1));
+            "    float3 localScale = GetObjectScale(input);\n"
+            "    localPos = TransformWorldVectorToLocal(input, localPos);\n"
 
-            // Unpack normal maps
-            float3 tnormalX = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.yz + %OFFSET%%SAMPLE_ARGS%).rg);
-            float3 tnormalY = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.xz + %OFFSET%%SAMPLE_ARGS%).rg);
-            float3 tnormalZ = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.xy + %OFFSET%%SAMPLE_ARGS%).rg);
+            "    \n"
+            "    // Apply the scale parameter in local space\n"
 
-            // Apply proper whiteout blend
-            normal = normalize(input.TBN[2]);
-            float3 axisSign = sign(normal);
-            float2 sumX = tnormalX.xy + normal.zy;
-            float2 sumY = tnormalY.xy + normal.xz;
-            float2 sumZ = tnormalZ.xy + normal.xy;
-            tnormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
-            tnormalY = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
-            tnormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+            "    localPos = localPos  * 0.01f ;\n"
+            "    localPos /= localScale;\n"
+            "    \n"
+            "    // Get local normal\n"
+            "    //float3 localNormal = TransformWorldVectorToLocal(input, input.TBN[2]);\n"
+            "    \n"
 
-            // Blend the normal maps using the blend weights
-            float3 blendedNormal = normalize(
-                tnormalX.zyx * blendWeights.x +
-                tnormalY.xzy * blendWeights.y +
-                tnormalZ.xyz * blendWeights.z
-            );
+            "    // Output the blended color\n"
+            "    {0} = localPos;\n"
+            "    }}\n"
+        ),
 
-            // Transform to tangent space
-            %RESULT% = normalize(TransformWorldVectorToTangent(input, blendedNormal));
-        }
-)"))
-    .Replace(TEXT("%TEXTURE%"), texture.Value)
-    .Replace(TEXT("%SCALE%"), scale.Value)
-    .Replace(TEXT("%BLEND%"), blend.Value)
-    .Replace(TEXT("%OFFSET%"), offset.Value)
-    .Replace(TEXT("%RESULT%"), result.Value)
-    .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-    .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
-    .Replace(TEXT("%SAMPLER%"), samplerName)
-    .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
-    .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
-    .Build();
-            _writer.Write(*triplanarNormalMap);
-            value = result;
-            break;
+            result.Value     
+        );
+
+        _writer.Write(*local_pos);
+        value = result;
+        break;
     }
     default:
         break;
