@@ -68,6 +68,14 @@ public:
     }
 
     /// <summary>
+    /// Gets work synchronization start point
+    /// </summary>
+    FORCE_INLINE GPUSyncPoint GetSyncStart() const
+    {
+        return _syncPoint;
+    }
+
+    /// <summary>
     /// Gets work finish synchronization point
     /// </summary>
     FORCE_INLINE GPUSyncPoint GetSyncPoint() const
@@ -140,24 +148,5 @@ protected:
         return true;
     }
 
-    void OnCancel() override
-    {
-        // Check if task is waiting for sync (very likely situation)
-        if (IsSyncing())
-        {
-            // Task has been performed but is waiting for a CPU/GPU sync so we have to cancel that
-            ASSERT(_context != nullptr);
-            _context->OnCancelSync(this);
-            _context = nullptr;
-            SetState(TaskState::Canceled);
-        }
-        else
-        {
-            // Maybe we could also handle cancel event during running but not yet syncing
-            ASSERT(!IsRunning());
-        }
-
-        // Base
-        Task::OnCancel();
-    }
+    void OnCancel() override;
 };

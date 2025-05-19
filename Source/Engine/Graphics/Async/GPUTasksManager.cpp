@@ -48,6 +48,21 @@ void GPUTask::Enqueue()
     GPUDevice::Instance->GetTasksManager()->_tasks.Add(this);
 }
 
+void GPUTask::OnCancel()
+{
+    // Check if task is waiting for sync (very likely situation)
+    if (IsSyncing())
+    {
+        // Task has been performed but is waiting for a CPU/GPU sync so we have to cancel that
+        _context->OnCancelSync(this);
+        _context = nullptr;
+        SetState(TaskState::Canceled);
+    }
+
+    // Base
+    Task::OnCancel();
+}
+
 GPUTasksManager::GPUTasksManager()
 {
     _buffers[0].EnsureCapacity(64);
