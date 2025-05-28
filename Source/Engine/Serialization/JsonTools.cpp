@@ -9,31 +9,54 @@
 #include "Engine/Scripting/ScriptingObjectReference.h"
 #include "Engine/Utilities/Encryption.h"
 
-void ChangeIds(rapidjson_flax::Value& obj, rapidjson_flax::Document& document, const Dictionary<Guid, Guid>& mapping)
+void ChangeIds(rapidjson_flax::Value& obj, rapidjson_flax::Document& document, const Dictionary<Guid, Guid>& mapping, const char* currentFieldName = nullptr)
 {
     if (obj.IsObject())
     {
         for (rapidjson_flax::Value::MemberIterator i = obj.MemberBegin(); i != obj.MemberEnd(); ++i)
         {
-            ChangeIds(i->value, document, mapping);
+            ChangeIds(i->value, document, mapping, i->name.GetString());
         }
     }
     else if (obj.IsArray())
     {
         for (rapidjson::SizeType i = 0; i < obj.Size(); i++)
         {
-            ChangeIds(obj[i], document, mapping);
+            ChangeIds(obj[i], document, mapping, currentFieldName);
         }
     }
     else if (obj.IsString() && obj.GetStringLength() == 32)
     {
+        // SAFETY CHECK: Never change Name fields or other non-ID fields
+        if (currentFieldName != nullptr)
+        {
+            const char* fieldName = currentFieldName;
+            
+            // Skip Name fields entirely
+            if (strcmp(fieldName, "Name") == 0)
+            {
+                return;
+            }
+            
+            // Only change known ID fields
+            bool isIdField = (strcmp(fieldName, "ID") == 0) ||
+                           (strcmp(fieldName, "ParentID") == 0) ||
+                           (strcmp(fieldName, "PrefabID") == 0) ||
+                           (strcmp(fieldName, "PrefabObjectID") == 0) ||
+                           (strstr(fieldName, "ID") != nullptr && 
+                            (strstr(fieldName, "ID") == fieldName + strlen(fieldName) - 2)); // Ends with "ID"
+            
+            if (!isIdField)
+            {
+                return; // Skip non-ID fields
+            }
+        }
+        
+        // Only process if this looks like a valid GUID and exists in mapping
         auto value = JsonTools::GetGuid(obj);
         if (mapping.TryGet(value, value))
         {
-            // Unoptimized version:
-            //obj.SetString(value.ToString(Guid::FormatType::N).ToSTD().c_str(), 32, document.GetAllocator());
-
-            // Optimized version:
+            // Existing optimized GUID formatting code
             char buffer[32] =
             {
             // @formatter:off
@@ -78,7 +101,7 @@ void JsonTools::ChangeIds(Document& doc, const Dictionary<Guid, Guid>& mapping)
     if (mapping.IsEmpty())
         return;
     PROFILE_CPU();
-    ::ChangeIds(doc, doc, mapping);
+    ::ChangeIds(doc, doc, mapping, nullptr); // Pass nullptr for root level
 }
 
 Float2 JsonTools::GetFloat2(const Value& value)
