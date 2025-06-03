@@ -36,6 +36,7 @@
 #include "Engine/Level/Scene/SceneRendering.h"
 #include "Engine/Core/Config/GraphicsSettings.h"
 #include "Engine/Threading/JobSystem.h"
+#include "Engine/Renderer/HierarchialZBuffer.h"
 #if USE_EDITOR
 #include "Editor/Editor.h"
 #include "Editor/QuadOverdrawPass.h"
@@ -342,6 +343,9 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         aaMode = AntialiasingMode::None; // TODO: support TAA in ortho projection (see RenderView::Prepare to jitter projection matrix better)
     renderContext.List->Settings.AntiAliasing.Mode = aaMode;
 
+    // Try to update the Hierarchial Z-Buffer if ready
+    HZBRenderer::TryRender(context, renderContext);
+
     // Initialize setup
     RenderSetup& setup = renderContext.List->Setup;
     const bool isGBufferDebug = GBufferPass::IsDebugView(renderContext.View.Mode);
@@ -393,6 +397,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         case ViewMode::MaterialComplexity:
         case ViewMode::Wireframe:
         case ViewMode::NoPostFx:
+        case ViewMode::HierarchialZBuffer:
             setup.UseTemporalAAJitter = false;
             break;
         }
@@ -546,15 +551,26 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         GlobalSignDistanceFieldPass::BindingData bindingData;
         GlobalSignDistanceFieldPass::Instance()->Render(renderContext, context, bindingData);
     }
-
+    
     // Fill GBuffer
     GBufferPass::Instance()->Fill(renderContext, lightBuffer);
+
 
     // Debug drawing
     if (renderContext.View.Mode == ViewMode::GlobalSDF)
         GlobalSignDistanceFieldPass::Instance()->RenderDebug(renderContext, context, lightBuffer);
     else if (renderContext.View.Mode == ViewMode::GlobalSurfaceAtlas)
         GlobalSurfaceAtlasPass::Instance()->RenderDebug(renderContext, context, lightBuffer);
+    else if (renderContext.View.Mode == ViewMode::HierarchialZBuffer)
+    {
+        context->ResetRenderTarget();
+        context->SetRenderTarget(task->GetOutputView());
+        context->SetViewportAndScissors(task->GetOutputViewport());
+        HZBRenderer::RenderDebug(renderContext, context);
+        RenderTargetPool::Release(lightBuffer);
+        return;
+    }
+
     if (renderContext.View.Mode == ViewMode::Emissive ||
         renderContext.View.Mode == ViewMode::VertexColors ||
         renderContext.View.Mode == ViewMode::LightmapUVsDensity ||

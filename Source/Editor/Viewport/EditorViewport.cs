@@ -1982,6 +1982,7 @@ namespace FlaxEditor.Viewport
             new ViewModeOptions(ViewMode.GlobalSDF, "Global SDF"),
             new ViewModeOptions(ViewMode.GlobalSurfaceAtlas, "Global Surface Atlas"),
             new ViewModeOptions(ViewMode.GlobalIllumination, "Global Illumination"),
+            new ViewModeOptions(ViewMode.HierarchialZBuffer, "HZB Occluders"),
         };
 
         private void WidgetViewModeShowHideClicked(ContextMenuButton button)

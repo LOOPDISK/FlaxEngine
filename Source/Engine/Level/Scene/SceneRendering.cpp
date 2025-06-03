@@ -9,6 +9,7 @@
 #include "Engine/Threading/JobSystem.h"
 #include "Engine/Threading/Threading.h"
 #include "Engine/Profiler/ProfilerCPU.h"
+#include "Engine/Renderer/HierarchialZBuffer.h"
 
 ISceneRenderingListener::~ISceneRenderingListener()
 {
@@ -36,6 +37,11 @@ FORCE_INLINE bool FrustumsListCull(const BoundingSphere& bounds, const Array<Bou
         if (data[i].Intersects(bounds))
             return true;
     }
+    return false;
+}
+
+bool HZBCull(const BoundingSphere& bounds)
+{
     return false;
 }
 
@@ -134,6 +140,7 @@ void SceneRendering::Clear()
     _listeners.Clear();
     for (auto& e : Actors)
         e.Clear();
+    HZBRenderer::ClearOccluders();
 #if USE_EDITOR
     PhysicsDebug.Clear();
 #endif
@@ -162,6 +169,11 @@ void SceneRendering::AddActor(Actor* a, int32& key)
     e.NoCulling = a->_drawNoCulling;
     for (auto* listener : _listeners)
         listener->OnSceneRenderingAddActor(a);
+    // Add to Hierarchial Z-Buffer
+    if (a->HasStaticFlag(StaticFlags::Occluder))
+    {
+        HZBRenderer::AddOccluder(a);
+    }
 }
 
 void SceneRendering::UpdateActor(Actor* a, int32& key, ISceneRenderingListener::UpdateFlags flags)
@@ -180,6 +192,18 @@ void SceneRendering::UpdateActor(Actor* a, int32& key, ISceneRenderingListener::
             e.LayerMask = a->GetLayerMask();
         if (flags & ISceneRenderingListener::Bounds)
             e.Bounds = a->GetSphere();
+        if (flags & ISceneRenderingListener::StaticFlags)
+        {
+            // Update occluder status
+            if (a->HasStaticFlag(StaticFlags::Occluder))
+            {
+                HZBRenderer::AddOccluder(a);
+            }
+            else
+            {
+                HZBRenderer::RemoveOccluder(a);
+            }
+        } 
     }
 }
 
@@ -200,11 +224,16 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
         }
     }
     key = -1;
+    // Remove from Hierarchial Z-Buffer
+    if (a->HasStaticFlag(StaticFlags::Occluder))
+    {
+        HZBRenderer::RemoveOccluder(a);
+    }
 }
 
 #define FOR_EACH_BATCH_ACTOR const int64 count = _drawListSize; while (true) { const int64 index = Platform::InterlockedIncrement(&_drawListIndex); if (index >= count) break; auto e = _drawListData[index];
-#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || FrustumsListCull(e.Bounds, _drawFrustumsData)))
-#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || view.CullingFrustum.Intersects(e.Bounds)))
+#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || FrustumsListCull(e.Bounds, _drawFrustumsData) || HZBCull(e.Bounds)))
+#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || view.CullingFrustum.Intersects(e.Bounds) || HZBCull(e.Bounds)))
 #if SCENE_RENDERING_USE_PROFILER_PER_ACTOR
 #define DRAW_ACTOR(mode) PROFILE_CPU_ACTOR(e.Actor); e.Actor->Draw(mode)
 #else
