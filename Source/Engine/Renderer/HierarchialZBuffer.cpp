@@ -28,25 +28,12 @@
 /// <summary>
 /// Custom task called after downloading HZB texture data to save it.
 /// </summary>
-class DownloadHZBTask : public ThreadPoolTask
+class UploadHZBTask : public ThreadPoolTask
 {
-private:
-    GPUTexture* _texture;
-    TextureData _data;
-
 public:
-    DownloadHZBTask(GPUTexture* target)
-        : _texture(target)
-    {
-    }
-
-    FORCE_INLINE TextureData& GetData()
-    {
-        return _data;
-    }
-
     bool Run() override
     {
+        HZBRenderer::CompleteDownload();
         return true;
     }
 };
@@ -61,12 +48,20 @@ namespace HZBRendererImpl
     GPUPipelineState* _psDebug = nullptr;
     GPUTexture* _depthTexture = nullptr;
     GPUTexture* _hzbTexture = nullptr;
-    uint64 _updateFrameNumber = 0;
     Float2 _lastResolution;
+    uint64 _lastUpdatedFrame = 0;
+
+    bool _needsUpdate = false;
+    // data
+    bool _usingA = true;
+    TextureData _dataA;
+    TextureData _dataB;
+    Viewport _viewA;
+    Viewport _viewB;
 
     FORCE_INLINE bool isUpdateSynced()
     {
-        return _updateFrameNumber > 0 && _updateFrameNumber < Engine::FrameCount;
+        return _isReady && _lastUpdatedFrame > 0 && _lastUpdatedFrame < Engine::FrameCount;
     }
 }
 Array<Actor*> HZBRenderer::_actors;
@@ -96,6 +91,12 @@ bool HZBRenderer::Init()
 {
     if (_isReady)
         return false;
+
+    if (GPUDevice::Instance->Limits.HasCompute == false)
+    {
+        LOG(Info, "Compute shaders are not supported. Cannot use HZB occlusion.");
+        return true;
+    }
 
     // Load shader
     if (_shaderAsset == nullptr)
@@ -130,7 +131,7 @@ bool HZBRenderer::Init()
     }
 
     // Init rendering pipeline
-    _depthTexture = GPUDevice::Instance->CreateTexture(TEXT("Depth"));
+    _depthTexture = GPUDevice::Instance->CreateTexture(TEXT("HZB.Depth"));
     Float2 resolution = Screen::GetSize();
     int32 sizeX = Math::RoundToInt(resolution.X * 0.5f);
     int32 sizeY = Math::RoundToInt(resolution.Y * 0.5f);
@@ -140,16 +141,15 @@ bool HZBRenderer::Init()
         return true;
     
 
-    // Init render targets
-    _hzbTexture = GPUDevice::Instance->CreateTexture(TEXT("HZB"));
-    sizeX = sizeX * 0.5f;
-    sizeY = sizeY * 0.5f;
-    int32 depth = Math::Log2(resolution.MaxValue());
-    if (_hzbTexture->Init(GPUTextureDescription::New3D(sizeX, sizeY, depth, GPU_DEPTH_BUFFER_PIXEL_FORMAT, GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget, 0)))
+    // Init hzb
+    _hzbTexture = GPUDevice::Instance->CreateTexture(TEXT("HZB.Pyramid"));
+    auto desc = GPUTextureDescription::New2D(sizeX, sizeY, PixelFormat::R32_Float, GPUTextureFlags::ShaderResource | GPUTextureFlags::UnorderedAccess);
+    if (_hzbTexture->Init(desc))
         return true;
 
     // Mark as ready
     _isReady = true;
+    _needsUpdate = true;
 
     return false;
 }
@@ -158,7 +158,8 @@ void HZBRenderer::Release()
 {
     if (!_isReady)
         return;
-    ASSERT(_updateFrameNumber == 0);
+
+    ASSERT(_lastUpdatedFrame == 0);
 
     // Release GPU data
     if (_depthTexture)
@@ -176,45 +177,22 @@ void HZBRenderer::Release()
 
 void HZBService::Update()
 {
-    // Calculate time delta since last update
-    auto timeNow = Time::Update.UnscaledTime;
-    auto timeSinceUpdate = timeNow - _lastUpdate;
-    if (timeSinceUpdate < 0)
-    {
-        _lastUpdate = timeNow;
-        timeSinceUpdate = 0;
-    }
+   // ASSERT(_updateFrameNumber == 0);
 
     // Check if render job is done
     if (isUpdateSynced())
     {
-        // Create async job to gather hzb data from the GPU
-        GPUTexture* texture = _hzbTexture;
-        ASSERT(texture);
-
-        auto taskB = New<DownloadHZBTask>(texture);
-        auto taskA = texture->DownloadDataAsync(taskB->GetData());
-        if (taskA == nullptr)
-        {
-            LOG(Fatal, "Failed to create async task to download HZB texture data from the GPU.");
-        }
-        taskA->ContinueWith(taskB);
-        taskA->Start();
-
-        // Clear flag
-        _updateFrameNumber = 0;
+        _lastUpdatedFrame = 0;
     }
     else
     {
         // Init service
         if (HZBRenderer::Init())
         {
-            LOG(Fatal, "Cannot setup HZB Renderer!");
-        }
-        if (HZBRenderer::HasReadyResources() == false)
+            LOG(Warning, "Cannot setup HZB Renderer!");
+            Dispose();
             return;
-
-        _updateFrameNumber = 0;
+        }
     }
 }
 
@@ -241,11 +219,45 @@ void HZBRenderer::ClearOccluders()
     _actors.Clear();
 }
 
-void HZBRenderer::SetInputs(const RenderView& view, HZBData& data)
+bool HZBRenderer::CheckOcclusion()
 {
+    bool checkA = false;
+    if (_lastUpdatedFrame == 0)
+    { // a download is in progress, or has been seen
+        checkA = _usingA;
+    }
+    else
+    { // the download finished but a frame hasn't passed yet
+        checkA = !_usingA;
+    }
+    if (checkA)
+    {
+        // TODO check against A
+    }
+    else
+    {
+        // TODO check against B
+    }
+    return false;
+}
+
+void HZBRenderer::CompleteDownload()
+{
+    _usingA = !_usingA;
+    _needsUpdate = true;
+    _lastUpdatedFrame = Engine::FrameCount;
+    
+    //LOG(Info, "Completed HZB download on frame {0}. Data size: {1}", _lastUpdatedFrame, _dataA.GetArraySize());
+}
+
+void HZBRenderer::SetInputs(const RenderView& view, HZBData& data, Float2 dimensions, int level, int offset)
+{
+    data.Dimensions = dimensions;
     data.ViewInfo = view.ViewInfo;
     data.ViewPos = view.Position;
     data.ViewFar = view.Far;
+    data.Level = level;
+    data.Offset = offset;
     Matrix::Transpose(view.IV, data.InvViewMatrix);
     Matrix::Transpose(view.IP, data.InvProjectionMatrix);
 }
@@ -257,20 +269,19 @@ void HZBRenderer::RenderDebug(RenderContext& renderContext, GPUContext* context)
 
     // Set constants buffer
     HZBData data;
-    SetInputs(renderContext.View, data);
+    SetInputs(renderContext.View, data, _depthTexture->Size(), 0, 0);
     auto cb = _shader->GetCB(0);
     context->UpdateCB(cb, &data);
     context->BindCB(0, cb);
 
-    // Bind inputs
     context->BindSR(0, _depthTexture);
-
-    // Combine frame
+    context->BindUA(1, _hzbTexture->View());
     context->SetState(_psDebug);
+
     context->DrawFullscreenTriangle();
 
     // Cleanup
-    context->ResetSR();
+    context->ClearState();
 }
 
 void HZBRenderer::TryRender(GPUContext* context, RenderContext& renderContext)
@@ -278,18 +289,30 @@ void HZBRenderer::TryRender(GPUContext* context, RenderContext& renderContext)
     if (!_isReady)
         return;
 
+    if (!_needsUpdate)
+        return;
+
+  // ASSERT(_updateFrameNumber == 0);
+
     // Resize if screen resolution changed
-    Float2 resolution = Screen::GetSize();
+    Viewport viewport = renderContext.Task->GetOutputViewport();
+    Float2 resolution = viewport.Size;
+    int32 sizeX = Math::RoundToInt(resolution.X * 0.5f);
+    int32 sizeY = Math::RoundToInt(resolution.Y * 0.5f);
+    sizeX += sizeX % 2; // round to nearest even number
+    sizeY += sizeY % 2; // round to nearest even number
+    int32 depth = Math::Max(2, (int)Math::Log2(resolution.MaxValue()));
     if (resolution != _lastResolution)
     {
-        int32 sizeX = Math::RoundToInt(resolution.X * 0.5f);
-        int32 sizeY = Math::RoundToInt(resolution.Y * 0.5f);
-        sizeX += sizeX % 2; // round to nearest even number
-        sizeY += sizeY % 2; // round to nearest even number
-        const PixelFormat format = PixelFormat::D32_Float;
-        bool resizeFailed = _depthTexture->Resize(sizeX, sizeY, format);
-        if (resizeFailed)
+        if (_depthTexture->Resize(sizeX, sizeY, GPU_DEPTH_BUFFER_PIXEL_FORMAT))
+        {
             LOG(Error, "Failed to resize HZB depth");
+        }
+
+        if (_hzbTexture->Resize(sizeX, sizeY, PixelFormat::R32_Float))
+        {
+            LOG(Error, "Failed to resize HZB");
+        }
     }
     _lastResolution = resolution;
 
@@ -297,12 +320,52 @@ void HZBRenderer::TryRender(GPUContext* context, RenderContext& renderContext)
     PROFILE_GPU("HZB depth");    
     context->ClearDepth(_depthTexture->View());
     Renderer::DrawSceneDepth(context, renderContext.Task, _depthTexture, _actors);
-    
-    // Cleanup
     context->ClearState();
+
+    // Render hierarchy
+    Float2 dimensions = Float2(sizeX, sizeY);
+    int offset = 0;
+    context->Clear(_hzbTexture->View(), Color::White);
+    for (int i = 0; i < depth; i++)
+    {
+        dimensions *= 0.5f;
+        context->SetViewport(dimensions.X, dimensions.Y);
+
+        HZBData data;
+        SetInputs(renderContext.View, data, dimensions, i, offset);
+        auto cb = _shader->GetCB(0);
+        context->UpdateCB(cb, &data);
+        context->BindCB(0, cb);
+        context->BindSR(0, _depthTexture);
+        context->BindUA(1, _hzbTexture->View());
+        context->SetState(_psHZB);
+        context->DrawFullscreenTriangle();
+
+        context->ClearState();
+        offset += dimensions.X;
+    }
+
     // Reset to the original viewport
     context->SetViewport(renderContext.Task->GetOutputViewport());
-
-    // Mark as rendered
-    _updateFrameNumber = Engine::FrameCount;
+    // Create async job to gather hzb data from the GPU
+    _lastUpdatedFrame = 0;
+    _needsUpdate = false;
+    Task* uploadTask = New<UploadHZBTask>();
+    Task* downloadTask;
+    if (_usingA)
+    {
+        downloadTask = _hzbTexture->DownloadDataAsync(_dataB);
+        _viewB = viewport;
+    }
+    else
+    {
+        downloadTask = _hzbTexture->DownloadDataAsync(_dataA);
+        _viewA = viewport;
+    }
+    if (downloadTask == nullptr)
+    {
+        LOG(Fatal, "Failed to create async task to download HZB texture data from the GPU.");
+    }
+    downloadTask->ContinueWith(uploadTask);
+    downloadTask->Start();
 }
