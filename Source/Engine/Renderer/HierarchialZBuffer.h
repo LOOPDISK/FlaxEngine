@@ -49,7 +49,7 @@ public:
     static void RemoveOccluder(Actor* actor);
     static void ClearOccluders();
 
-    static bool CheckOcclusion();
+    static bool CheckOcclusion(Actor* actor, const BoundingSphere& bounds);
 
     /// <summary>
     /// Render the base depth buffer if it's ready.
@@ -57,9 +57,9 @@ public:
     static void TryRender(GPUContext* context, RenderContext& renderContext);
 
     static void CompleteDownload();
-
     static void RenderDebug(RenderContext &renderContext, GPUContext* context);
 private:
     static void SetInputs(const RenderView& view, HZBData& data, Float2 dimensions, int level, int offset);
     static Array<Actor*> _actors;
+    static void HZBRenderer::DebugDraw(GPUContext* context, RenderContext& renderContext);
 };

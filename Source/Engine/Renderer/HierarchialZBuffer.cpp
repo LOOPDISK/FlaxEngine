@@ -24,6 +24,9 @@
 #include "Engine/Engine/Engine.h"
 #include "Engine/Engine/Screen.h"
 #include "Engine/Renderer/RenderList.h"
+#include <Engine/Input/Input.h>
+#include "Engine/Debug/DebugDraw.h"
+#include "Engine/Render2D/Render2D.h"
 
 /// <summary>
 /// Custom task called after downloading HZB texture data to save it.
@@ -40,6 +43,7 @@ public:
 
 namespace HZBRendererImpl
 {
+    bool _enabled = true;
     TimeSpan _lastUpdate(0);
     bool _isReady = false;
     AssetReference<Shader> _shaderAsset;
@@ -48,21 +52,25 @@ namespace HZBRendererImpl
     GPUPipelineState* _psDebug = nullptr;
     GPUTexture* _depthTexture = nullptr;
     GPUTexture* _hzbTexture = nullptr;
+    GPUTexture* _stagingTexture = nullptr;
     Float2 _lastResolution;
     uint64 _lastUpdatedFrame = 0;
 
     bool _needsUpdate = false;
     // data
     bool _usingA = true;
-    TextureData _dataA;
-    TextureData _dataB;
-    Viewport _viewA;
-    Viewport _viewB;
-
-    FORCE_INLINE bool isUpdateSynced()
+    struct ViewData
     {
-        return _isReady && _lastUpdatedFrame > 0 && _lastUpdatedFrame < Engine::FrameCount;
-    }
+        TextureData textureData;
+        Viewport viewport;
+        Matrix vp;
+        Float3 pos;
+        Float3 dir;
+        Float3 perpDir;
+    };
+    ViewData _viewA;
+    ViewData _viewB;
+    Array<Rectangle> _debugArray;
 }
 Array<Actor*> HZBRenderer::_actors;
 
@@ -91,12 +99,6 @@ bool HZBRenderer::Init()
 {
     if (_isReady)
         return false;
-
-    if (GPUDevice::Instance->Limits.HasCompute == false)
-    {
-        LOG(Info, "Compute shaders are not supported. Cannot use HZB occlusion.");
-        return true;
-    }
 
     // Load shader
     if (_shaderAsset == nullptr)
@@ -140,13 +142,20 @@ bool HZBRenderer::Init()
     if (_depthTexture->Init(GPUTextureDescription::New2D(sizeX, sizeY, GPU_DEPTH_BUFFER_PIXEL_FORMAT, GPUTextureFlags::ShaderResource | GPUTextureFlags::DepthStencil)))
         return true;
     
-
     // Init hzb
     _hzbTexture = GPUDevice::Instance->CreateTexture(TEXT("HZB.Pyramid"));
     auto desc = GPUTextureDescription::New2D(sizeX, sizeY, PixelFormat::R32_Float, GPUTextureFlags::ShaderResource | GPUTextureFlags::UnorderedAccess);
     if (_hzbTexture->Init(desc))
         return true;
 
+    // Init staging texture
+    _stagingTexture = GPUDevice::Instance->CreateTexture(TEXT("HZB.Staging"));
+    desc.ToStagingReadback();
+    if (_stagingTexture->Init(desc))
+        return true;
+
+    MainRenderTask::Instance->PreRender.Bind(TryRender);
+    //   MainRenderTask::Instance->PostRender.Bind(DebugDraw);
     // Mark as ready
     _isReady = true;
     _needsUpdate = true;
@@ -171,6 +180,7 @@ void HZBRenderer::Release()
     _shaderAsset = nullptr;
     SAFE_DELETE_GPU_RESOURCE(_depthTexture);
     SAFE_DELETE_GPU_RESOURCE(_hzbTexture);
+    SAFE_DELETE_GPU_RESOURCE(_stagingTexture);
 
     _isReady = false;
 }
@@ -178,9 +188,21 @@ void HZBRenderer::Release()
 void HZBService::Update()
 {
    // ASSERT(_updateFrameNumber == 0);
-
+    if (Input::GetKeyDown(KeyboardKeys::H))
+    {
+        _enabled = !_enabled;
+        _isReady = !_isReady;
+        if (_enabled)
+        {
+            LOG(Info, "HZB has been enabled.");
+        }
+        else
+        {
+            LOG(Info, "HZB has been disabled.");
+        }
+    }
     // Check if render job is done
-    if (isUpdateSynced())
+    if (_isReady && _lastUpdatedFrame > 0 && _lastUpdatedFrame < Engine::FrameCount)
     {
         _lastUpdatedFrame = 0;
     }
@@ -203,7 +225,7 @@ void HZBService::Dispose()
 
 void HZBRenderer::AddOccluder(Actor* actor)
 {
-    if (!_actors.Contains(actor))
+    if (actor && !_actors.Contains(actor))
     {
         _actors.Add(actor);
     }
@@ -211,7 +233,10 @@ void HZBRenderer::AddOccluder(Actor* actor)
 
 void HZBRenderer::RemoveOccluder(Actor* actor)
 {
-    _actors.Remove(actor);
+    if (actor)
+    {
+        _actors.Remove(actor);
+    }
 }
 
 void HZBRenderer::ClearOccluders()
@@ -219,26 +244,130 @@ void HZBRenderer::ClearOccluders()
     _actors.Clear();
 }
 
-bool HZBRenderer::CheckOcclusion()
+bool HZBRenderer::CheckOcclusion(Actor* actor, const BoundingSphere& bounds)
 {
-    bool checkA = false;
+    if (!_enabled) return false;
+
+    ViewData* activeView;
+    // swap data
     if (_lastUpdatedFrame == 0)
     { // a download is in progress, or has been seen
-        checkA = _usingA;
+        if (_usingA)
+            activeView = &_viewA;
+        else
+            activeView = &_viewB;
     }
     else
-    { // the download finished but a frame hasn't passed yet
-        checkA = !_usingA;
+    { // the download finished but a frame hasn't passed yet, so don't swap yet
+        if (_usingA)
+            activeView = &_viewB;
+        else
+            activeView = &_viewA;
     }
-    if (checkA)
+    // no data yet
+    if (activeView->textureData.GetArraySize() == 0)
+        return false;
+    auto data = activeView->textureData.GetData(0, 0);
+    if (data->Data.Length() == 0)
     {
-        // TODO check against A
+        return false;
     }
-    else
+    // get sphere center and radius in screen space
+    Vector3 centerProj, radiusProj, closestProj;
+    activeView->viewport.Project(bounds.Center, activeView->vp, centerProj);
+    activeView->viewport.Project(bounds.Center + activeView->perpDir * bounds.Radius, activeView->vp, radiusProj);
+    Vector3 closestPoint = bounds.Center - activeView->dir * bounds.Radius; 
+
+    activeView->viewport.Project(closestPoint, activeView->vp, closestProj);
+
+    // increase this to reduce pop in, at the expense of less occlusion
+    const float extraSize = 10.0f;
+    float radiusLength = extraSize + Float2::Distance(Float2(centerProj.X, centerProj.Y), Float2(radiusProj.X, radiusProj.Y));
+    // all the halving is because the buffer is already 50% of the full screen, and level 0 is half of that. The other levels are stacked horizontally to the right of it
+    centerProj *= 0.5f;
+    radiusLength *= 0.5f;
+    if (closestProj.Z > 1.0f || closestProj.Z < 0)
+    { // early exit
+        return false;
+    }
+    int level = Math::Max(0.0f, Math::Log2(radiusLength * 2.0f) - 1.0f - 2);
+ //   level = 1;
+    float offset = 0; // horizontal offset for finding the other levels
+    float width = activeView->textureData.Width * 0.5f;
+    float height = activeView->textureData.Height * 0.5f;
+    centerProj *= 0.5f;
+    radiusLength *= 0.5f;
+   // _debugArray.Add(Rectangle(0, 0, width * 2.0f, height * 2.0f));
+
+    for (int i = 0; i < level; i++)
     {
-        // TODO check against B
+        offset += width;
+        width *= 0.5f;
+        height *= 0.5f;
+        radiusLength *= 0.5f;
+        centerProj *= 0.5f;
+        if ((int)(width * 0.5f) == 0 || (int)(height * 0.5f) == 0)
+        { // break early if next iteration will be too small
+            level = i;
+            break;
+        }
     }
-    return false;
+ //   _debugArray.Add(Rectangle(offset + centerProj.X, centerProj.Y, 2, 2));
+
+    float targetDistance = closestProj.Z;
+    int startX = Math::Clamp(offset + (int)(centerProj.X - radiusLength), offset, offset + width);
+    int endX = Math::Clamp(offset + (int)(centerProj.X + radiusLength), offset, offset + width);
+    int startY = Math::Clamp((int)(centerProj.Y - radiusLength), 0, (int)height);
+    int endY = Math::Clamp((int)(centerProj.Y + radiusLength), 0, (int)height);
+    if (startX - endX == 0)
+    { // needs to be at least 1 wide
+        if (startX == offset + width) startX--;
+        else endX++;
+    }
+    if (startY - endY == 0)
+    { // needs to be at least 1 tall
+        if (startY == height) startY--;
+        else endY++;
+    }
+    //     _debugArray.Add(Rectangle(startX, startY, endX - startX, endY - startY));
+
+  //  LOG(Info, "Actor: {0}; startX: {1}; endX: {2}; startY: {3}; endY: {4}; width: {5}; height: {6}; level: {7}; r: {8}; center: {9}; offset: {10}", actor->GetNamePath(), startX, endX, startY, endY, width, height, level, radiusLength, centerProj, offset);
+    for (int x = startX; x < endX; x++)
+    {
+        for (int y = startY; y < endY; y++)
+        {
+            float value = data->Get<float>(x, y);
+            if (value == 0)
+            {
+        //        value = 1;
+            }
+      //      LOG(Info, "Comparing x:{0},y:{1}: {2} to {3} | {4}", x, y, targetDistance, value, actor->GetNamePath());
+            if (targetDistance < value)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+void HZBRenderer::DebugDraw(GPUContext* context, RenderContext& renderContext)
+{
+    RenderDebug(renderContext, context);
+    auto output = renderContext.Task->Output;
+    Render2D::Begin(context, output);
+
+    int count = _debugArray.Count();
+    for (int i = 0; i < count; i++)
+    {
+        auto rect = _debugArray[i];
+        rect.Location *= 2.0f;
+        rect.Size *= 2.0f;
+        Render2D::DrawRectangle(rect, Color::Red);
+    }
+
+    Render2D::End();
+    _debugArray.Clear();
 }
 
 void HZBRenderer::CompleteDownload()
@@ -293,9 +422,29 @@ void HZBRenderer::TryRender(GPUContext* context, RenderContext& renderContext)
         return;
 
   // ASSERT(_updateFrameNumber == 0);
+    // saveview settings
+    ViewData* activeView;
+    if (_usingA)
+    {
+        activeView = &_viewA;
+    }
+    else
+    {
+        activeView = &_viewB;
+    }
+    Viewport viewport = renderContext.Task->GetOutputViewport();
+
+    activeView->viewport = viewport;
+    activeView->pos = renderContext.View.WorldPosition;
+    activeView->vp = renderContext.View.ViewProjection();
+    activeView->dir = renderContext.View.Direction;
+    activeView->perpDir = Float3::Cross(renderContext.View.Direction, Float3::Up).GetNormalized();
+    if (activeView->perpDir.LengthSquared() < 0.001f)
+    { // looking up, choose different direction
+        activeView->perpDir = Float3::Cross(renderContext.View.Direction, Float3::Left).GetNormalized();
+    }
 
     // Resize if screen resolution changed
-    Viewport viewport = renderContext.Task->GetOutputViewport();
     Float2 resolution = viewport.Size;
     int32 sizeX = Math::RoundToInt(resolution.X * 0.5f);
     int32 sizeY = Math::RoundToInt(resolution.Y * 0.5f);
@@ -313,9 +462,21 @@ void HZBRenderer::TryRender(GPUContext* context, RenderContext& renderContext)
         {
             LOG(Error, "Failed to resize HZB");
         }
+
+        if (_stagingTexture->Resize(sizeX, sizeY, PixelFormat::R32_Float))
+        {
+            LOG(Error, "Failed to resize HZB staging");
+        }
     }
     _lastResolution = resolution;
 
+    //for (int i = _actors.Count() - 1; i >= 0; i--)
+    //{
+    //    if (!_actors[i] || _actors[i] == nullptr)
+    //    {
+    //        _actors.RemoveAt(i);
+    //    }
+    //}
     // Draw depth
     PROFILE_GPU("HZB depth");    
     context->ClearDepth(_depthTexture->View());
@@ -350,18 +511,12 @@ void HZBRenderer::TryRender(GPUContext* context, RenderContext& renderContext)
     // Create async job to gather hzb data from the GPU
     _lastUpdatedFrame = 0;
     _needsUpdate = false;
+
+    context->CopyTexture(_stagingTexture, 0, 0, 0, 0, _hzbTexture, 0);
+
     Task* uploadTask = New<UploadHZBTask>();
-    Task* downloadTask;
-    if (_usingA)
-    {
-        downloadTask = _hzbTexture->DownloadDataAsync(_dataB);
-        _viewB = viewport;
-    }
-    else
-    {
-        downloadTask = _hzbTexture->DownloadDataAsync(_dataA);
-        _viewA = viewport;
-    }
+    Task* downloadTask = _stagingTexture->DownloadDataAsync(activeView->textureData);
+
     if (downloadTask == nullptr)
     {
         LOG(Fatal, "Failed to create async task to download HZB texture data from the GPU.");

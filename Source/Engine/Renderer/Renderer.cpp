@@ -344,7 +344,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
     renderContext.List->Settings.AntiAliasing.Mode = aaMode;
 
     // Try to update the Hierarchial Z-Buffer if ready
-    HZBRenderer::TryRender(context, renderContext);
+   // HZBRenderer::TryRender(context, renderContext);
 
     // Initialize setup
     RenderSetup& setup = renderContext.List->Setup;

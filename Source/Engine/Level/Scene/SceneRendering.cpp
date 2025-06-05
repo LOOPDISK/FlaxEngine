@@ -10,6 +10,7 @@
 #include "Engine/Threading/Threading.h"
 #include "Engine/Profiler/ProfilerCPU.h"
 #include "Engine/Renderer/HierarchialZBuffer.h"
+#include "Engine/Debug/DebugDraw.h"
 
 ISceneRenderingListener::~ISceneRenderingListener()
 {
@@ -39,10 +40,19 @@ FORCE_INLINE bool FrustumsListCull(const BoundingSphere& bounds, const Array<Bou
     }
     return false;
 }
-
-bool HZBCull(const BoundingSphere& bounds)
+bool HZBCull(Actor* actor, BoundingSphere& bounds)
 {
-    return false;
+    //DebugDraw::DrawSphere(bounds, Color::Red, 1, false);
+    if (HZBRenderer::CheckOcclusion(actor, bounds))
+    {
+        //if (rand() < 10)
+        //{
+        //    const BoundingSphere sphere(bounds.Center, 100);
+        //    DebugDraw::DrawSphere(sphere, Color::Red, 1, false);
+        //}
+        return false;
+    }
+    return true;
 }
 
 void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory category)
@@ -232,8 +242,8 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
 }
 
 #define FOR_EACH_BATCH_ACTOR const int64 count = _drawListSize; while (true) { const int64 index = Platform::InterlockedIncrement(&_drawListIndex); if (index >= count) break; auto e = _drawListData[index];
-#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || FrustumsListCull(e.Bounds, _drawFrustumsData) || HZBCull(e.Bounds)))
-#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || view.CullingFrustum.Intersects(e.Bounds) || HZBCull(e.Bounds)))
+#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || (FrustumsListCull(e.Bounds, _drawFrustumsData) && HZBCull(e.Actor, e.Bounds))))
+#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || (view.CullingFrustum.Intersects(e.Bounds) && HZBCull(e.Actor, e.Bounds))))
 #if SCENE_RENDERING_USE_PROFILER_PER_ACTOR
 #define DRAW_ACTOR(mode) PROFILE_CPU_ACTOR(e.Actor); e.Actor->Draw(mode)
 #else

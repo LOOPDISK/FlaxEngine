@@ -106,6 +106,7 @@ float4 PS_DebugView(Quad_VS2PS input) : SV_Target
     { // draw hzb on top of base depth texture
         depth = hzbDepth;
     }
+ //   return float4(depth, depth, depth, 1);
 
     float3 viewPos = GetViewPos(uv, depth, InvProjectionMatrix);
 	float3 result = viewPos.z / ViewFar;
