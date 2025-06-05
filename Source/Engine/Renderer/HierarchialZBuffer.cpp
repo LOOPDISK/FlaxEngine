@@ -28,15 +28,22 @@
 #include "Engine/Debug/DebugDraw.h"
 #include "Engine/Render2D/Render2D.h"
 
+#define HZB_FRAME_COUNT 4
+
 /// <summary>
 /// Custom task called after downloading HZB texture data to save it.
 /// </summary>
 class UploadHZBTask : public ThreadPoolTask
 {
 public:
+    int index = 0;
+    class UploadHZBTask(int i) : index(i)
+    {
+
+    }
     bool Run() override
     {
-        HZBRenderer::CompleteDownload();
+        HZBRenderer::CompleteDownload(index);
         return true;
     }
 };
@@ -44,7 +51,6 @@ public:
 namespace HZBRendererImpl
 {
     bool _enabled = true;
-    TimeSpan _lastUpdate(0);
     bool _isReady = false;
     AssetReference<Shader> _shaderAsset;
     GPUShader* _shader;
@@ -52,15 +58,13 @@ namespace HZBRendererImpl
     GPUPipelineState* _psDebug = nullptr;
     GPUTexture* _depthTexture = nullptr;
     GPUTexture* _hzbTexture = nullptr;
-    GPUTexture* _stagingTexture = nullptr;
     Float2 _lastResolution;
-    uint64 _lastUpdatedFrame = 0;
-
-    bool _needsUpdate = false;
     // data
-    bool _usingA = true;
     struct ViewData
     {
+        int index = 0;
+        bool isDownloading = false;
+        GPUTexture* stagingTexture = nullptr;
         TextureData textureData;
         Viewport viewport;
         Matrix vp;
@@ -68,8 +72,11 @@ namespace HZBRendererImpl
         Float3 dir;
         Float3 perpDir;
     };
-    ViewData _viewA;
-    ViewData _viewB;
+    int _viewIndex = 0;
+    int _mostRecentIndex = -1;
+    uint64 _updateFrameCount = 0;
+    ViewData _views[HZB_FRAME_COUNT];
+
     Array<Rectangle> _debugArray;
 }
 Array<Actor*> HZBRenderer::_actors;
@@ -148,17 +155,22 @@ bool HZBRenderer::Init()
     if (_hzbTexture->Init(desc))
         return true;
 
-    // Init staging texture
-    _stagingTexture = GPUDevice::Instance->CreateTexture(TEXT("HZB.Staging"));
-    desc.ToStagingReadback();
-    if (_stagingTexture->Init(desc))
-        return true;
+    // Init staging textures
+    for (int i = 0; i < HZB_FRAME_COUNT; i++)
+    {
+        _views[i].index = i;
+        String name = TEXT("HZB.Staging.");
+        name.Append(i);
+        _views[i].stagingTexture = GPUDevice::Instance->CreateTexture(name);
+        desc = desc.ToStagingReadback();
+        if (_views[i].stagingTexture->Init(desc))
+            return true;
+    }
 
     MainRenderTask::Instance->PreRender.Bind(TryRender);
     //   MainRenderTask::Instance->PostRender.Bind(DebugDraw);
     // Mark as ready
     _isReady = true;
-    _needsUpdate = true;
 
     return false;
 }
@@ -167,8 +179,6 @@ void HZBRenderer::Release()
 {
     if (!_isReady)
         return;
-
-    ASSERT(_lastUpdatedFrame == 0);
 
     // Release GPU data
     if (_depthTexture)
@@ -180,14 +190,16 @@ void HZBRenderer::Release()
     _shaderAsset = nullptr;
     SAFE_DELETE_GPU_RESOURCE(_depthTexture);
     SAFE_DELETE_GPU_RESOURCE(_hzbTexture);
-    SAFE_DELETE_GPU_RESOURCE(_stagingTexture);
+    for (int i = 0; i < HZB_FRAME_COUNT; i++)
+    {
+        SAFE_DELETE_GPU_RESOURCE(_views[i].stagingTexture);
+    }
 
     _isReady = false;
 }
 
 void HZBService::Update()
 {
-   // ASSERT(_updateFrameNumber == 0);
     if (Input::GetKeyDown(KeyboardKeys::H))
     {
         _enabled = !_enabled;
@@ -201,20 +213,13 @@ void HZBService::Update()
             LOG(Info, "HZB has been disabled.");
         }
     }
-    // Check if render job is done
-    if (_isReady && _lastUpdatedFrame > 0 && _lastUpdatedFrame < Engine::FrameCount)
+    
+    // Init service
+    if (HZBRenderer::Init())
     {
-        _lastUpdatedFrame = 0;
-    }
-    else
-    {
-        // Init service
-        if (HZBRenderer::Init())
-        {
-            LOG(Warning, "Cannot setup HZB Renderer!");
-            Dispose();
-            return;
-        }
+        LOG(Warning, "Cannot setup HZB Renderer!");
+        Dispose();
+        return;
     }
 }
 
@@ -247,26 +252,13 @@ void HZBRenderer::ClearOccluders()
 bool HZBRenderer::CheckOcclusion(Actor* actor, const BoundingSphere& bounds)
 {
     if (!_enabled) return false;
+    if (_mostRecentIndex < 0) return false;
 
-    ViewData* activeView;
-    // swap data
-    if (_lastUpdatedFrame == 0)
-    { // a download is in progress, or has been seen
-        if (_usingA)
-            activeView = &_viewA;
-        else
-            activeView = &_viewB;
-    }
-    else
-    { // the download finished but a frame hasn't passed yet, so don't swap yet
-        if (_usingA)
-            activeView = &_viewB;
-        else
-            activeView = &_viewA;
-    }
+    ViewData* activeView = &_views[_mostRecentIndex];
     // no data yet
     if (activeView->textureData.GetArraySize() == 0)
         return false;
+
     auto data = activeView->textureData.GetData(0, 0);
     if (data->Data.Length() == 0)
     {
@@ -281,7 +273,7 @@ bool HZBRenderer::CheckOcclusion(Actor* actor, const BoundingSphere& bounds)
     activeView->viewport.Project(closestPoint, activeView->vp, closestProj);
 
     // increase this to reduce pop in, at the expense of less occlusion
-    const float extraSize = 10.0f;
+    const float extraSize = 50.0f;
     float radiusLength = extraSize + Float2::Distance(Float2(centerProj.X, centerProj.Y), Float2(radiusProj.X, radiusProj.Y));
     // all the halving is because the buffer is already 50% of the full screen, and level 0 is half of that. The other levels are stacked horizontally to the right of it
     centerProj *= 0.5f;
@@ -337,17 +329,15 @@ bool HZBRenderer::CheckOcclusion(Actor* actor, const BoundingSphere& bounds)
         for (int y = startY; y < endY; y++)
         {
             float value = data->Get<float>(x, y);
-            if (value == 0)
-            {
-        //        value = 1;
-            }
       //      LOG(Info, "Comparing x:{0},y:{1}: {2} to {3} | {4}", x, y, targetDistance, value, actor->GetNamePath());
             if (targetDistance < value)
             {
+    //            LOG(Info, "actor: {0} | i: {1}; mr: {2}", actor->GetNamePath(), index, _mostRecentIndex);
                 return false;
             }
         }
     }
+
     return true;
 }
 
@@ -370,13 +360,11 @@ void HZBRenderer::DebugDraw(GPUContext* context, RenderContext& renderContext)
     _debugArray.Clear();
 }
 
-void HZBRenderer::CompleteDownload()
+void HZBRenderer::CompleteDownload(int index)
 {
-    _usingA = !_usingA;
-    _needsUpdate = true;
-    _lastUpdatedFrame = Engine::FrameCount;
-    
-    //LOG(Info, "Completed HZB download on frame {0}. Data size: {1}", _lastUpdatedFrame, _dataA.GetArraySize());
+    _mostRecentIndex = index;
+    _updateFrameCount = Engine::FrameCount;
+    _views[index].isDownloading = false;
 }
 
 void HZBRenderer::SetInputs(const RenderView& view, HZBData& data, Float2 dimensions, int level, int offset)
@@ -394,6 +382,9 @@ void HZBRenderer::SetInputs(const RenderView& view, HZBData& data, Float2 dimens
 void HZBRenderer::RenderDebug(RenderContext& renderContext, GPUContext* context)
 {
     if (!_isReady)
+        return;
+
+    if (_mostRecentIndex < 0)
         return;
 
     // Set constants buffer
@@ -418,20 +409,18 @@ void HZBRenderer::TryRender(GPUContext* context, RenderContext& renderContext)
     if (!_isReady)
         return;
 
-    if (!_needsUpdate)
+    if (_viewIndex == _mostRecentIndex)
+    { // already far ahead, skip to let downloads catch up
+        return;
+    }
+
+    ViewData* activeView = &_views[_viewIndex];
+    _viewIndex = (_viewIndex + 1) % HZB_FRAME_COUNT;
+
+    if (activeView->isDownloading)
         return;
 
-  // ASSERT(_updateFrameNumber == 0);
-    // saveview settings
-    ViewData* activeView;
-    if (_usingA)
-    {
-        activeView = &_viewA;
-    }
-    else
-    {
-        activeView = &_viewB;
-    }
+    // save view settings
     Viewport viewport = renderContext.Task->GetOutputViewport();
 
     activeView->viewport = viewport;
@@ -463,9 +452,12 @@ void HZBRenderer::TryRender(GPUContext* context, RenderContext& renderContext)
             LOG(Error, "Failed to resize HZB");
         }
 
-        if (_stagingTexture->Resize(sizeX, sizeY, PixelFormat::R32_Float))
+        for (int i = 0; i < HZB_FRAME_COUNT; i++)
         {
-            LOG(Error, "Failed to resize HZB staging");
+            if (_views[i].stagingTexture->Resize(sizeX, sizeY, PixelFormat::R32_Float))
+            {
+                LOG(Error, "Failed to resize HZB staging");
+            }
         }
     }
     _lastResolution = resolution;
@@ -508,14 +500,13 @@ void HZBRenderer::TryRender(GPUContext* context, RenderContext& renderContext)
 
     // Reset to the original viewport
     context->SetViewport(renderContext.Task->GetOutputViewport());
+
     // Create async job to gather hzb data from the GPU
-    _lastUpdatedFrame = 0;
-    _needsUpdate = false;
-
-    context->CopyTexture(_stagingTexture, 0, 0, 0, 0, _hzbTexture, 0);
-
-    Task* uploadTask = New<UploadHZBTask>();
-    Task* downloadTask = _stagingTexture->DownloadDataAsync(activeView->textureData);
+    context->Clear(activeView->stagingTexture->View(), Color::White);
+    context->CopyTexture(activeView->stagingTexture, 0, 0, 0, 0, _hzbTexture, 0);
+    activeView->isDownloading = true;
+    Task* uploadTask = New<UploadHZBTask>(activeView->index);
+    Task* downloadTask = activeView->stagingTexture->DownloadDataAsync(activeView->textureData);
 
     if (downloadTask == nullptr)
     {

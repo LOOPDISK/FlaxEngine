@@ -56,7 +56,7 @@ public:
     /// </summary>
     static void TryRender(GPUContext* context, RenderContext& renderContext);
 
-    static void CompleteDownload();
+    static void CompleteDownload(int index);
     static void RenderDebug(RenderContext &renderContext, GPUContext* context);
 private:
     static void SetInputs(const RenderView& view, HZBData& data, Float2 dimensions, int level, int offset);
