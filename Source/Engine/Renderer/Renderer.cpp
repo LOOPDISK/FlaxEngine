@@ -456,7 +456,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
 #endif
     }
     // Generate Hierarchial Z Buffer data for occlusion culling
-    HierarchialZBufferPass::Instance()->Render(context, renderContext);
+    //HierarchialZBufferPass::Instance()->Render(context, renderContext);
 
     // Process draw calls (sorting, objects buffer building)
     {

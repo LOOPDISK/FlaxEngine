@@ -8,6 +8,7 @@
 #include "Engine/Core/Math/BoundingFrustum.h"
 #include "Engine/Level/Actor.h"
 #include "Engine/Platform/CriticalSection.h"
+#include "Engine/Renderer/HierarchialZBufferPass.h"
 
 class SceneRenderTask;
 class SceneRendering;
@@ -200,4 +201,7 @@ private:
     RenderContextBatch* _drawBatch;
 
     void DrawActorsJob(int32);
+
+    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum, HZBData* occluders);
+    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, HZBData* occluders);
 };

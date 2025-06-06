@@ -24,6 +24,8 @@
 #include "Engine/Engine/Engine.h"
 #include "Engine/Engine/Screen.h"
 #include "Engine/Renderer/RenderList.h"
+#include "Engine/Scripting/Scripting.h"
+#include "Engine/Input/Input.h"
 
 #define HZB_FORMAT PixelFormat::R32_Float
 #define HZB_BOUNDS_BIAS 50.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
@@ -52,6 +54,9 @@ String HierarchialZBufferPass::ToString()const
 
 bool HierarchialZBufferPass::Init()
 {
+    // Active only on MainRenderTask. To use on all render tasks, uncomment the corresponding line in Renderer.cpp and remove this.
+    MainRenderTask::Instance->PreRender.Bind<HierarchialZBufferPass, &HierarchialZBufferPass::Render>(this);
+
     // Check platform support
     const auto device = GPUDevice::Instance;
     _supported = device->GetFeatureLevel() >= FeatureLevel::ES2;
