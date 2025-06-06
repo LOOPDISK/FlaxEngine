@@ -9,6 +9,7 @@
 #include "Engine/Threading/JobSystem.h"
 #include "Engine/Threading/Threading.h"
 #include "Engine/Profiler/ProfilerCPU.h"
+#include "Engine/Renderer/HierarchialZBufferPass.h"
 
 ISceneRenderingListener::~ISceneRenderingListener()
 {
@@ -35,6 +36,57 @@ FORCE_INLINE bool FrustumsListCull(const BoundingSphere& bounds, const Array<Bou
     {
         if (data[i].Intersects(bounds))
             return true;
+    }
+    return false;
+}
+
+FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, HZBData* occluders)
+{
+    if (FrustumsListCull(bounds, frustums))
+    {
+        if (occluders)
+        {
+            if (occluders->CheckOcclusion(bounds))
+            {
+                actor->_wasCulled = 1;
+                return false;
+            }
+            else
+            {
+                actor->_wasCulled = 0;
+                return true;
+            }
+        }
+        return true;
+    }
+    if (occluders)
+    { // only mark as culled if HZBData was valid, meaning it was the main render task
+        actor->_wasCulled = 1;
+    }
+    return false;
+}
+FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum, HZBData* occluders)
+{
+    if (frustum.Intersects(bounds))
+    {
+        if (occluders)
+        {
+            if (occluders->CheckOcclusion(bounds))
+            {
+                actor->_wasCulled = 1;
+                return false;
+            }
+            else
+            {
+                actor->_wasCulled = 0;
+                return true;
+            }
+        }
+        return true;
+    }
+    if (occluders)
+    { // only mark as culled if HZBData was valid, meaning it was the main render task
+        actor->_wasCulled = 1;
     }
     return false;
 }
@@ -203,8 +255,8 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
 }
 
 #define FOR_EACH_BATCH_ACTOR const int64 count = _drawListSize; while (true) { const int64 index = Platform::InterlockedIncrement(&_drawListIndex); if (index >= count) break; auto e = _drawListData[index];
-#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || FrustumsListCull(e.Bounds, _drawFrustumsData)))
-#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || view.CullingFrustum.Intersects(e.Bounds)))
+#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData, hzb)))
+#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum, hzb)))
 #if SCENE_RENDERING_USE_PROFILER_PER_ACTOR
 #define DRAW_ACTOR(mode) PROFILE_CPU_ACTOR(e.Actor); e.Actor->Draw(mode)
 #else
@@ -216,6 +268,8 @@ void SceneRendering::DrawActorsJob(int32)
     PROFILE_CPU();
     auto& mainContext = _drawBatch->GetMainContext();
     const auto& view = mainContext.View;
+    HZBData* hzb = mainContext.Task->OcclusionInfo;
+    
     if (view.StaticFlagsMask != StaticFlags::None)
     {
         // Static-flags culling

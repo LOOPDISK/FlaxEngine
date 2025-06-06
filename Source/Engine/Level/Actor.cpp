@@ -92,6 +92,7 @@ Actor::Actor(const SpawnParams& params)
 {
     _drawNoCulling = 0;
     _drawCategory = 0;
+    _wasCulled = 0;
 }
 
 SceneRendering* Actor::GetSceneRendering() const
@@ -539,6 +540,11 @@ void Actor::AddTagRecursive(const Tag& tag)
 void Actor::RemoveTag(const Tag& tag)
 {
     Tags.Remove(tag);
+}
+
+bool Actor::WasOccludedLastFrame()
+{
+    return _wasCulled == 1;
 }
 
 PRAGMA_DISABLE_DEPRECATION_WARNINGS

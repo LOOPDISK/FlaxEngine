@@ -7,6 +7,7 @@
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/PostProcessEffect.h"
 #include "Engine/Engine/EngineService.h"
+#include "HierarchialZBufferPass.h"
 #include "GBufferPass.h"
 #include "ForwardPass.h"
 #include "ShadowsPass.h"
@@ -69,6 +70,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
 bool RendererService::Init()
 {
     // Register passes
+    PassList.Add(HierarchialZBufferPass::Instance());
     PassList.Add(GBufferPass::Instance());
     PassList.Add(ShadowsPass::Instance());
     PassList.Add(LightPass::Instance());
@@ -393,6 +395,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         case ViewMode::MaterialComplexity:
         case ViewMode::Wireframe:
         case ViewMode::NoPostFx:
+        case ViewMode::HierarchialZBuffer:
             setup.UseTemporalAAJitter = false;
             break;
         }
@@ -452,6 +455,8 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         GBufferPass::Instance()->OverrideDrawCalls(renderContext);
 #endif
     }
+    // Generate Hierarchial Z Buffer data for occlusion culling
+    //HierarchialZBufferPass::Instance()->Render(context, renderContext);
 
     // Process draw calls (sorting, objects buffer building)
     {
@@ -546,15 +551,26 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         GlobalSignDistanceFieldPass::BindingData bindingData;
         GlobalSignDistanceFieldPass::Instance()->Render(renderContext, context, bindingData);
     }
-
+    
     // Fill GBuffer
     GBufferPass::Instance()->Fill(renderContext, lightBuffer);
+
 
     // Debug drawing
     if (renderContext.View.Mode == ViewMode::GlobalSDF)
         GlobalSignDistanceFieldPass::Instance()->RenderDebug(renderContext, context, lightBuffer);
     else if (renderContext.View.Mode == ViewMode::GlobalSurfaceAtlas)
         GlobalSurfaceAtlasPass::Instance()->RenderDebug(renderContext, context, lightBuffer);
+    else if (renderContext.View.Mode == ViewMode::HierarchialZBuffer)
+    {
+        context->ResetRenderTarget();
+        context->SetRenderTarget(task->GetOutputView());
+        context->SetViewportAndScissors(task->GetOutputViewport());
+        HierarchialZBufferPass::Instance()->RenderDebug(renderContext, context);
+        RenderTargetPool::Release(lightBuffer);
+        return;
+    }
+
     if (renderContext.View.Mode == ViewMode::Emissive ||
         renderContext.View.Mode == ViewMode::VertexColors ||
         renderContext.View.Mode == ViewMode::LightmapUVsDensity ||
