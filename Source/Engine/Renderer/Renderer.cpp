@@ -7,6 +7,7 @@
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/PostProcessEffect.h"
 #include "Engine/Engine/EngineService.h"
+#include "HierarchialZBufferPass.h"
 #include "GBufferPass.h"
 #include "ForwardPass.h"
 #include "ShadowsPass.h"
@@ -36,7 +37,6 @@
 #include "Engine/Level/Scene/SceneRendering.h"
 #include "Engine/Core/Config/GraphicsSettings.h"
 #include "Engine/Threading/JobSystem.h"
-#include "Engine/Renderer/HierarchialZBuffer.h"
 #if USE_EDITOR
 #include "Editor/Editor.h"
 #include "Editor/QuadOverdrawPass.h"
@@ -70,6 +70,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
 bool RendererService::Init()
 {
     // Register passes
+    PassList.Add(HierarchialZBufferPass::Instance());
     PassList.Add(GBufferPass::Instance());
     PassList.Add(ShadowsPass::Instance());
     PassList.Add(LightPass::Instance());
@@ -343,9 +344,6 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         aaMode = AntialiasingMode::None; // TODO: support TAA in ortho projection (see RenderView::Prepare to jitter projection matrix better)
     renderContext.List->Settings.AntiAliasing.Mode = aaMode;
 
-    // Try to update the Hierarchial Z-Buffer if ready
-   // HZBRenderer::TryRender(context, renderContext);
-
     // Initialize setup
     RenderSetup& setup = renderContext.List->Setup;
     const bool isGBufferDebug = GBufferPass::IsDebugView(renderContext.View.Mode);
@@ -457,6 +455,8 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         GBufferPass::Instance()->OverrideDrawCalls(renderContext);
 #endif
     }
+    // Generate Hierarchial Z Buffer data for occlusion culling
+    HierarchialZBufferPass::Instance()->Render(context, renderContext);
 
     // Process draw calls (sorting, objects buffer building)
     {
@@ -566,7 +566,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         context->ResetRenderTarget();
         context->SetRenderTarget(task->GetOutputView());
         context->SetViewportAndScissors(task->GetOutputViewport());
-        HZBRenderer::RenderDebug(renderContext, context);
+        HierarchialZBufferPass::Instance()->RenderDebug(renderContext, context);
         RenderTargetPool::Release(lightBuffer);
         return;
     }
