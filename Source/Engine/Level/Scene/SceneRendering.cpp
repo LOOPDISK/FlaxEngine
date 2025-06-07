@@ -40,53 +40,63 @@ FORCE_INLINE bool FrustumsListCull(const BoundingSphere& bounds, const Array<Bou
     return false;
 }
 
-FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, HZBData* occluders)
+FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, HZBData* occluders, bool skipOcclusion)
 {
     if (FrustumsListCull(bounds, frustums))
     {
         if (occluders)
         {
+            if (skipOcclusion)
+            { // return the last HZB occlusion result
+                return actor->_cullType != 2;
+            }
             if (occluders->CheckOcclusion(bounds))
             {
-                actor->_wasCulled = 1;
+                actor->_cullType = 2;
                 return false;
             }
             else
             {
-                actor->_wasCulled = 0;
+                actor->_cullType = 0;
                 return true;
             }
         }
+        actor->_cullType = 0;
         return true;
     }
     if (occluders)
     { // only mark as culled if HZBData was valid, meaning it was the main render task
-        actor->_wasCulled = 1;
+        actor->_cullType = 1;
     }
     return false;
 }
-FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum, HZBData* occluders)
+FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum, HZBData* occluders, bool skipOcclusion)
 {
     if (frustum.Intersects(bounds))
     {
         if (occluders)
         {
+            if (skipOcclusion)
+            { // return the last HZB occlusion result
+                return actor->_cullType != 2;
+            }
             if (occluders->CheckOcclusion(bounds))
             {
-                actor->_wasCulled = 1;
+                actor->_cullType = 2;
                 return false;
             }
             else
             {
-                actor->_wasCulled = 0;
+                actor->_cullType = 0;
                 return true;
             }
         }
+        actor->_cullType = 0;
         return true;
     }
     if (occluders)
     { // only mark as culled if HZBData was valid, meaning it was the main render task
-        actor->_wasCulled = 1;
+        actor->_cullType = 1;
     }
     return false;
 }
@@ -108,11 +118,13 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
         // Release additional lock
         Locker.Unlock();
     }
+
     auto& view = renderContextBatch.GetMainContext().View;
     auto& list = Actors[(int32)category];
     _drawListData = list.Get();
     _drawListSize = list.Count();
     _drawBatch = &renderContextBatch;
+    _drawCategory = category;
 
     // Setup frustum data
     const int32 frustumsCount = renderContextBatch.Contexts.Count();
@@ -255,8 +267,8 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
 }
 
 #define FOR_EACH_BATCH_ACTOR const int64 count = _drawListSize; while (true) { const int64 index = Platform::InterlockedIncrement(&_drawListIndex); if (index >= count) break; auto e = _drawListData[index];
-#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData, hzb)))
-#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum, hzb)))
+#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData, hzb, skipOcclusion)))
+#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum, hzb, skipOcclusion)))
 #if SCENE_RENDERING_USE_PROFILER_PER_ACTOR
 #define DRAW_ACTOR(mode) PROFILE_CPU_ACTOR(e.Actor); e.Actor->Draw(mode)
 #else
@@ -270,6 +282,27 @@ void SceneRendering::DrawActorsJob(int32)
     const auto& view = mainContext.View;
     HZBData* hzb = mainContext.Task->OcclusionInfo;
     
+    bool skipOcclusion = true;
+    // only do occlusion on main render task's main draw
+    if (_drawCategory == SceneDrawAsync && view.StaticFlagsMask != StaticFlags::Occluder)
+    {
+        // don't do the hzb occlusion check if it already did it with the same data last time
+        if (hzb != nullptr)
+        {
+            if ((hzb->Id == _lastHZBId && hzb->CurrentFrameIndex == _lastHZBFrame))
+            {
+                skipOcclusion = true;
+            }
+            else
+            {
+                skipOcclusion = false;
+                _lastHZBId = hzb->Id;
+                _lastHZBFrame = hzb->CurrentFrameIndex;
+            }
+        }
+    }
+    skipOcclusion = false;
+
     if (view.StaticFlagsMask != StaticFlags::None)
     {
         // Static-flags culling

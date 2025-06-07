@@ -28,7 +28,7 @@
 #include "Engine/Input/Input.h"
 
 #define HZB_FORMAT PixelFormat::R32_Float
-#define HZB_BOUNDS_BIAS 50.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
+#define HZB_BOUNDS_BIAS 100.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
 
 /// <summary>
 /// Custom task called after downloading HZB texture data to save it.
@@ -141,6 +141,7 @@ HZBData* HierarchialZBufferPass::GetOrCreateInfo(RenderContext& renderContext)
     {
         // create a new HZBData to be associated with this SceneRenderTask
         info = New<HZBData>();
+        info->Id = _info.Count();
         renderContext.Task->OcclusionInfo = info;
         _info.Add(info);
     }
@@ -176,13 +177,18 @@ void HierarchialZBufferPass::RenderDebug(RenderContext& renderContext, GPUContex
 {
     // draws the HZB pyramid over the depth buffer
 
-    auto info = GetOrCreateInfo(renderContext);
+    // auto info = GetOrCreateInfo(renderContext);
+    // get the first HZBInfo, the main render tasks, instead of the debug one.
+    if (_info.Count() == 0)
+        return;
+    auto info = _info[0];
+
     if (info->CheckSkip())
     {
         return;
     }
 
-    if (info->_mostRecentAvailableFrameIndex < 0)
+    if (info->CurrentFrameIndex < 0)
         return;
 
     // Set constants buffer
@@ -395,7 +401,7 @@ bool HZBData::CheckSkip()
         }
     }
 
-    if (_nextRenderFrameIndex == _mostRecentAvailableFrameIndex)
+    if (_nextRenderFrameIndex == CurrentFrameIndex)
     { // already far ahead, skip to let downloads catch up
         return true;
     }
@@ -404,17 +410,16 @@ bool HZBData::CheckSkip()
 
 void HZBData::CompleteDownload(int index)
 {
-    _mostRecentAvailableFrameIndex = index;
+    CurrentFrameIndex = index;
     _frames[index].IsDownloading = false;
 }
 
 bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
 {
     if (!_isReady) return false;
-    if (_mostRecentAvailableFrameIndex < 0) return false;
-    // if (actor->HasStaticFlag(StaticFlags::Occluder)) return false;
+    if (CurrentFrameIndex < 0) return false;
 
-    HZBFrame* activeFrame = &_frames[_mostRecentAvailableFrameIndex];
+    HZBFrame* activeFrame = &_frames[CurrentFrameIndex];
     // no data yet
     if (activeFrame->TextureData.GetArraySize() == 0)
         return false;
@@ -441,6 +446,7 @@ bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
     }
     float targetDistance = closestProj.Z;
     int level = Math::Max(0.0f, Math::Log2(radiusLength * 2.0f) - 1.0f - 2);
+    
     float offset = 0; // horizontal offset for finding the other levels
     float width = activeFrame->TextureData.Width * 0.5f;
     float height = activeFrame->TextureData.Height * 0.5f;
@@ -455,25 +461,27 @@ bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
         height *= 0.5f;
         radiusLength *= 0.5f;
         centerProj *= 0.5f;
-        if ((int)(width * 0.5f) == 0 || (int)(height * 0.5f) == 0)
+        if ((int)(width * 0.5f) == 1 || (int)(height * 0.5f) == 1)
         { // break early if next iteration will be too small
             level = i;
             break;
         }
     }
 
-    int startX = Math::Clamp(offset + (int)(centerProj.X - radiusLength), offset, offset + width);
-    int endX = Math::Clamp(offset + (int)(centerProj.X + radiusLength), offset, offset + width);
-    int startY = Math::Clamp((int)(centerProj.Y - radiusLength), 0, (int)height);
-    int endY = Math::Clamp((int)(centerProj.Y + radiusLength), 0, (int)height);
+    int widthIndex = (int)width - 1;
+    int heightIndex = (int)height - 1;
+    int startX = Math::Clamp(offset + (int)(centerProj.X - radiusLength), offset, offset + widthIndex);
+    int endX = Math::Clamp(offset + (int)(centerProj.X + radiusLength), offset, offset + widthIndex);
+    int startY = Math::Clamp((int)(centerProj.Y - radiusLength), 0, heightIndex);
+    int endY = Math::Clamp((int)(centerProj.Y + radiusLength), 0, heightIndex);
     if (startX - endX == 0)
     { // needs to be at least 1 wide
-        if (startX == offset + width) startX--;
+        if (startX == offset + widthIndex) startX--;
         else endX++;
     }
     if (startY - endY == 0)
     { // needs to be at least 1 tall
-        if (startY == height) startY--;
+        if (startY == heightIndex) startY--;
         else endY++;
     }
     

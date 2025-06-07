@@ -199,9 +199,12 @@ private:
     int64 _drawListSize;
     volatile int64 _drawListIndex;
     RenderContextBatch* _drawBatch;
+    DrawCategory _drawCategory;
+    int _lastHZBId = -1;
+    int _lastHZBFrame = -1;
 
     void DrawActorsJob(int32);
 
-    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum, HZBData* occluders);
-    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, HZBData* occluders);
+    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum, HZBData* occluders, bool skipOcclusion);
+    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, HZBData* occluders, bool skipOcclusion);
 };

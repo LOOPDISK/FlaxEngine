@@ -91,13 +91,14 @@ public:
     bool Init();
     void Dispose();
     bool CheckSkip();
+    int Id = 0;
+    int CurrentFrameIndex = -1;
 
 private:
     bool _isReady = false;
     bool _isValid = true;
     Float2 _resolution;
     int _nextRenderFrameIndex = 0;
-    int _mostRecentAvailableFrameIndex = -1;
     void CompleteDownload(int frameIndex);
 
     GPUTexture* _depthTexture = nullptr;

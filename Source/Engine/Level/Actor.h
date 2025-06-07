@@ -39,7 +39,7 @@ protected:
     uint16 _isEnabled : 1;
     uint16 _isHierarchyDirty : 1;
     uint16 _drawNoCulling : 1;
-    uint16 _wasCulled : 1;
+    uint16 _cullType : 2;
     uint16 _drawCategory : 4;
     byte _layer;
     StaticFlags _staticFlags;
@@ -164,7 +164,7 @@ public:
     /// <summary>
     /// True if this actor was visually occluded last frame, from being behind other objects or out of the viewing frustum. This only refers to drawing on the main render task.
     /// </summary>
-    API_FUNCTION() bool WasOccludedLastFrame();
+    API_FUNCTION() bool WasCulled();
 
     /// <summary>
     /// Gets the name of the tag.
