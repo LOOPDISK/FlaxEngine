@@ -10,6 +10,7 @@
 #include "Engine/Threading/Threading.h"
 #include "Engine/Profiler/ProfilerCPU.h"
 #include "Engine/Renderer/HierarchialZBufferPass.h"
+#include <Engine/Graphics/Graphics.h>
 
 ISceneRenderingListener::~ISceneRenderingListener()
 {
@@ -282,6 +283,9 @@ void SceneRendering::DrawActorsJob(int32)
     const auto& view = mainContext.View;
     HZBData* hzb = mainContext.Task->OcclusionInfo;
     
+    // bypass occlusion culling from Graphics Settings
+    if (!Graphics::OcclusionCulling) hzb = nullptr;
+
     bool skipOcclusion = true;
     // only do occlusion on main render task's main draw
     if (_drawCategory == SceneDrawAsync && view.StaticFlagsMask != StaticFlags::Occluder)

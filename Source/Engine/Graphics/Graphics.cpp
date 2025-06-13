@@ -23,6 +23,7 @@ bool Graphics::AllowCSMBlending = false;
 Quality Graphics::GlobalSDFQuality = Quality::High;
 Quality Graphics::GIQuality = Quality::High;
 bool Graphics::GICascadesBlending = false;
+bool Graphics::OcclusionCulling = true;
 PostProcessSettings Graphics::PostProcessSettings;
 bool Graphics::SpreadWorkload = true;
 
@@ -73,6 +74,7 @@ void GraphicsSettings::Apply()
     Graphics::GlobalSDFQuality = GlobalSDFQuality;
     Graphics::GIQuality = GIQuality;
     Graphics::GICascadesBlending = GICascadesBlending;
+    Graphics::OcclusionCulling = UseOcclusionCulling;
     Graphics::PostProcessSettings = ::PostProcessSettings();
     Graphics::PostProcessSettings.BlendWith(PostProcessSettings, 1.0f);
 #if !USE_EDITOR // OptionsModule handles fallback fonts in Editor

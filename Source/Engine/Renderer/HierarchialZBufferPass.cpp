@@ -175,6 +175,7 @@ void HierarchialZBufferPass::SetInputs(const RenderView& view, HZBShaderData& da
 
 void HierarchialZBufferPass::RenderDebug(RenderContext& renderContext, GPUContext* context)
 {
+    if (!Graphics::OcclusionCulling) return;
     // draws the HZB pyramid over the depth buffer
 
     // auto info = GetOrCreateInfo(renderContext);
@@ -209,6 +210,8 @@ void HierarchialZBufferPass::RenderDebug(RenderContext& renderContext, GPUContex
 
 void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderContext)
 {
+    if (!Graphics::OcclusionCulling) return;
+
     // Skip if not supported
     if (checkIfSkipPass())
         return;
@@ -416,6 +419,7 @@ void HZBData::CompleteDownload(int index)
 
 bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
 {
+    if (!Graphics::OcclusionCulling) return false;
     if (!_isReady) return false;
     if (CurrentFrameIndex < 0) return false;
 
