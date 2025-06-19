@@ -164,7 +164,7 @@ public:
     /// <summary>
     /// True if this actor was visually occluded last frame, from being behind other objects or out of the viewing frustum. This only refers to drawing on the main render task.
     /// </summary>
-    API_FUNCTION() bool WasCulled();
+    API_PROPERTY() bool WasCulled();
 
     /// <summary>
     /// Gets the name of the tag.
