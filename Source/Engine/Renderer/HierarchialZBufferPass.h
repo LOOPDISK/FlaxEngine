@@ -13,8 +13,8 @@
 
 class TextureData;
 class RenderTask;
+class HZBData;
 struct HZBShaderData;
-struct HZBData;
 struct UploadHZBTask;
 
 /// <summary>
