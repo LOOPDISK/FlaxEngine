@@ -15,6 +15,5 @@ public class Renderer : EngineModule
 
         options.PrivateDependencies.Add("Graphics");
         options.PrivateDependencies.Add("Content");
-        options.CompileEnv.Optimization = false;
     }
 }
