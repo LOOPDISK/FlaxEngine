@@ -35,11 +35,12 @@
 /// </summary>
 class UploadHZBTask : public ThreadPoolTask
 {
+private:
     int _index = 0;
     HZBData* _info;
 
 public:
-    class UploadHZBTask(HZBData* info, int i) : _info(info), _index(i) { }
+    UploadHZBTask(HZBData* info, int i) : _info(info), _index(i) { }
     bool Run() override
     {
         _info->CompleteDownload(_index);
