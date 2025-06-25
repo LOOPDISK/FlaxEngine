@@ -311,7 +311,6 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
     context->SetViewport(renderContext.Task->GetOutputViewport());
 
     // Create async job to gather hzb data from the GPU
-    context->Clear(renderFrame->StagingTexture->View(), Color::White);
     context->CopyTexture(renderFrame->StagingTexture, 0, 0, 0, 0, info->_hzbTexture, 0);
     renderFrame->IsDownloading = true;
     Task* uploadTask = New<UploadHZBTask>(info, renderFrame->Index);
