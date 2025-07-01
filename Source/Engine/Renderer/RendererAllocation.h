@@ -4,7 +4,7 @@
 
 #include "Engine/Core/Memory/SimpleHeapAllocation.h"
 
-class RendererAllocation : public SimpleHeapAllocation<RendererAllocation, 64>
+class RendererAllocation : public SimpleHeapAllocation<RendererAllocation, 1024>
 {
 public:
     static FLAXENGINE_API void* Allocate(uintptr size);
