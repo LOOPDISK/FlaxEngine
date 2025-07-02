@@ -306,7 +306,7 @@ void SceneRendering::DrawActorsJob(int32)
         }
     }
     skipOcclusion = false;
-
+    
     if (view.StaticFlagsMask != StaticFlags::None)
     {
         // Static-flags culling

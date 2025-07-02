@@ -28,7 +28,7 @@
 #include "Engine/Input/Input.h"
 
 #define HZB_FORMAT PixelFormat::R32_Float
-#define HZB_BOUNDS_BIAS 100.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
+#define HZB_BOUNDS_BIAS 20.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
 
 /// <summary>
 /// Custom task called after downloading HZB texture data to save it.
