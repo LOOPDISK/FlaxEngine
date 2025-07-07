@@ -168,11 +168,19 @@ public:
     /// <returns>The spawned effect.</returns>
     API_FUNCTION() ParticleEffect* Spawn(Actor* parent, const Transform& transform, float duration = MAX_float, bool autoDestroy = false);
 
+private:
+    void WaitForAsset(Asset* asset);
+
 public:
     // [BinaryAsset]
 #if USE_EDITOR
     void GetReferences(Array<Guid>& assets, Array<String>& files) const override;
     bool Save(const StringView& path = StringView::Empty) override;
+
+    /// <summary>
+    /// Checks if the particle emitter has valid shader code present.
+    /// </summary>
+    API_PROPERTY() bool HasShaderCode() const;
 #endif
 
 protected:

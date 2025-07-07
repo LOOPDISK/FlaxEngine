@@ -54,7 +54,7 @@ void ChangeIds(rapidjson_flax::Value& obj, rapidjson_flax::Document& document, c
         
         // Only process if this looks like a valid GUID and exists in mapping
         auto value = JsonTools::GetGuid(obj);
-        if (mapping.TryGet(value, value))
+        if (value.IsValid() && mapping.TryGet(value, value))
         {
             // Existing optimized GUID formatting code
             char buffer[32] =
@@ -278,9 +278,8 @@ BoundingBox JsonTools::GetBoundingBox(const Value& value)
 
 Guid JsonTools::GetGuid(const Value& value)
 {
-    if (!value.IsString())
+    if (!value.IsString() || value.GetStringLength() != 32)
         return Guid::Empty;
-    CHECK_RETURN(value.GetStringLength() == 32, Guid::Empty);
 
     // Split
     const char* a = value.GetString();
@@ -290,10 +289,12 @@ Guid JsonTools::GetGuid(const Value& value)
 
     // Parse
     Guid result;
-    StringUtils::ParseHex(a, 8, &result.A);
-    StringUtils::ParseHex(b, 8, &result.B);
-    StringUtils::ParseHex(c, 8, &result.C);
-    StringUtils::ParseHex(d, 8, &result.D);
+    bool failed = StringUtils::ParseHex(a, 8, &result.A);
+    failed |= StringUtils::ParseHex(b, 8, &result.B);
+    failed |= StringUtils::ParseHex(c, 8, &result.C);
+    failed |= StringUtils::ParseHex(d, 8, &result.D);
+    if (failed)
+        return Guid::Empty;
     return result;
 }
 

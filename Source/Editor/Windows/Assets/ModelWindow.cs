@@ -81,6 +81,7 @@ namespace FlaxEditor.Windows.Assets
                     }
 
                     var resolution = group.FloatValue("Resolution Scale", Window.Editor.CodeDocs.GetTooltip(typeof(ModelTool.Options), nameof(ModelImportSettings.Settings.SDFResolution)));
+                    resolution.ValueBox.SlideSpeed = 0.001f;
                     resolution.ValueBox.MinValue = 0.0001f;
                     resolution.ValueBox.MaxValue = 100.0f;
                     resolution.ValueBox.Value = sdf.Texture != null ? sdf.ResolutionScale : 1.0f;
@@ -114,7 +115,7 @@ namespace FlaxEditor.Windows.Assets
                     lodIndex.IntValue.Value = sdf.Texture != null ? sdf.LOD : 6;
                     _sdfModelLodIndex = lodIndex;
 
-                    var buttons = group.CustomContainer<UniformGridPanel>();
+                    var buttons = layout.UniformGrid();
                     var gridControl = buttons.CustomControl;
                     gridControl.ClipChildren = false;
                     gridControl.Height = Button.DefaultHeight;

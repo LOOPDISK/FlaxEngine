@@ -203,6 +203,17 @@ namespace FlaxEditor.CustomEditors
         }
 
         /// <summary>
+        /// Adds new uniform grid control.
+        /// </summary>
+        /// <returns>The created element.</returns>
+        public CustomElementsContainer<UniformGridPanel> UniformGrid()
+        {
+            var grid = CustomContainer<UniformGridPanel>();
+            grid.CustomControl.SlotSpacing = new Float2(Utilities.Constants.UIMargin);
+            return grid;
+        }
+
+        /// <summary>
         /// Adds new custom element.
         /// </summary>
         /// <typeparam name="T">The custom control.</typeparam>
@@ -276,10 +287,7 @@ namespace FlaxEditor.CustomEditors
         /// <returns>The created element.</returns>
         public ImageElement Image(SpriteHandle sprite)
         {
-            var element = new ImageElement();
-            element.Image.Brush = new SpriteBrush(sprite);
-            OnAddElement(element);
-            return element;
+            return Image(new SpriteBrush(sprite));
         }
 
         /// <summary>
@@ -289,10 +297,7 @@ namespace FlaxEditor.CustomEditors
         /// <returns>The created element.</returns>
         public ImageElement Image(Texture texture)
         {
-            var element = new ImageElement();
-            element.Image.Brush = new TextureBrush(texture);
-            OnAddElement(element);
-            return element;
+            return Image(new TextureBrush(texture));
         }
 
         /// <summary>
@@ -302,8 +307,18 @@ namespace FlaxEditor.CustomEditors
         /// <returns>The created element.</returns>
         public ImageElement Image(GPUTexture texture)
         {
+            return Image(new GPUTextureBrush(texture));
+        }
+
+        /// <summary>
+        /// Adds brush image to the layout.
+        /// </summary>
+        /// <param name="brush">The brush.</param>
+        /// <returns>The created element.</returns>
+        public ImageElement Image(IBrush brush)
+        {
             var element = new ImageElement();
-            element.Image.Brush = new GPUTextureBrush(texture);
+            element.Image.Brush = brush;
             OnAddElement(element);
             return element;
         }

@@ -305,6 +305,7 @@ namespace FlaxEditor.Windows
         : base(editor, true, ScrollBars.None)
         {
             Title = "Game";
+            Icon = editor.Icons.Play64;
             AutoFocus = true;
 
             var task = MainRenderTask.Instance;
@@ -404,6 +405,7 @@ namespace FlaxEditor.Windows
                     return;
                 Editor.Instance.SceneEditing.Delete();
             });
+            InputActions.Add(options => options.FocusConsoleCommand, () => Editor.Instance.Windows.OutputLogWin.FocusCommand());
         }
 
         private void ChangeViewportRatio(ViewportScaleOptions v)

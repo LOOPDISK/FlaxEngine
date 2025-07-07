@@ -670,6 +670,8 @@ namespace FlaxEditor
         {
             FlaxEngine.Networking.NetworkManager.Stop(); // Shutdown any multiplayer from playmode
             PlayModeEnding?.Invoke();
+            for (int i = 0; i < _modules.Count; i++)
+                _modules[i].OnPlayEnding();
         }
 
         internal void OnPlayEnd()
@@ -1031,6 +1033,8 @@ namespace FlaxEditor
             {
                 Internal_GetEditorBoxWithChildren(FlaxEngine.Object.GetUnmanagedPtr(actor), out var box);
                 BoundingSphere.FromBox(ref box, out sphere);
+                if (sphere == BoundingSphere.Empty)
+                    sphere = new BoundingSphere(actor.Position, sphere.Radius);
                 sphere.Radius = Math.Max(sphere.Radius, 15.0f);
             }
             else

@@ -51,7 +51,7 @@ namespace FlaxEditor.Windows.Assets
         /// <param name="before">The selection before the change.</param>
         public void OnSelectionChanged(SceneGraphNode[] before)
         {
-            if (LockSelectedObjects)
+            if (LockSelection)
                 return;
 
             Undo.AddAction(new SelectionChangeAction(before, Selection.ToArray(), OnSelectionUndo));
@@ -97,10 +97,7 @@ namespace FlaxEditor.Windows.Assets
 
                 // For single node selected scroll view so user can see it
                 if (nodes.Count == 1)
-                {
-                    nodes[0].ExpandAllParents(true);
-                    ScrollViewTo(nodes[0]);
-                }
+                    ScrollToSelectedNode();
             }
 
             // Update properties editor

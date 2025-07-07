@@ -104,6 +104,8 @@ void TerrainPatch::Init(Terrain* terrain, int16 x, int16 z)
 #endif
 #if USE_EDITOR
     _collisionTriangles.Resize(0);
+    SAFE_DELETE_GPU_RESOURCE(_collisionTrianglesBuffer);
+    _collisionTrianglesBufferDirty = true;
 #endif
     _collisionVertices.Resize(0);
 }
@@ -119,6 +121,9 @@ TerrainPatch::~TerrainPatch()
 #endif
 #if TERRAIN_USE_PHYSICS_DEBUG
     SAFE_DELETE_GPU_RESOURCE(_debugLines);
+#endif
+#if USE_EDITOR
+    SAFE_DELETE_GPU_RESOURCE(_collisionTrianglesBuffer);
 #endif
 }
 
@@ -426,8 +431,6 @@ void UpdateNormalsAndHoles(const TerrainDataUpdateInfo& info, const float* heigh
             GET_VERTEX(1, 1);
 #undef GET_VERTEX
 
-            // TODO: use SIMD for those calculations
-
             // Calculate normals for quad two vertices
             Float3 n0 = Float3::Normalize((v00 - v01) ^ (v01 - v10));
             Float3 n1 = Float3::Normalize((v11 - v10) ^ (v10 - v01));
@@ -441,6 +444,7 @@ void UpdateNormalsAndHoles(const TerrainDataUpdateInfo& info, const float* heigh
         }
     }
 
+#if 0
     // Smooth normals
     for (int32 z = 1; z < normalsSize.Y - 1; z++)
     {
@@ -461,8 +465,6 @@ void UpdateNormalsAndHoles(const TerrainDataUpdateInfo& info, const float* heigh
             GET_NORMAL(2, 2);
 #undef GET_VERTEX
 
-            // TODO: use SIMD for those calculations
-
             /*
              * The current vertex is (11). Calculate average for the nearby vertices.
              * 00   01   02
@@ -476,6 +478,7 @@ void UpdateNormalsAndHoles(const TerrainDataUpdateInfo& info, const float* heigh
             normalsPerVertex[i11] = Float3::Lerp(n11, avg, 0.6f);
         }
     }
+#endif
 
     // Write back to the data container
     const auto ptr = (Color32*)data;
@@ -520,10 +523,9 @@ void UpdateNormalsAndHoles(const TerrainDataUpdateInfo& info, const float* heigh
                 const int32 textureIndex = tz + tx;
                 const int32 heightmapIndex = hz + hx;
                 const int32 normalIndex = sz + sx;
-#if BUILD_DEBUG
-                ASSERT(normalIndex >= 0 && normalIndex < normalsLength);
-#endif
-                Float3 normal = Float3::NormalizeFast(normalsPerVertex[normalIndex]) * 0.5f + 0.5f;
+                ASSERT_LOW_LAYER(normalIndex >= 0 && normalIndex < normalsLength);
+                Float3 normal = Float3::NormalizeFast(normalsPerVertex[normalIndex]);
+                normal = normal * 0.5f + 0.5f;
 
                 if (holesMask && !holesMask[heightmapIndex])
                     normal = Float3::One;
@@ -1242,6 +1244,11 @@ void TerrainPatch::ClearCache()
 
 void TerrainPatch::CacheHeightData()
 {
+    if (Heightmap == nullptr)
+    {
+        LOG(Error, "Missing heightmap.");
+        return;
+    }
     PROFILE_CPU_NAMED("Terrain.CacheHeightData");
     const TerrainDataUpdateInfo info(this);
 
@@ -1740,7 +1747,7 @@ bool TerrainPatch::UpdateHeightData(TerrainDataUpdateInfo& info, const Int2& mod
     // Prepare data for the uploading to GPU
     ASSERT(Heightmap);
     auto texture = Heightmap->GetTexture();
-    ASSERT(texture->ResidentMipLevels() > 0);
+    ASSERT(texture->IsAllocated());
     const int32 textureSize = texture->Width();
     const PixelFormat pixelFormat = texture->Format();
     const int32 pixelStride = PixelFormatExtensions::SizeInBytes(pixelFormat);
@@ -2225,6 +2232,8 @@ void TerrainPatch::DestroyCollision()
 #endif
 #if USE_EDITOR
     _collisionTriangles.Resize(0);
+    SAFE_DELETE(_collisionTrianglesBuffer);
+    _collisionTrianglesBufferDirty = true;
 #endif
     _collisionVertices.Resize(0);
 }
@@ -2317,7 +2326,32 @@ void TerrainPatch::DrawPhysicsDebug(RenderView& view)
         return;
     if (view.Mode == ViewMode::PhysicsColliders)
     {
-        DEBUG_DRAW_TRIANGLES(GetCollisionTriangles(), Color::DarkOliveGreen, 0, true);
+        const auto& triangles = GetCollisionTriangles();
+        typedef DebugDraw::Vertex Vertex;
+        if (!_collisionTrianglesBuffer)
+            _collisionTrianglesBuffer = GPUDevice::Instance->CreateBuffer(TEXT("Terrain.CollisionTriangles"));
+        const uint32 count = triangles.Count();
+        if (_collisionTrianglesBuffer->GetElementsCount() != count)
+        {
+            if (_collisionTrianglesBuffer->Init(GPUBufferDescription::Vertex(Vertex::GetLayout(), sizeof(Vertex), count)))
+                return;
+            _collisionTrianglesBufferDirty = true;
+        }
+        if (_collisionTrianglesBufferDirty)
+        {
+            const Color32 color(Color::DarkOliveGreen);
+            Array<Vertex> vertices;
+            vertices.Resize((int32)count);
+            const Vector3* src = triangles.Get();
+            Vertex* dst = vertices.Get();
+            for (uint32 i = 0; i < count; i++)
+            {
+                dst[i] = { (Float3)src[i], color };
+            }
+            _collisionTrianglesBuffer->SetData(vertices.Get(), _collisionTrianglesBuffer->GetSize());
+            _collisionTrianglesBufferDirty = false;
+        }
+        DebugDraw::DrawTriangles(_collisionTrianglesBuffer, Matrix::Identity, 0, true);
     }
     else
     {
@@ -2351,6 +2385,7 @@ const Array<Vector3>& TerrainPatch::GetCollisionTriangles()
     PhysicsBackend::GetHeightFieldSize(_physicsHeightField, rows, cols);
 
     _collisionTriangles.Resize((rows - 1) * (cols - 1) * 6);
+    _collisionTrianglesBufferDirty = true;
     Vector3* data = _collisionTriangles.Get();
 
 #define GET_VERTEX(x, y) Vector3 v##x##y((float)(row + (x)), PhysicsBackend::GetHeightFieldHeight(_physicsHeightField, row + (x), col + (y)) / TERRAIN_PATCH_COLLISION_QUANTIZATION, (float)(col + (y))); Vector3::Transform(v##x##y, world, v##x##y)

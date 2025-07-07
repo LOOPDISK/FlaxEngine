@@ -286,7 +286,7 @@ void ShaderGenerator::ProcessGroupMath(Box* box, Node* node, Value& value)
     case 29:
     {
         Value inXY = tryGetValue(node->GetBox(0), Value::Zero).AsFloat2();
-        value = writeLocal(ValueType::Float3, String::Format(TEXT("float3({0}, sqrt(saturate(1.0 - dot({0}.xy, {0}.xy))))"), inXY.Value), node);
+        value = writeLocal(ValueType::Float3, String::Format(TEXT("float3({0}, sqrt(saturate(1.0 - dot({0}, {0}))))"), inXY.Value), node);
         break;
     }
     // Mad
@@ -372,8 +372,8 @@ void ShaderGenerator::ProcessGroupMath(Box* box, Node* node, Value& value)
     // Atan2
     case 41:
     {
-        Value v1 = tryGetValue(node->GetBox(0), Value::Zero);
-        Value v2 = tryGetValue(node->GetBox(1), Value::Zero);
+        Value v1 = tryGetValue(node->GetBox(0), 0, Value::Zero);
+        Value v2 = tryGetValue(node->GetBox(1), 1, Value::Zero);
         value = writeFunction2(node, v1, v2, TEXT("atan2"));
         break;
     }
