@@ -2092,12 +2092,6 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         const int32 MaxBlendPoses = 8;
         value = Value::Null;
 
-        // Note data layout:
-        // [0]: int Pose Index
-        // [1]: float Blend Duration
-        // [2]: int Pose Count
-        // [3]: AlphaBlendMode Mode
-
         // Prepare
         auto& bucket = context.Data->State[node->BucketIndex].BlendPose;
         const int32 poseIndex = (int32)tryGetValue(node->GetBox(1), node->Values[0]);
@@ -2111,22 +2105,66 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             break;
         }
 
-        // Check if transition is not active (first update, pose not changing or transition ended)
-        bucket.TransitionPosition += context.DeltaTime;
-        if (bucket.PreviousBlendPoseIndex == -1 || bucket.PreviousBlendPoseIndex == poseIndex || bucket.TransitionPosition >= blendDuration || blendDuration <= ANIM_GRAPH_BLEND_THRESHOLD)
+        // Initialize on first update
+        if (bucket.PreviousBlendPoseIndex == -1)
         {
-            bucket.TransitionPosition = 0.0f;
             bucket.PreviousBlendPoseIndex = poseIndex;
-            value = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + poseIndex), Value::Null);
-            break;
+            bucket.TargetBlendPoseIndex = poseIndex;
+            bucket.TransitionPosition = blendDuration; // Mark as completed
         }
-        ASSERT(bucket.PreviousBlendPoseIndex >= 0 && bucket.PreviousBlendPoseIndex < poseCount);
 
-        // Blend two animations
+        // Check if target pose changed
+        if (bucket.TargetBlendPoseIndex != poseIndex)
         {
+            // Calculate current blend progress
+            const float currentAlpha = Math::Clamp(bucket.TransitionPosition / blendDuration, 0.0f, 1.0f);
+
+            if (bucket.TransitionPosition < blendDuration)
+            {
+                // Mid-transition: calculate new starting position
+                if (bucket.PreviousBlendPoseIndex == poseIndex)
+                {
+                    // Switching back to source pose: reverse the transition
+                    bucket.TransitionPosition = (1.0f - currentAlpha) * blendDuration;
+                }
+                else
+                {
+                    // Switching to different pose: start from beginning
+                    bucket.TransitionPosition = 0.0f;
+                    bucket.PreviousBlendPoseIndex = bucket.TargetBlendPoseIndex;
+                }
+            }
+            else
+            {
+                // Previous transition complete: start new transition
+                bucket.TransitionPosition = 0.0f;
+                bucket.PreviousBlendPoseIndex = bucket.TargetBlendPoseIndex;
+            }
+
+            bucket.TargetBlendPoseIndex = poseIndex;
+        }
+
+        // Update transition position
+        bucket.TransitionPosition += context.DeltaTime;
+
+        // Check if transition is complete
+        if (bucket.TransitionPosition >= blendDuration || blendDuration <= ANIM_GRAPH_BLEND_THRESHOLD)
+        {
+            // Transition complete
+            bucket.TransitionPosition = blendDuration;
+            bucket.PreviousBlendPoseIndex = poseIndex;
+            bucket.TargetBlendPoseIndex = poseIndex;
+            value = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + poseIndex), Value::Null);
+        }
+        else
+        {
+            // Still transitioning
+            ASSERT(bucket.PreviousBlendPoseIndex >= 0 && bucket.PreviousBlendPoseIndex < poseCount);
+            ASSERT(bucket.TargetBlendPoseIndex >= 0 && bucket.TargetBlendPoseIndex < poseCount);
+
             const float alpha = bucket.TransitionPosition / blendDuration;
             const auto valueA = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + bucket.PreviousBlendPoseIndex), Value::Null);
-            const auto valueB = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + poseIndex), Value::Null);
+            const auto valueB = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + bucket.TargetBlendPoseIndex), Value::Null);
             value = Blend(node, valueA, valueB, alpha, mode);
         }
 

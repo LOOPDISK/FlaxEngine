@@ -240,6 +240,7 @@ public:
     {
         float TransitionPosition;
         int32 PreviousBlendPoseIndex;
+        int32 TargetBlendPoseIndex;    // Target pose we're blending to
     };
 
     struct StateMachineBucket
