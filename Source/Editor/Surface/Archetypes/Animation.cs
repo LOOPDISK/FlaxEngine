@@ -537,7 +537,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Animation",
                 Description = "Animation sampling",
                 Flags = NodeFlags.AnimGraph,
-                Size = new Float2(230, 170),  // Increased height for the new input
+                Size = new Float2(230, 220),  // Increased height for the new input
                 DefaultValues = new object[]
                 {
                     Guid.Empty,
@@ -557,7 +557,7 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 7, 3),
                     NodeElementArchetype.Factory.Input(3, "Animation Asset", true, typeof(FlaxEngine.Animation), 8),
                     NodeElementArchetype.Factory.Input(4, "Position Override", true, typeof(float), 9),
-                    NodeElementArchetype.Factory.Asset(0, Surface.Constants.LayoutOffsetY * 4, 0, typeof(FlaxEngine.Animation)),
+                    NodeElementArchetype.Factory.Asset(0, Surface.Constants.LayoutOffsetY * 5, 0, typeof(FlaxEngine.Animation)),
                 }
             },
             new NodeArchetype
@@ -791,7 +791,7 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
 
                     // Position Override
-                    NodeElementArchetype.Factory.Input(4, "Position Override", true, typeof(float), 5), // New input
+                    NodeElementArchetype.Factory.Input(5, "Position Override", true, typeof(float), 5), // New input
         
                     // Axis X
                     NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
@@ -830,7 +830,7 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
         
                     // Position Override
-                    NodeElementArchetype.Factory.Input(5, "Position Override", true, typeof(float), 6), // New input
+                    NodeElementArchetype.Factory.Input(6, "Position Override", true, typeof(float), 6), // New input
         
                     // Axis X
                     NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
