@@ -1171,6 +1171,12 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         auto anim = node->Assets[0].As<Animation>();
         auto& bucket = context.Data->State[node->BucketIndex].Animation;
 
+        // Initialize LastResetBool on first use
+        if (bucket.LastUpdateFrame == 0)
+        {
+            bucket.LastResetBool = false;
+        }
+
         // Override animation when animation reference box is connected
         auto animationAssetBox = node->TryGetBox(8);
         if (animationAssetBox && animationAssetBox->HasConnection())
@@ -1182,11 +1188,28 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         auto positionOverrideBox = node->TryGetBox(9);
         const bool hasPositionOverride = positionOverrideBox && positionOverrideBox->HasConnection();
 
+        // Add restart check (NEW)
+        auto restartBox = node->TryGetBox(10);
+        bool shouldRestart = false;
+        if (restartBox && restartBox->HasConnection())
+        {
+            bool currentResetBool = (bool)tryGetValue(restartBox, false);
+
+            // Trigger on ANY bool change (true->false OR false->true)
+            if (bucket.LastResetBool != currentResetBool)
+            {
+                shouldRestart = true;
+                bucket.LastResetBool = currentResetBool;
+            }
+        }
+
+   
+
         switch (box->ID)
         {
         // Animation
         case 0:
-        {
+            {
             ANIM_GRAPH_PROFILE_EVENT("Animation");
             const float speed = (float)tryGetValue(node->GetBox(5), node->Values[1]);
             const bool loop = (bool)tryGetValue(node->GetBox(6), node->Values[2]);
@@ -1195,21 +1218,25 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
 
             // Calculate new time position
             float newTimePos;
-        
-            if (hasPositionOverride)
+
+            if (shouldRestart)
+            {
+                // Restart animation to start position
+                newTimePos = startTimePos;
+                bucket.TimePosition = startTimePos;
+            }
+            else if (hasPositionOverride)
             {
                 // Use position override if connected
                 float positionOverride = (float)tryGetValue(positionOverrideBox, 0.0f);
                 if (loop)
                 {
-                    // When looping, wrap the position value
                     positionOverride = Math::Mod(positionOverride, 1.0f);
                     if (positionOverride < 0.0f)
                         positionOverride += 1.0f;
                 }
                 else
                 {
-                    // When not looping, clamp the position value
                     positionOverride = Math::Saturate(positionOverride);
                 }
                 newTimePos = length * positionOverride;
@@ -1218,7 +1245,6 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             {
                 if (speed < 0.0f && bucket.LastUpdateFrame < context.CurrentFrameIndex - 1)
                 {
-                    // If speed is negative and it's the first node update then start playing from end
                     bucket.TimePosition = length;
                 }
                 newTimePos = bucket.TimePosition + context.DeltaTime * speed;
@@ -1228,7 +1254,6 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
 
             bucket.TimePosition = newTimePos;
             bucket.LastUpdateFrame = context.CurrentFrameIndex;
-
             break;
         }
         // Normalized Time
@@ -1613,6 +1638,13 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
 
         // Prepare
         auto& bucket = context.Data->State[node->BucketIndex].MultiBlend;
+
+        // Initialize LastResetBool on first use
+        if (bucket.LastUpdateFrame == 0)
+        {
+            bucket.LastResetBool = false;
+        }
+
         const auto range = node->Values[0].AsFloat4();
         const auto speed = (float)tryGetValue(node->GetBox(1), node->Values[1]);
         const auto loop = (bool)tryGetValue(node->GetBox(2), node->Values[2]);
@@ -1647,6 +1679,21 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             }
         }
 
+        // Add restart check (FIXED BOX ID)
+        auto restartBox = node->TryGetBox(6);
+        bool shouldRestart = false;
+        if (restartBox && restartBox->HasConnection())
+        {
+            bool currentResetBool = (bool)tryGetValue(restartBox, false);
+
+            // Trigger on ANY bool change (true->false OR false->true)
+            if (bucket.LastResetBool != currentResetBool)
+            {
+                shouldRestart = true;
+                bucket.LastResetBool = currentResetBool;
+            }
+        }
+
         // Add to trace
         if (context.Data->EnableTracing)
         {
@@ -1675,13 +1722,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             if (x <= aData.X + ANIM_GRAPH_BLEND_THRESHOLD)
             {
                 MultiBlendAnimData::BeforeSample(context, bucket, prevList, a, speed);
-            
-                // Apply position override if enabled
-                if (hasPositionOverride)
+
+                // Apply restart or position override if enabled
+                if (shouldRestart)
+                {
+                    a.TimePos = startTimePos; // Reset to start
+                }
+                else if (hasPositionOverride)
                 {
                     a.TimePos = data.Length * positionOverride;
                 }
-            
+
                 value = SampleAnimation(node, loop, startTimePos, a);
                 MultiBlendAnimData::AfterSample(newList, a);
                 break;
@@ -1695,13 +1746,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             if (Math::NearEqual(bData.X, x, ANIM_GRAPH_BLEND_THRESHOLD))
             {
                 MultiBlendAnimData::BeforeSample(context, bucket, prevList, b, speed);
-            
-                // Apply position override if enabled
-                if (hasPositionOverride)
+
+                // Apply restart or position override if enabled (FIXED)
+                if (shouldRestart)
+                {
+                    b.TimePos = startTimePos; // Reset to start
+                }
+                else if (hasPositionOverride)
                 {
                     b.TimePos = data.Length * positionOverride;
                 }
-            
+
                 value = SampleAnimation(node, loop, startTimePos, b);
                 MultiBlendAnimData::AfterSample(newList, b);
                 break;
@@ -1713,19 +1768,25 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
                 continue;
             MultiBlendAnimData::BeforeSample(context, bucket, prevList, a, speed);
             MultiBlendAnimData::BeforeSample(context, bucket, prevList, b, speed);
-        
-            // Apply position override if enabled
-            if (hasPositionOverride)
+
+            // Apply restart or position override if enabled
+            if (shouldRestart)
+            {
+                a.TimePos = startTimePos; // Reset to start
+                b.TimePos = startTimePos; // Reset to start
+            }
+            else if (hasPositionOverride)
             {
                 a.TimePos = data.Length * positionOverride;
                 b.TimePos = data.Length * positionOverride;
             }
-        
+
             value = SampleAnimationsWithBlend(node, loop, startTimePos, a, b, alpha);
             MultiBlendAnimData::AfterSample(newList, a);
             MultiBlendAnimData::AfterSample(newList, b);
             break;
         }
+
         if (newList.IsEmpty())
         {
             // Sample the last animation if had no result
@@ -1733,13 +1794,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             const auto aData = node->Values[4 + aIndex * 2].AsFloat4();
             AnimSampleData a(node->Assets[aIndex].As<Animation>(), aData.W, aIndex);
             MultiBlendAnimData::BeforeSample(context, bucket, prevList, a, speed);
-        
-            // Apply position override if enabled
-            if (hasPositionOverride)
+
+            // Apply restart or position override if enabled (FIXED)
+            if (shouldRestart)
+            {
+                a.TimePos = startTimePos; // Reset to start
+            }
+            else if (hasPositionOverride)
             {
                 a.TimePos = data.Length * positionOverride;
             }
-        
+
             value = SampleAnimation(node, loop, startTimePos, a);
             MultiBlendAnimData::AfterSample(newList, a);
         }
@@ -1767,6 +1832,13 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
 
         // Prepare
         auto& bucket = context.Data->State[node->BucketIndex].MultiBlend;
+
+        // Initialize LastResetBool on first use
+        if (bucket.LastUpdateFrame == 0)
+        {
+            bucket.LastResetBool = false;
+        }
+
         const auto range = node->Values[0].AsFloat4();
         const auto speed = (float)tryGetValue(node->GetBox(1), node->Values[1]);
         const auto loop = (bool)tryGetValue(node->GetBox(2), node->Values[2]);
@@ -1776,11 +1848,9 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         if (data.TrianglesCount == 0)
             break; // Skip if no valid animations added
 
-        // Get axis X
+        // Get axis X and Y
         float x = (float)tryGetValue(node->GetBox(4), Value::Zero);
         x = Math::Clamp(x, range.X, range.Y);
-
-        // Get axis Y
         float y = (float)tryGetValue(node->GetBox(5), Value::Zero);
         y = Math::Clamp(y, range.Z, range.W);
 
@@ -1802,6 +1872,21 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             {
                 // When not looping, clamp the position value
                 positionOverride = Math::Saturate(positionOverride);
+            }
+        }
+
+        // Add restart check (FIXED BOX ID)
+        auto restartBox = node->TryGetBox(7);
+        bool shouldRestart = false;
+        if (restartBox && restartBox->HasConnection())
+        {
+            bool currentResetBool = (bool)tryGetValue(restartBox, false);
+
+            // Trigger on ANY bool change (true->false OR false->true)
+            if (bucket.LastResetBool != currentResetBool)
+            {
+                shouldRestart = true;
+                bucket.LastResetBool = currentResetBool;
             }
         }
 
@@ -1858,13 +1943,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
                 {
                     // Use only vertex A
                     MultiBlendAnimData::BeforeSample(context, bucket, prevList, a, speed);
-                
-                    // Apply position override if enabled
-                    if (hasPositionOverride)
+
+                    // Apply restart or position override if enabled (FIXED)
+                    if (shouldRestart)
+                    {
+                        a.TimePos = startTimePos; // Reset to start
+                    }
+                    else if (hasPositionOverride)
                     {
                         a.TimePos = data.Length * positionOverride;
                     }
-                
+
                     value = SampleAnimation(node, loop, startTimePos, a);
                     MultiBlendAnimData::AfterSample(newList, a);
                     break;
@@ -1873,13 +1962,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
                 {
                     // Use only vertex B
                     MultiBlendAnimData::BeforeSample(context, bucket, prevList, b, speed);
-                
-                    // Apply position override if enabled
-                    if (hasPositionOverride)
+
+                    // Apply restart or position override if enabled (FIXED)
+                    if (shouldRestart)
+                    {
+                        b.TimePos = startTimePos; // Reset to start
+                    }
+                    else if (hasPositionOverride)
                     {
                         b.TimePos = data.Length * positionOverride;
                     }
-                
+
                     value = SampleAnimation(node, loop, startTimePos, b);
                     MultiBlendAnimData::AfterSample(newList, b);
                     break;
@@ -1888,13 +1981,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
                 {
                     // Use only vertex C
                     MultiBlendAnimData::BeforeSample(context, bucket, prevList, c, speed);
-                
-                    // Apply position override if enabled
-                    if (hasPositionOverride)
+
+                    // Apply restart or position override if enabled (FIXED)
+                    if (shouldRestart)
+                    {
+                        c.TimePos = startTimePos; // Reset to start
+                    }
+                    else if (hasPositionOverride)
                     {
                         c.TimePos = data.Length * positionOverride;
                     }
-                
+
                     value = SampleAnimation(node, loop, startTimePos, c);
                     MultiBlendAnimData::AfterSample(newList, c);
                     break;
@@ -1918,13 +2015,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
                     {
                         // Single animation
                         MultiBlendAnimData::BeforeSample(context, bucket, prevList, a, speed);
-                    
-                        // Apply position override if enabled
-                        if (hasPositionOverride)
+
+                        // Apply restart or position override if enabled (FIXED)
+                        if (shouldRestart)
+                        {
+                            a.TimePos = startTimePos; // Reset to start
+                        }
+                        else if (hasPositionOverride)
                         {
                             a.TimePos = data.Length * positionOverride;
                         }
-                    
+
                         value = SampleAnimation(node, loop, startTimePos, a);
                         MultiBlendAnimData::AfterSample(newList, a);
                     }
@@ -1943,7 +2044,7 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
                         struct BlendData
                         {
                             float AlphaX, AlphaY;
-                            AnimSampleData *SampleA, *SampleB;
+                            AnimSampleData* SampleA, * SampleB;
                         };
                         BlendData blendData;
                         if (v1.Y >= v0.Y)
@@ -1963,14 +2064,19 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
                         const float alpha = Math::IsZero(blendData.AlphaY) ? 0.0f : blendData.AlphaX / blendData.AlphaY;
                         MultiBlendAnimData::BeforeSample(context, bucket, prevList, *blendData.SampleA, speed);
                         MultiBlendAnimData::BeforeSample(context, bucket, prevList, *blendData.SampleB, speed);
-                    
-                        // Apply position override if enabled
-                        if (hasPositionOverride)
+
+                        // Apply restart or position override if enabled (FIXED)
+                        if (shouldRestart)
+                        {
+                            blendData.SampleA->TimePos = startTimePos; // Reset to start
+                            blendData.SampleB->TimePos = startTimePos; // Reset to start
+                        }
+                        else if (hasPositionOverride)
                         {
                             blendData.SampleA->TimePos = data.Length * positionOverride;
                             blendData.SampleB->TimePos = data.Length * positionOverride;
                         }
-                    
+
                         value = SampleAnimationsWithBlend(node, loop, startTimePos, *blendData.SampleA, *blendData.SampleB, alpha);
                         MultiBlendAnimData::AfterSample(newList, *blendData.SampleA);
                         MultiBlendAnimData::AfterSample(newList, *blendData.SampleB);
@@ -1979,13 +2085,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
                     {
                         // Use only vertex A for invalid triangle
                         MultiBlendAnimData::BeforeSample(context, bucket, prevList, a, speed);
-                    
-                        // Apply position override if enabled
-                        if (hasPositionOverride)
+
+                        // Apply restart or position override if enabled (FIXED)
+                        if (shouldRestart)
+                        {
+                            a.TimePos = startTimePos; // Reset to start
+                        }
+                        else if (hasPositionOverride)
                         {
                             a.TimePos = data.Length * positionOverride;
                         }
-                    
+
                         value = SampleAnimation(node, loop, startTimePos, a);
                         MultiBlendAnimData::AfterSample(newList, a);
                     }
@@ -1999,15 +2109,21 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
                 MultiBlendAnimData::BeforeSample(context, bucket, prevList, a, speed);
                 MultiBlendAnimData::BeforeSample(context, bucket, prevList, b, speed);
                 MultiBlendAnimData::BeforeSample(context, bucket, prevList, c, speed);
-            
-                // Apply position override if enabled
-                if (hasPositionOverride)
+
+                // Apply restart or position override if enabled (FIXED)
+                if (shouldRestart)
+                {
+                    a.TimePos = startTimePos; // Reset to start
+                    b.TimePos = startTimePos; // Reset to start
+                    c.TimePos = startTimePos; // Reset to start
+                }
+                else if (hasPositionOverride)
                 {
                     a.TimePos = data.Length * positionOverride;
                     b.TimePos = data.Length * positionOverride;
                     c.TimePos = data.Length * positionOverride;
                 }
-            
+
                 value = SampleAnimationsWithBlend(node, loop, startTimePos, a, b, c, u, v, w);
                 MultiBlendAnimData::AfterSample(newList, a);
                 MultiBlendAnimData::AfterSample(newList, b);
@@ -2052,13 +2168,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
 
             // Check if use only one sample
             MultiBlendAnimData::BeforeSample(context, bucket, prevList, best0, speed);
-        
-            // Apply position override if enabled
-            if (hasPositionOverride)
+
+            // Apply restart or position override if enabled (FIXED)
+            if (shouldRestart)
+            {
+                best0.TimePos = startTimePos; // Reset to start
+            }
+            else if (hasPositionOverride)
             {
                 best0.TimePos = data.Length * positionOverride;
             }
-        
+
             if (bestWeight < ANIM_GRAPH_BLEND_THRESHOLD)
             {
                 value = SampleAnimation(node, loop, startTimePos, best0);
@@ -2066,13 +2186,17 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
             else
             {
                 MultiBlendAnimData::BeforeSample(context, bucket, prevList, best1, speed);
-            
-                // Apply position override if enabled
-                if (hasPositionOverride)
+
+                // Apply restart or position override if enabled (FIXED)
+                if (shouldRestart)
+                {
+                    best1.TimePos = startTimePos; // Reset to start
+                }
+                else if (hasPositionOverride)
                 {
                     best1.TimePos = data.Length * positionOverride;
                 }
-            
+
                 value = SampleAnimationsWithBlend(node, loop, startTimePos, best0, best1, bestWeight);
                 MultiBlendAnimData::AfterSample(newList, best1);
             }

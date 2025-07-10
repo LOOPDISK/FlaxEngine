@@ -537,7 +537,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Animation",
                 Description = "Animation sampling",
                 Flags = NodeFlags.AnimGraph,
-                Size = new Float2(230, 220),  // Increased height for the new input
+                Size = new Float2(230, 320),  // Increased height for restart input
                 DefaultValues = new object[]
                 {
                     Guid.Empty,
@@ -557,7 +557,8 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 7, 3),
                     NodeElementArchetype.Factory.Input(3, "Animation Asset", true, typeof(FlaxEngine.Animation), 8),
                     NodeElementArchetype.Factory.Input(4, "Position Override", true, typeof(float), 9),
-                    NodeElementArchetype.Factory.Asset(0, Surface.Constants.LayoutOffsetY * 5, 0, typeof(FlaxEngine.Animation)),
+                    NodeElementArchetype.Factory.Input(5, "Restart", true, typeof(bool), 10), // NEW
+                    NodeElementArchetype.Factory.Asset(0, Surface.Constants.LayoutOffsetY * 6, 0, typeof(FlaxEngine.Animation)), // Moved down
                 }
             },
             new NodeArchetype
@@ -768,7 +769,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Multi Blend 1D",
                 Description = "Animation blending in 1D",
                 Flags = NodeFlags.AnimGraph | NodeFlags.VariableValuesSize,
-                Size = new Float2(420, 320), // Increased height for the new input
+                Size = new Float2(420, 340), // Increased height for restart input
                 DefaultValues = new object[]
                 {
                     // Node data
@@ -791,13 +792,16 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
 
                     // Position Override
-                    NodeElementArchetype.Factory.Input(5, "Position Override", true, typeof(float), 5), // New input
+                    NodeElementArchetype.Factory.Input(6, "Position Override", true, typeof(float), 5),
+        
+                    // Restart input
+                    NodeElementArchetype.Factory.Input(7, "Restart", true, typeof(bool), 6), // NEW
         
                     // Axis X
                     NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
-                    NodeElementArchetype.Factory.Text(30, 4 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
-                    NodeElementArchetype.Factory.Vector_X(60, 4 * Surface.Constants.LayoutOffsetY + 2, 0),
-                    NodeElementArchetype.Factory.Vector_Y(145, 4 * Surface.Constants.LayoutOffsetY + 2, 0),
+                    NodeElementArchetype.Factory.Text(30, 5 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"), // Moved down
+                    NodeElementArchetype.Factory.Vector_X(60, 5 * Surface.Constants.LayoutOffsetY + 2, 0), // Moved down
+                    NodeElementArchetype.Factory.Vector_Y(145, 5 * Surface.Constants.LayoutOffsetY + 2, 0), // Moved down
                 }
             },
             new NodeArchetype
@@ -807,7 +811,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Multi Blend 2D",
                 Description = "Animation blending in 2D",
                 Flags = NodeFlags.AnimGraph | NodeFlags.VariableValuesSize,
-                Size = new Float2(420, 640), // Increased height for the new input
+                Size = new Float2(420, 660), // Increased height for restart input
                 DefaultValues = new object[]
                 {
                     // Node data
@@ -828,21 +832,24 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(0, "Speed", true, typeof(float), 1, 1),
                     NodeElementArchetype.Factory.Input(1, "Loop", true, typeof(bool), 2, 2),
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
-        
+
                     // Position Override
-                    NodeElementArchetype.Factory.Input(6, "Position Override", true, typeof(float), 6), // New input
+                    NodeElementArchetype.Factory.Input(7, "Position Override", true, typeof(float), 6),
         
+                    // Restart input  
+                    NodeElementArchetype.Factory.Input(8, "Restart", true, typeof(bool), 7), // NEW
+
                     // Axis X
                     NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
-                    NodeElementArchetype.Factory.Text(30, 4 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
-                    NodeElementArchetype.Factory.Vector_X(60, 4 * Surface.Constants.LayoutOffsetY + 2, 0),
-                    NodeElementArchetype.Factory.Vector_Y(145, 4 * Surface.Constants.LayoutOffsetY + 2, 0),
+                    NodeElementArchetype.Factory.Text(30, 5 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
+                    NodeElementArchetype.Factory.Vector_X(60, 5 * Surface.Constants.LayoutOffsetY + 2, 0),
+                    NodeElementArchetype.Factory.Vector_Y(145, 5 * Surface.Constants.LayoutOffsetY + 2, 0),
 
                     // Axis Y
                     NodeElementArchetype.Factory.Input(4, "Y", true, typeof(float), 5),
-                    NodeElementArchetype.Factory.Text(30, 5 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
-                    NodeElementArchetype.Factory.Vector_Z(60, 5 * Surface.Constants.LayoutOffsetY + 2, 0),
-                    NodeElementArchetype.Factory.Vector_W(145, 5 * Surface.Constants.LayoutOffsetY + 2, 0),
+                    NodeElementArchetype.Factory.Text(30, 6 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"), // Moved down
+                    NodeElementArchetype.Factory.Vector_Z(60, 6 * Surface.Constants.LayoutOffsetY + 2, 0), // Moved down
+                    NodeElementArchetype.Factory.Vector_W(145, 6 * Surface.Constants.LayoutOffsetY + 2, 0), // Moved down
                 }
             },
             new NodeArchetype
