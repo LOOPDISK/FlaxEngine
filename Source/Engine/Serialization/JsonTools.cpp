@@ -10,7 +10,7 @@
 #include "Engine/Utilities/Encryption.h"
 
 
-void ChangeIds(rapidjson_flax::Value& obj, rapidjson_flax::Document& document, const Dictionary<Guid, Guid>& mapping, const char* currentFieldName = nullptr)
+void ChangeIds(rapidjson_flax::Value& obj, rapidjson_flax::Document& document, const Dictionary<Guid, Guid>& mapping)
 {
     if (obj.IsObject())
     {
@@ -73,100 +73,13 @@ void ChangeIds(rapidjson_flax::Value& obj, rapidjson_flax::Document& document, c
         }
     }
 }
-//
-//void ChangeIds(rapidjson_flax::Value& obj, rapidjson_flax::Document& document, const Dictionary<Guid, Guid>& mapping, const char* currentFieldName = nullptr)
-//{
-//    if (obj.IsObject())
-//    {
-//        for (rapidjson_flax::Value::MemberIterator i = obj.MemberBegin(); i != obj.MemberEnd(); ++i)
-//        {
-//            ChangeIds(i->value, document, mapping, i->name.GetString());
-//        }
-//    }
-//    else if (obj.IsArray())
-//    {
-//        for (rapidjson::SizeType i = 0; i < obj.Size(); i++)
-//        {
-//            ChangeIds(obj[i], document, mapping, currentFieldName);
-//        }
-//    }
-//    else if (obj.IsString() && obj.GetStringLength() == 32)
-//    {
-//        // SAFETY CHECK: Never change Name fields or other non-ID fields
-//        if (currentFieldName != nullptr)
-//        {
-//            const char* fieldName = currentFieldName;
-//            
-//            // Skip Name fields entirely
-//            if (strcmp(fieldName, "Name") == 0)
-//            {
-//                return;
-//            }
-//            
-//            // Only change known ID fields
-//            bool isIdField = (strcmp(fieldName, "ID") == 0) ||
-//                           (strcmp(fieldName, "ParentID") == 0) ||
-//                           (strcmp(fieldName, "PrefabID") == 0) ||
-//                           (strcmp(fieldName, "PrefabObjectID") == 0) ||
-//                           (strstr(fieldName, "ID") != nullptr && 
-//                            (strstr(fieldName, "ID") == fieldName + strlen(fieldName) - 2)); // Ends with "ID"
-//            
-//            if (!isIdField)
-//            {
-//                return; // Skip non-ID fields
-//            }
-//        }
-//        
-//        // Only process if this looks like a valid GUID and exists in mapping
-//        auto value = JsonTools::GetGuid(obj);
-//        if (value.IsValid() && mapping.TryGet(value, value))
-//        {
-//            // Existing optimized GUID formatting code
-//            char buffer[32] =
-//            {
-//            // @formatter:off
-//                '0','0','0','0','0','0','0','0','0','0',
-//                '0','0','0','0','0','0','0','0','0','0',
-//                '0','0','0','0','0','0','0','0','0','0',
-//                '0','0'
-//            // @formatter:on
-//            };
-//            static const char* digits = "0123456789abcdef";
-//            uint32 n = value.A;
-//            char* p = buffer + 7;
-//            do
-//            {
-//                *p-- = digits[n & 0xf];
-//            } while ((n >>= 4) != 0);
-//            n = value.B;
-//            p = buffer + 15;
-//            do
-//            {
-//                *p-- = digits[n & 0xf];
-//            } while ((n >>= 4) != 0);
-//            n = value.C;
-//            p = buffer + 23;
-//            do
-//            {
-//                *p-- = digits[n & 0xf];
-//            } while ((n >>= 4) != 0);
-//            n = value.D;
-//            p = buffer + 31;
-//            do
-//            {
-//                *p-- = digits[n & 0xf];
-//            } while ((n >>= 4) != 0);
-//            obj.SetString(buffer, 32, document.GetAllocator());
-//        }
-//    }
-//}
 
 void JsonTools::ChangeIds(Document& doc, const Dictionary<Guid, Guid>& mapping)
 {
     if (mapping.IsEmpty())
         return;
     PROFILE_CPU();
-    ::ChangeIds(doc, doc, mapping, nullptr); // Pass nullptr for root level
+    ::ChangeIds(doc, doc, mapping);
 }
 
 Float2 JsonTools::GetFloat2(const Value& value)
