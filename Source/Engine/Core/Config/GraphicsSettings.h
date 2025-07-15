@@ -136,14 +136,8 @@ public:
     /// <summary>
     /// The list of fallback fonts used for text rendering. Ignored if empty.
     /// </summary>
-    API_FIELD(Attributes = "EditorOrder(5000), EditorDisplay(\"Text\")")
+    API_FIELD(Attributes="EditorOrder(5000), EditorDisplay(\"Text\")")
     Array<AssetReference<FontAsset>> FallbackFonts;
-
-    /// <summary>
-    /// Whether to use occlusion culling using a Hierarchial Z-Buffer technique.
-    /// </summary>
-    API_FIELD(Attributes = "EditorOrder(2200), DefaultValue(true), EditorDisplay(\"General\", \"Use Occlusion Culling\")")
-    bool UseOcclusionCulling = true;
 
 private:
     /// <summary>

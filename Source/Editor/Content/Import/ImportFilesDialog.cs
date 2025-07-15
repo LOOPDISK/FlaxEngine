@@ -130,7 +130,7 @@ namespace FlaxEditor.Content.Import
 
             // Select the first item
             tree.Select(_rootNode.Children[0] as TreeNode);
-            
+
             _dialogSize = new Float2(TotalWidth, EditorHeight + splitPanel.Offsets.Height);
         }
 

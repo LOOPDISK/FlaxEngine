@@ -9,7 +9,6 @@
 #include "Engine/Scripting/ScriptingObjectReference.h"
 #include "Engine/Utilities/Encryption.h"
 
-
 void ChangeIds(rapidjson_flax::Value& obj, rapidjson_flax::Document& document, const Dictionary<Guid, Guid>& mapping)
 {
     if (obj.IsObject())
@@ -37,12 +36,12 @@ void ChangeIds(rapidjson_flax::Value& obj, rapidjson_flax::Document& document, c
             // Optimized version:
             char buffer[32] =
             {
-                // @formatter:off
-                    '0','0','0','0','0','0','0','0','0','0',
-                    '0','0','0','0','0','0','0','0','0','0',
-                    '0','0','0','0','0','0','0','0','0','0',
-                    '0','0'
-                    // @formatter:on
+            // @formatter:off
+                '0','0','0','0','0','0','0','0','0','0',
+                '0','0','0','0','0','0','0','0','0','0',
+                '0','0','0','0','0','0','0','0','0','0',
+                '0','0'
+            // @formatter:on
             };
             static const char* digits = "0123456789abcdef";
             uint32 n = value.A;

@@ -782,7 +782,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         break;
     }
     // Triplanar Normal Map
-    case 24:
+    case 23:
     {
         auto textureBox = node->GetBox(0);
         if (!textureBox->HasConnection())
@@ -870,42 +870,6 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             _writer.Write(*triplanarNormalMap);
             value = result;
             break;
-    }
-
-    // Local Space position
-    case 23:
-    {
-        auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
-        const String local_pos = String::Format(TEXT(
-            "    {{\n"
-            "    // Get local space position\n"
-
-            "    float3 localPos = input.WorldPosition - GetObjectPosition(input) ;\n"
-
-            "    float3 localScale = GetObjectScale(input);\n"
-            "    localPos = TransformWorldVectorToLocal(input, localPos);\n"
-
-            "    \n"
-            "    // Apply the scale parameter in local space\n"
-
-            "    localPos = localPos  * 0.01f ;\n"
-            "    localPos /= localScale;\n"
-            "    \n"
-            "    // Get local normal\n"
-            "    //float3 localNormal = TransformWorldVectorToLocal(input, input.TBN[2]);\n"
-            "    \n"
-
-            "    // Output the blended color\n"
-            "    {0} = localPos;\n"
-            "    }}\n"
-        ),
-
-            result.Value     
-        );
-
-        _writer.Write(*local_pos);
-        value = result;
-        break;
     }
     default:
         break;

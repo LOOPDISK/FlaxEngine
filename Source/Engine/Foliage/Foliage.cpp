@@ -26,38 +26,6 @@
 #define FOLIAGE_GET_DRAW_MODES(renderContext, type) (type.DrawModes & renderContext.View.Pass & renderContext.View.GetShadowsDrawPassMask(type.ShadowsMode))
 #define FOLIAGE_CAN_DRAW(renderContext, type) (type.IsReady() && FOLIAGE_GET_DRAW_MODES(renderContext, type) != DrawPass::None && type.Model->CanBeRendered())
 
-namespace
-{
-    static thread_local Array<Pair<void*, uintptr>> MemPool;
-    static thread_local CriticalSection MemPoolLocker;
-}
-
-void* FoliageRendererAllocation::Allocate(uintptr size)
-{
-    void* result = nullptr;
-    MemPoolLocker.Lock();
-    for (int32 i = 0; i < MemPool.Count(); i++)
-    {
-        if (MemPool.Get()[i].Second == size)
-        {
-            result = MemPool.Get()[i].First;
-            MemPool.RemoveAt(i);
-            break;
-        }
-    }
-    MemPoolLocker.Unlock();
-    if (!result)
-        result = Platform::Allocate(size, 16);
-    return result;
-}
-
-void FoliageRendererAllocation::Free(void* ptr, uintptr size)
-{
-    MemPoolLocker.Lock();
-    MemPool.Add({ ptr, size });
-    MemPoolLocker.Unlock();
-}
-
 Foliage::Foliage(const SpawnParams& params)
     : Actor(params)
 {
@@ -436,7 +404,7 @@ void Foliage::DrawFoliageJob(int32 i)
     if (type.IsReady() && type.Model->CanBeRendered())
     {
         DrawCallsList drawCallsLists[MODEL_MAX_LODS];
-        for (RenderContext& renderContext : _renderContextBatch->Contexts) 
+        for (RenderContext& renderContext : _renderContextBatch->Contexts)
             DrawType(renderContext, type, drawCallsLists);
     }
 }
@@ -492,11 +460,11 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
     }
 
     // Draw instances of the foliage type
-    BatchedDrawCalls _result;
-    DrawCluster(renderContext, type.Root, type, drawCallsLists, _result);
+    BatchedDrawCalls result;
+    DrawCluster(renderContext, type.Root, type, drawCallsLists, result);
 
     // Submit draw calls with valid instances added
-    for (auto& e : _result)
+    for (auto& e : result)
     {
         auto& batch = e.Value;
         if (batch.Instances.IsEmpty())
@@ -531,8 +499,7 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
         }
 
         // Add draw call batch
-        BatchedDrawCall* bdc = reinterpret_cast<BatchedDrawCall*>(&batch);
-        const int32 batchIndex = renderContext.List->BatchedDrawCalls.Add(*bdc);
+        const int32 batchIndex = renderContext.List->BatchedDrawCalls.Add(MoveTemp(batch));
 
         // Add draw call to proper draw lists
         if (EnumHasAnyFlags(drawModes, DrawPass::Depth))

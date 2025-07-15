@@ -7,56 +7,8 @@ using FlaxEditor.Surface.Elements;
 using FlaxEngine;
 using FlaxEngine.GUI;
 
-/// <summary>
-/// The coordinate system axis options.
-/// </summary>
-public enum Axis
-{
-    /// <summary>
-    /// Positive X axis (1, 0, 0)
-    /// </summary>
-    X = 0,
-    /// <summary>
-    /// Positive Y axis (0, 1, 0)
-    /// </summary>
-    Y = 1,
-    /// <summary>
-    /// Positive Z axis (0, 0, 1)
-    /// </summary>
-    Z = 2,
-    /// <summary>
-    /// Negative X axis (-1, 0, 0)
-    /// </summary>
-    NegativeX = 3,
-    /// <summary>
-    /// Negative Y axis (0, -1, 0)
-    /// </summary>
-    NegativeY = 4,
-    /// <summary>
-    /// Negative Z axis (0, 0, -1)
-    /// </summary>
-    NegativeZ = 5,
-}
-
-/// <summary>
-/// The tracking target mode options.
-/// </summary>
-public enum TrackingTargetMode
-{
-    /// <summary>
-    /// Track another node in the skeleton
-    /// </summary>
-    Bone = 0,
-    /// <summary>
-    /// Track a position in world space
-    /// </summary>
-    Vector = 1,
-}
-
 namespace FlaxEditor.Surface.Archetypes
 {
-    
-    
     /// <summary>
     /// Contains archetypes for nodes from the Animation group.
     /// </summary>
@@ -118,103 +70,6 @@ namespace FlaxEditor.Surface.Archetypes
                 if (box.ID != _assetBox.ID)
                     return;
                 _assetSelect.Visible = !box.HasAnyConnection;
-            }
-        }
-
-        /// <summary>
-        /// Unified Locked Track node that can target either a bone or a world position.
-        /// </summary>
-        public class LockedTrackNode : SurfaceNode
-        {
-            private Box _destinationNodeBox;
-            private Box _targetPositionBox;
-            private Label _destinationNodeLabel;
-            private int _currentMode;
-
-            /// <inheritdoc />
-            public LockedTrackNode(uint id, VisjectSurfaceContext context, NodeArchetype nodeArch, GroupArchetype groupArch)
-            : base(id, context, nodeArch, groupArch)
-            {
-            }
-
-            /// <inheritdoc />
-            public override void OnSurfaceLoaded(SurfaceNodeActions action)
-            {
-                base.OnSurfaceLoaded(action);
-
-                if (Surface != null)
-                {
-                    // Find boxes
-                    var zeroSuccess = TryGetBox(0, out _destinationNodeBox);
-                    var oneSuccess = TryGetBox(1, out _destinationNodeBox);
-                    var twoSuccess = TryGetBox(2, out _targetPositionBox);
-                    var threeSuccess = TryGetBox(3, out _destinationNodeBox);
-                    Debug.Log($"zeroSuccess success: {zeroSuccess}");
-                    Debug.Log($"oneSuccess success: {oneSuccess}");
-                    Debug.Log($"twoSuccess success: {twoSuccess}");
-                    Debug.Log($"threeSuccess success: {threeSuccess}");
-
-                    // Find the destination node label
-                    foreach (var element in Elements)
-                    {
-                        if (element is Label label && label.Text == "Destination Node:")
-                        {
-                            _destinationNodeLabel = label;
-                            break;
-                        }
-                    }
-
-                    _currentMode = (int)Values[1];
-                    UpdateVisibility();
-                }
-            }
-
-            /// <inheritdoc />
-            public override void OnValuesChanged()
-            {
-                base.OnValuesChanged();
-
-                int newMode = (int)Values[1];
-                if (newMode != _currentMode)
-                {
-                    // Break connections that will be hidden
-                    if (newMode == (int)TrackingTargetMode.Vector && _destinationNodeBox != null && _destinationNodeBox.HasAnyConnection)
-                    {
-                        _destinationNodeBox.RemoveConnections();
-                    }
-                    else if (newMode == (int)TrackingTargetMode.Bone && _targetPositionBox != null && _targetPositionBox.HasAnyConnection)
-                    {
-                        _targetPositionBox.RemoveConnections();
-                    }
-
-                    _currentMode = newMode;
-                    UpdateVisibility();
-                }
-            }
-
-            private void UpdateVisibility()
-            {
-                bool isBoneMode = _currentMode == (int)TrackingTargetMode.Bone;
-
-                // Update visibility directly on the boxes
-                if (_targetPositionBox != null)
-                    _targetPositionBox.Visible = !isBoneMode;
-
-
-                //Debug.Log("heya", _destinationNodeBox);
-                if (_destinationNodeBox != null)
-                    _destinationNodeBox.Parent.Visible = isBoneMode;
-
-                if (_destinationNodeLabel != null)
-                    _destinationNodeLabel.Parent.Visible = isBoneMode;
-
-                //// Calculate proper height based on Constants.LayoutOffsetY
-                //// (7 rows × 20 units) + top/bottom margin + header/footer 
-                //int visibleRows = isBoneMode ? 7 : 6; // One fewer row when in Vector mode
-                //Height = (visibleRows * Constants.LayoutOffsetY) +
-                //         (Constants.NodeMarginY * 2) +
-                //         Constants.NodeHeaderSize +
-                //         Constants.NodeFooterSize;
             }
         }
 
@@ -537,7 +392,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Animation",
                 Description = "Animation sampling",
                 Flags = NodeFlags.AnimGraph,
-                Size = new Float2(230, 320),  // Increased height for restart input
+                Size = new Float2(230, 160),
                 DefaultValues = new object[]
                 {
                     Guid.Empty,
@@ -556,9 +411,7 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(1, "Loop", true, typeof(bool), 6, 2),
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 7, 3),
                     NodeElementArchetype.Factory.Input(3, "Animation Asset", true, typeof(FlaxEngine.Animation), 8),
-                    NodeElementArchetype.Factory.Input(4, "Position Override", true, typeof(float), 9),
-                    NodeElementArchetype.Factory.Input(5, "Restart", true, typeof(bool), 10), // NEW
-                    NodeElementArchetype.Factory.Asset(0, Surface.Constants.LayoutOffsetY * 6, 0, typeof(FlaxEngine.Animation)), // Moved down
+                    NodeElementArchetype.Factory.Asset(0, Surface.Constants.LayoutOffsetY * 4, 0, typeof(FlaxEngine.Animation)),
                 }
             },
             new NodeArchetype
@@ -769,7 +622,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Multi Blend 1D",
                 Description = "Animation blending in 1D",
                 Flags = NodeFlags.AnimGraph | NodeFlags.VariableValuesSize,
-                Size = new Float2(420, 340), // Increased height for restart input
+                Size = new Float2(420, 300),
                 DefaultValues = new object[]
                 {
                     // Node data
@@ -791,17 +644,11 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(1, "Loop", true, typeof(bool), 2, 2),
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
 
-                    // Position Override
-                    NodeElementArchetype.Factory.Input(6, "Position Override", true, typeof(float), 5),
-        
-                    // Restart input
-                    NodeElementArchetype.Factory.Input(7, "Restart", true, typeof(bool), 6), // NEW
-        
                     // Axis X
                     NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
-                    NodeElementArchetype.Factory.Text(30, 5 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"), // Moved down
-                    NodeElementArchetype.Factory.Vector_X(60, 5 * Surface.Constants.LayoutOffsetY + 2, 0), // Moved down
-                    NodeElementArchetype.Factory.Vector_Y(145, 5 * Surface.Constants.LayoutOffsetY + 2, 0), // Moved down
+                    NodeElementArchetype.Factory.Text(30, 3 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
+                    NodeElementArchetype.Factory.Vector_X(60, 3 * Surface.Constants.LayoutOffsetY + 2, 0),
+                    NodeElementArchetype.Factory.Vector_Y(145, 3 * Surface.Constants.LayoutOffsetY + 2, 0),
                 }
             },
             new NodeArchetype
@@ -811,7 +658,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Multi Blend 2D",
                 Description = "Animation blending in 2D",
                 Flags = NodeFlags.AnimGraph | NodeFlags.VariableValuesSize,
-                Size = new Float2(420, 660), // Increased height for restart input
+                Size = new Float2(420, 620),
                 DefaultValues = new object[]
                 {
                     // Node data
@@ -833,23 +680,17 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(1, "Loop", true, typeof(bool), 2, 2),
                     NodeElementArchetype.Factory.Input(2, "Start Position", true, typeof(float), 3, 3),
 
-                    // Position Override
-                    NodeElementArchetype.Factory.Input(7, "Position Override", true, typeof(float), 6),
-        
-                    // Restart input  
-                    NodeElementArchetype.Factory.Input(8, "Restart", true, typeof(bool), 7), // NEW
-
                     // Axis X
                     NodeElementArchetype.Factory.Input(3, "X", true, typeof(float), 4),
-                    NodeElementArchetype.Factory.Text(30, 5 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
-                    NodeElementArchetype.Factory.Vector_X(60, 5 * Surface.Constants.LayoutOffsetY + 2, 0),
-                    NodeElementArchetype.Factory.Vector_Y(145, 5 * Surface.Constants.LayoutOffsetY + 2, 0),
+                    NodeElementArchetype.Factory.Text(30, 3 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
+                    NodeElementArchetype.Factory.Vector_X(60, 3 * Surface.Constants.LayoutOffsetY + 2, 0),
+                    NodeElementArchetype.Factory.Vector_Y(145, 3 * Surface.Constants.LayoutOffsetY + 2, 0),
 
                     // Axis Y
                     NodeElementArchetype.Factory.Input(4, "Y", true, typeof(float), 5),
-                    NodeElementArchetype.Factory.Text(30, 6 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"), // Moved down
-                    NodeElementArchetype.Factory.Vector_Z(60, 6 * Surface.Constants.LayoutOffsetY + 2, 0), // Moved down
-                    NodeElementArchetype.Factory.Vector_W(145, 6 * Surface.Constants.LayoutOffsetY + 2, 0), // Moved down
+                    NodeElementArchetype.Factory.Text(30, 4 * Surface.Constants.LayoutOffsetY + 2, "(min:                   max:                   )"),
+                    NodeElementArchetype.Factory.Vector_Z(60, 4 * Surface.Constants.LayoutOffsetY + 2, 0),
+                    NodeElementArchetype.Factory.Vector_W(145, 4 * Surface.Constants.LayoutOffsetY + 2, 0),
                 }
             },
             new NodeArchetype
@@ -1248,137 +1089,6 @@ namespace FlaxEditor.Surface.Archetypes
                     Utils.GetEmptyArray<byte>(),
                 },
             },
-            // Add these to the existing NodeArchetype[] Nodes array in FlaxEditor.Surface.Archetypes.Animation
-
-             new NodeArchetype
-             {
-                 TypeID = 35, // New ID for Advanced Blend Additive
-                 Title = "Advanced Blend Additive",
-                 Description = "Blend animation poses using model-space additive logic relative to a reference pose.",
-                 Flags = NodeFlags.AnimGraph,
-                 Size = new Float2(170, 100), // Adjusted size for reference pose input
-                 DefaultValues = new object[]
-                 {
-                     0.0f, // Blend Alpha
-                 },
-                 Elements = new[]
-                 {
-                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
-                     NodeElementArchetype.Factory.Input(0, "Base Pose", true, typeof(void), 1),
-                     NodeElementArchetype.Factory.Input(1, "Additive Pose", true, typeof(void), 2), // Changed text from "Blend Pose"
-                     NodeElementArchetype.Factory.Input(2, "Reference Pose", true, typeof(void), 4), // Box ID 4 for Reference Pose
-                     NodeElementArchetype.Factory.Input(3, "Blend Alpha", true, typeof(float), 3, 0),
-                 }
-             },
-
-             new NodeArchetype
-             {
-                 TypeID = 36, // New ID for Locked Track
-                 Create = (id, context, arch, groupArch) => new LockedTrackNode(id, context, arch, groupArch), // Use the custom C# class
-                 Title = "Locked Track",
-                 Description = "Constrains a node's rotation to track a target (Bone or Vector) while locking one local axis.",
-                 Flags = NodeFlags.AnimGraph,
-                 Size = new Float2(280, 180), // Adjusted base height
-                 DefaultValues = new object[]
-                 {
-                     string.Empty,                 // Source Node Name (index 0)
-                     (int)TrackingTargetMode.Bone, // Tracking mode (index 1)
-                     string.Empty,                 // Destination Node Name (index 2) - Used only in Bone mode
-                     1.0f,                         // Weight (index 3)
-                     (int)Axis.Z,                  // Track axis (index 4)
-                     (int)Axis.Y,                  // Locked axis (index 5)
-                     // Note: Target Position (Vector3) doesn't have a default value stored here, it's input only
-                 },
-                 Elements = new[]
-                 {
-                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0), // Output Pose
-                     NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 1), // Input Pose
-
-                     // --- Controls ---
-                     // Mode selector (ValueIndex 1)
-                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Track Mode:"),
-                     NodeElementArchetype.Factory.ComboBox(100, Surface.Constants.LayoutOffsetY * 1, 160, 1, typeof(TrackingTargetMode)),
-
-                     // Source node (ValueIndex 0)
-                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Source Node:"),
-                     NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 2, 160, 0),
-
-                     // Target Position input (BoxID 2) - For Vector mode
-                     NodeElementArchetype.Factory.Input(3, "Target Position", true, typeof(Vector3), 2), // Y-level 3
-
-                     // Destination Node (ValueIndex 2) - For Bone mode
-                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 4, "Destination Node:"), // Y-level 4
-                     NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 4, 160, 2),
-
-                     // Weight input (BoxID 4, ValueIndex 3)
-                     NodeElementArchetype.Factory.Input(5, "Weight", true, typeof(float), 4, 3), // Y-level 5
-
-                     // Track Axis (ValueIndex 4)
-                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 6, "Track Axis:"), // Y-level 6
-                     NodeElementArchetype.Factory.ComboBox(100, Surface.Constants.LayoutOffsetY * 6, 160, 4, typeof(Axis)),
-
-                     // Locked Axis (ValueIndex 5)
-                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 7, "Locked Axis:"), // Y-level 7
-                     NodeElementArchetype.Factory.ComboBox(100, Surface.Constants.LayoutOffsetY * 7, 160, 5, typeof(Axis)),
-                 }
-             },
-
-            new NodeArchetype
-            {
-                TypeID = 37,
-                Title = "track to bone Node",
-                Description = "Copies the skeleton node transformation data (in local space)",
-                Flags = NodeFlags.AnimGraph,
-                Size = new Float2(260, 140),
-                DefaultValues = new object[]
-                {
-                    string.Empty,
-                    string.Empty,
-                    1.0,
-
-                },
-                Elements = new[]
-                {
-                    NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
-                    NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 1),
-                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 1, 120, 0),
-                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 2, 120, 1),
-                    //NodeElementArchetype.Factory.Input(3, "up", true, typeof(Vector3), 2),
-                    NodeElementArchetype.Factory.Input(4, "weight", true, typeof(float), 2),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Source Node:"),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
-                }
-            },
-
-             new NodeArchetype
-            {
-                TypeID = 38,
-                Title = "locked track Node",
-                Description = "Copies the skeleton node transformation data (in local space)",
-                Flags = NodeFlags.AnimGraph,
-                Size = new Float2(260, 140),
-                DefaultValues = new object[]
-                {
-                    string.Empty,
-                    string.Empty,
-                    1.0,
-
-                },
-                Elements = new[]
-                {
-                    NodeElementArchetype.Factory.Output(0, string.Empty, typeof(void), 0),
-                    NodeElementArchetype.Factory.Input(0, string.Empty, true, typeof(void), 1),
-                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 1, 120, 0),
-                    NodeElementArchetype.Factory.SkeletonNodeNameSelect(100, Surface.Constants.LayoutOffsetY * 2, 120, 1),
-                    NodeElementArchetype.Factory.Input(3, "weight", true, typeof(float), 2),
-                    NodeElementArchetype.Factory.Input(4, "up", true, typeof(Vector3), 3),
-                    NodeElementArchetype.Factory.Input(5, "forward", true, typeof(Vector3), 4),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 1, "Source Node:"),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 2, "Destination Node:"),
-                }
-            },
-
-
         };
     }
 }

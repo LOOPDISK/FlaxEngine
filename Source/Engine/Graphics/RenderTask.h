@@ -10,7 +10,6 @@
 #include "Engine/Scripting/ScriptingType.h"
 #include "Engine/Renderer/RendererAllocation.h"
 #include "RenderView.h"
-#include "Engine/Renderer/HierarchialZBufferPass.h"
 
 class GPUDevice;
 class GPUContext;
@@ -23,7 +22,6 @@ struct RenderContext;
 class Camera;
 class Actor;
 class Scene;
-class HZBData;
 
 /// <summary>
 /// Allows to perform custom rendering using graphics pipeline.
@@ -277,8 +275,6 @@ public:
     /// The image resolution upscale location within rendering pipeline. Unused if RenderingPercentage is 1.
     /// </summary>
     API_FIELD() RenderingUpscaleLocation UpscaleLocation = RenderingUpscaleLocation::AfterAntiAliasingPass;
-    
-    HZBData* OcclusionInfo = nullptr;
 
 public:
     /// <summary>

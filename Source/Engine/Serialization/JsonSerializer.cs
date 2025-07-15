@@ -270,9 +270,8 @@ namespace FlaxEngine.Json
 
             // Special case when saving reference to prefab object and the objects are different but the point to the same prefab object
             // In that case, skip saving reference as it's defined in prefab (will be populated via IdsMapping during deserialization)
-            //// HACK: this causes prefab reference errors. Waiting for Mafi to fix. Commenting this out is a valid workaround for now.
-            //if (objA is SceneObject sceneA && objB is SceneObject sceneB && sceneA && sceneB && sceneA.HasPrefabLink && sceneB.HasPrefabLink)
-            //    return sceneA.PrefabObjectID == sceneB.PrefabObjectID;
+            if (objA is SceneObject sceneA && objB is SceneObject sceneB && sceneA && sceneB && sceneA.HasPrefabLink && sceneB.HasPrefabLink)
+                return sceneA.PrefabObjectID == sceneB.PrefabObjectID;
 
             // Comparing an Int32 and Int64 both of the same value returns false, make types the same then compare
             if (objA.GetType() != objB.GetType())

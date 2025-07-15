@@ -456,7 +456,7 @@ namespace FlaxEditor.Surface.Archetypes
             {
                 TypeID = 18,
                 Title = "Lightmap UV",
-                AlternativeTitles = new string[] { "Lightmap TexCoord" },
+                AlternativeTitles = new string[] { "Lightmap TexCoord" }, 
                 Description = "Lightmap UVs",
                 Flags = NodeFlags.MaterialGraph,
                 Size = new Float2(110, 20),
@@ -467,7 +467,7 @@ namespace FlaxEditor.Surface.Archetypes
             },
             new NodeArchetype
             {
-                TypeID = 24,
+                TypeID = 23,
                 Title = "Triplanar Normal Map",
                 Description = "Projects a normal map texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
@@ -493,24 +493,9 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Bool(190, Surface.Constants.LayoutOffsetY * 4, 4),
                 }
             },
-
             new NodeArchetype
             {
-                TypeID = 23,
-                Title = "Local Generated Position",
-                AlternativeTitles = new string[] { "local pos" },
-                Description = "Local Generated Position, taking into account scale and rotation",
-                Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(200, 50),
-
-                Elements = new []
-                {
-                    NodeElementArchetype.Factory.Output(0, "Pos", typeof(Float3), 0)
-                }
-            },
-            new NodeArchetype
-            {
-                TypeID = 124,
+                TypeID = 24,
                 Title = "Texture Size",
                 Description = "Gets the size of the texture (in pixels). If texture is during streaming, then returns size of the highest resident mip.",
                 Flags = NodeFlags.ParticleEmitterGraph,
