@@ -14,6 +14,7 @@ Font::Font(FontAsset* parentAsset, float size)
     , _asset(parentAsset)
     , _size(size)
     , _characters(512)
+    , _commonCharacters(256)
 {
     _asset->_fonts.Add(this);
 
@@ -26,6 +27,13 @@ Font::Font(FontAsset* parentAsset, float size)
     _ascender = Convert26Dot6ToRoundedPixel<int16>(face->size->metrics.ascender);
     _descender = Convert26Dot6ToRoundedPixel<int16>(face->size->metrics.descender);
     _lineGap = _height - _ascender + _descender;
+    // initialize fast cache
+    for (int i = 0; i < 256; i++)
+    {
+        FontCharacterEntry defaultChar;
+        defaultChar.IsValid = false;
+        _commonCharacters.Add(defaultChar);
+    }
 }
 
 Font::~Font()
@@ -36,6 +44,15 @@ Font::~Font()
 
 void Font::GetCharacter(Char c, FontCharacterEntry& result, bool enableFallback)
 {
+    // check the fast cache for common characters
+    if (c < 256)
+    {
+        result = _commonCharacters[c];
+        if (result.IsValid)
+        {
+            return;
+        }
+    }
     // Try to get the character or cache it if cannot be found
     if (!_characters.TryGet(c, result))
     {
@@ -66,6 +83,12 @@ void Font::GetCharacter(Char c, FontCharacterEntry& result, bool enableFallback)
 
         // Add to the dictionary
         _characters.Add(c, result);
+        
+        // Add to the fast cache
+        if (c < 256)
+        {
+            _commonCharacters[c] = result;
+        }
     }
 }
 

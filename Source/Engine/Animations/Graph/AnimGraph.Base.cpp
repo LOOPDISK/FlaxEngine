@@ -328,6 +328,8 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
         }
         // Copy Node
         case 27:
+        case 37:
+        case 38:
         {
             auto& data = n->Data.CopyNode;
             if (_graph->BaseModel && !_graph->BaseModel->WaitForLoaded())
@@ -355,6 +357,10 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
             LoadStateTransitions(n->Data.AnyState, n->Values[0]);
             break;
         }
+
+
+
+
         break;
     // Custom
     case 13:
@@ -375,6 +381,10 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
 
     return VisjectGraph::onNodeLoaded(n);
 }
+
+
+
+
 
 void AnimGraphBase::LoadStateTransitions(AnimGraphNode::StateBaseData& data, Value& transitionsData)
 {

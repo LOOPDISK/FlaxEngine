@@ -1108,20 +1108,15 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
     LOG(Info, "Importing model from \'{0}\'", path);
     const auto startTime = DateTime::NowUTC();
 
-    // Import data
     switch (options.Type)
     {
     case ModelType::Model:
-        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes;
-        if (options.ImportMaterials)
-            options.ImportTypes |= ImportDataTypes::Materials;
+        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Materials;
         if (options.ImportTextures)
             options.ImportTypes |= ImportDataTypes::Textures;
         break;
     case ModelType::SkinnedModel:
-        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Skeleton;
-        if (options.ImportMaterials)
-            options.ImportTypes |= ImportDataTypes::Materials;
+        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Skeleton | ImportDataTypes::Materials;
         if (options.ImportTextures)
             options.ImportTypes |= ImportDataTypes::Textures;
         break;
@@ -1131,15 +1126,14 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
             options.ImportTypes |= ImportDataTypes::Skeleton;
         break;
     case ModelType::Prefab:
-        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Animations;
-        if (options.ImportMaterials)
-            options.ImportTypes |= ImportDataTypes::Materials;
+        options.ImportTypes = ImportDataTypes::Geometry | ImportDataTypes::Nodes | ImportDataTypes::Animations | ImportDataTypes::Materials;
         if (options.ImportTextures)
             options.ImportTypes |= ImportDataTypes::Textures;
         break;
     default:
         return true;
     }
+
     if (ImportData(path, data, options, errorMsg))
         return true;
 
@@ -1459,7 +1453,6 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
 #endif
     }
 
-    // Prepare materials
     for (int32 i = 0; i < data.Materials.Count(); i++)
     {
         auto& material = data.Materials[i];
@@ -1467,9 +1460,12 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
         if (material.Name.IsEmpty())
             material.Name = TEXT("Material ") + StringUtils::ToString(i);
 
-        // Auto-import materials
-        if (autoImportOutput.IsEmpty() || EnumHasNoneFlags(options.ImportTypes, ImportDataTypes::Materials) || !material.UsesProperties())
+        material.AssetID = Guid::New();  // Ensure unique ID for material slot reference
+
+        // Auto-import materials - check options.ImportMaterials directly
+        if (autoImportOutput.IsEmpty() || !options.ImportMaterials || !material.UsesProperties())
             continue;
+
         String assetPath = GetAdditionalImportPath(autoImportOutput, importedFileNames, material.Name);
 #if COMPILE_WITH_ASSETS_IMPORTER
         // When splitting imported meshes allow only the first mesh to import assets (mesh[0] is imported after all following ones so import assets during mesh[1])
@@ -1704,7 +1700,26 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
     }
     if (EnumHasAnyFlags(options.ImportTypes, ImportDataTypes::Geometry) && options.Type == ModelType::Prefab)
     {
-        // Apply just the scale and rotations.
+        // Log original node transforms before processing
+        LOG(Info, "Original node transforms for prefab import:");
+        for (int32 nodeIndex = 0; nodeIndex < data.Nodes.Count(); nodeIndex++)
+        {
+            auto& node = data.Nodes[nodeIndex];
+            LOG(Info, "  Node[{}] '{}': Rotation({}, {}, {}), Scale({}, {}, {})",
+                nodeIndex,
+                node.Name,
+                node.LocalTransform.Orientation.X,
+                node.LocalTransform.Orientation.Y,
+                node.LocalTransform.Orientation.Z,
+                node.LocalTransform.Scale.X,
+                node.LocalTransform.Scale.Y,
+                node.LocalTransform.Scale.Z);
+        }
+
+        // Create a copy of the original nodes for reference (to preserve transforms)
+        Array<ModelDataNode> originalNodes = data.Nodes;
+
+        // Apply full transformations including scale, rotation and translation
         for (int32 lodIndex = 0; lodIndex < data.LODs.Count(); lodIndex++)
         {
             for (int32 meshIndex = 0; meshIndex < data.LODs[lodIndex].Meshes.Count(); meshIndex++)
@@ -1713,25 +1728,46 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
                 auto& node = data.Nodes[mesh.NodeIndex];
                 auto currentNode = &data.Nodes[mesh.NodeIndex];
 
-                Vector3 scale = Vector3::One;
-                Quaternion rotation = Quaternion::Identity;
+                // Create full transformation matrix
+                Matrix transformationMatrix = Matrix::Identity;
                 while (true)
                 {
-                    scale *= currentNode->LocalTransform.Scale;
-                    rotation *= currentNode->LocalTransform.Orientation;
+                    // Apply the full local transform
+                    transformationMatrix = currentNode->LocalTransform.GetWorld() * transformationMatrix;
+
                     if (currentNode->ParentIndex == -1)
                         break;
                     currentNode = &data.Nodes[currentNode->ParentIndex];
                 }
 
-                // Transform vertices
-                auto transformationMatrix = Matrix::Identity;
-                transformationMatrix.SetScaleVector(scale);
-                transformationMatrix = transformationMatrix * Matrix::RotationQuaternion(rotation);
-
                 if (!transformationMatrix.IsIdentity())
                     mesh.TransformBuffer(transformationMatrix);
+
+                // Log the transformation being applied
+                LOG(Info, "Transformed mesh '{}' for node '{}', transformation matrix: {}",
+                    mesh.Name,
+                    node.Name,
+                    transformationMatrix.ToString());
             }
+        }
+
+        // Restore the original node transforms (we've already transformed the meshes)
+        data.Nodes = originalNodes;
+
+        // Log preserved node transforms after processing
+        LOG(Info, "Preserved node transforms after prefab import:");
+        for (int32 nodeIndex = 0; nodeIndex < data.Nodes.Count(); nodeIndex++)
+        {
+            auto& node = data.Nodes[nodeIndex];
+            LOG(Info, "  Node[{}] '{}': Rotation({}, {}, {}), Scale({}, {}, {})",
+                nodeIndex,
+                node.Name,
+                node.LocalTransform.Orientation.X,
+                node.LocalTransform.Orientation.Y,
+                node.LocalTransform.Orientation.Z,
+                node.LocalTransform.Scale.X,
+                node.LocalTransform.Scale.Y,
+                node.LocalTransform.Scale.Z);
         }
     }
     if (EnumHasAnyFlags(options.ImportTypes, ImportDataTypes::Animations))

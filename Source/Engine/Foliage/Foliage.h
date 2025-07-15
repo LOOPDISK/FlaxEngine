@@ -7,6 +7,14 @@
 #include "FoliageCluster.h"
 #include "FoliageType.h"
 #include "Engine/Level/Actor.h"
+#include "Engine/Core/Memory/SimpleHeapAllocation.h"
+
+class FoliageRendererAllocation : public SimpleHeapAllocation<FoliageRendererAllocation, 1024>
+{
+public:
+    static FLAXENGINE_API void* Allocate(uintptr size);
+    static FLAXENGINE_API void Free(void* ptr, uintptr size);
+};
 
 /// <summary>
 /// Represents a foliage actor that contains a set of instanced meshes.
@@ -157,6 +165,8 @@ public:
 
 private:
     void AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_SIZE>& clusters, FoliageCluster* cluster, FoliageInstance& instance);
+
+public:
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE && FOLIAGE_USE_DRAW_CALLS_BATCHING
     struct DrawKey
     {
@@ -178,8 +188,17 @@ private:
         }
     };
 
-    typedef Array<struct BatchedDrawCall, InlinedAllocation<8>> DrawCallsList;
-    typedef Dictionary<DrawKey, struct BatchedDrawCall, class RendererAllocation> BatchedDrawCalls;
+    struct FoliageBatchedDrawCall
+    {
+        DrawCall DrawCall;
+        uint16 ObjectsStartIndex = 0; // Index of the instances start in the ObjectsBuffer (set internally).
+        Array<struct ShaderObjectData, FoliageRendererAllocation> Instances;
+    };
+
+    private:
+    typedef Array<struct FoliageBatchedDrawCall, InlinedAllocation<8>> DrawCallsList;
+    typedef Dictionary<DrawKey, struct FoliageBatchedDrawCall, class FoliageRendererAllocation> BatchedDrawCalls;
+
     void DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
     void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
 #else

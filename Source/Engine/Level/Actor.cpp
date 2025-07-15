@@ -90,6 +90,7 @@ Actor::Actor(const SpawnParams& params)
 {
     _drawNoCulling = 0;
     _drawCategory = 0;
+    _cullType = 0;
 }
 
 SceneRendering* Actor::GetSceneRendering() const
@@ -537,6 +538,11 @@ void Actor::AddTagRecursive(const Tag& tag)
 void Actor::RemoveTag(const Tag& tag)
 {
     Tags.Remove(tag);
+}
+
+bool Actor::WasCulled()
+{
+    return _cullType != 0; // 0 is not culled, 1 is frustum culled, 2 is HZB culled
 }
 
 PRAGMA_DISABLE_DEPRECATION_WARNINGS

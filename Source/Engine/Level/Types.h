@@ -103,6 +103,11 @@ API_ENUM(Attributes="Flags") enum class StaticFlags
     Shadow = 1 << 4,
 
     /// <summary>
+    /// Object is considered to be a visual occluder. Use it on large objects that are major factors in visibility. They should be static or slowly moving.
+    /// </summary>
+    Occluder = 1 << 5,
+
+    /// <summary>
     /// Object is fully static in the scene.
     /// </summary>
     FullyStatic = ReflectionProbe | Lightmap | Transform | Navigation | Shadow,

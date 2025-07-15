@@ -133,6 +133,16 @@ namespace FlaxEngine
         }
 
         /// <summary>
+        /// Creates a single-precision floating-point value from a raw half-precision (16-bit) representation.
+        /// </summary>
+        /// <param name="rawValue">The raw 16-bit half-precision floating-point bit pattern.</param>
+        /// <returns>The converted single-precision floating-point value.</returns>
+        public static float FromRawValue(ushort rawValue)
+        {
+            return HalfUtils.Unpack(rawValue);
+        }
+
+        /// <summary>
         /// Converts an array of full precision values into half precision values.
         /// </summary>
         /// <param name = "values">The values to be converted.</param>

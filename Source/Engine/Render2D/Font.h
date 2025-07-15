@@ -241,6 +241,7 @@ private:
     bool _hasKerning;
     Dictionary<Char, FontCharacterEntry> _characters;
     mutable Dictionary<uint32, int32> _kerningTable;
+    Array <FontCharacterEntry, FixedAllocation<256>> _commonCharacters;
 
 public:
     /// <summary>

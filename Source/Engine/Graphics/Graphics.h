@@ -74,6 +74,11 @@ public:
     API_FIELD() static bool GICascadesBlending;
 
     /// <summary>
+    /// Enables Hierarchial Z-Buffer occlusion culling.
+    /// </summary>
+    API_FIELD() static bool OcclusionCulling;
+
+    /// <summary>
     /// The default Post Process settings. Can be overriden by PostFxVolume on a level locally, per camera or for a whole map.
     /// </summary>
     API_FIELD() static PostProcessSettings PostProcessSettings;

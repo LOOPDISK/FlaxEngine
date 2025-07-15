@@ -459,6 +459,10 @@ namespace FlaxEditor.Options
         [EditorDisplay("Debug Views"), EditorOrder(2160)]
         public InputBinding GlobalIllumination = new InputBinding(KeyboardKeys.None);
 
+        [DefaultValue(typeof(InputBinding), "None")]
+        [EditorDisplay("Debug Views"), EditorOrder(2161)]
+        public InputBinding HZBOccluders = new InputBinding(KeyboardKeys.None);
+
         #endregion
 
         #region View Flags
