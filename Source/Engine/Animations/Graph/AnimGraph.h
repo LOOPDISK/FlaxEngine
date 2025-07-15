@@ -225,6 +225,7 @@ public:
     {
         float TimePosition;
         uint64 LastUpdateFrame;
+        bool LastResetBool;
     };
 
     struct MultiBlendBucket
@@ -234,6 +235,7 @@ public:
         ANIM_GRAPH_MULTI_BLEND_INDEX Animations[MaxCount];
         byte Count;
         uint64 LastUpdateFrame;
+        bool LastResetBool;
     };
 
     struct BlendPoseBucket
