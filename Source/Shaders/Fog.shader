@@ -66,5 +66,5 @@ float4 PS_Fog(Quad_VS2PS input) : SV_Target0
 	fog = float4(volumetricFog.rgb + fog.rgb * volumetricFog.a, volumetricFog.a * fog.a);
 #endif
 
-	return fog;
+	return float4(fog.rgb, 1.0);
 }

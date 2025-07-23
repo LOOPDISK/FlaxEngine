@@ -57,6 +57,11 @@ API_ENUM() enum class ToneMappingMode
     /// The AGX tonemapper.
     /// </summary>
     AGX = 3,
+
+    /// <summary>
+    /// The Smoothstep tonemapper.
+    /// </summary>
+    Smoothstep = 4,
 };
 
 /// <summary>

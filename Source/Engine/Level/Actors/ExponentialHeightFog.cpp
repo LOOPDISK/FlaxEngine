@@ -54,7 +54,7 @@ void ExponentialHeightFog::Draw(RenderContext& renderContext)
             psDesc.BlendMode.SrcBlendAlpha = BlendingMode::Blend::One;
             psDesc.BlendMode.DestBlendAlpha = BlendingMode::Blend::Zero;
             psDesc.BlendMode.BlendOpAlpha = BlendingMode::Operation::Add;
-            psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::RGB;
+            psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::RGBA;
             if (_psFog.Create(psDesc, _shader->GetShader(), "PS_Fog"))
             {
                 LOG(Warning, "Cannot create graphics pipeline state object for '{0}'.", ToString());

@@ -241,6 +241,14 @@ float3 TonemapAGX(float3 linearColor)
     color = saturate(color);
     return color;
 }
+#endif
+
+#ifdef TONE_MAPPING_MODE_SMOOTHSTEP
+
+float3 TonemapSmoothstep(float3 linearColor)
+{
+    return (4.0 * linearColor * linearColor) / (4.0 * linearColor * linearColor + 1.0);
+}
 
 #endif
 
@@ -255,6 +263,8 @@ float3 Tonemap(float3 linearColor)
 	return TonemapACES(linearColor);
 #elif defined(TONE_MAPPING_MODE_AGX)
     return TonemapAGX(linearColor);
+#elif defined(TONE_MAPPING_MODE_SMOOTHSTEP)
+    return TonemapSmoothstep(linearColor);
 #else
 	return float3(0, 0, 0);
 #endif
@@ -346,6 +356,7 @@ META_PERMUTATION_1(TONE_MAPPING_MODE_NONE=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_NEUTRAL=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_ACES=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_AGX=1)
+META_PERMUTATION_1(TONE_MAPPING_MODE_SMOOTHSTEP=1)
 float4 PS_Lut2D(Quad_VS2PS input) : SV_Target
 {
 	return CombineLUTs(input.TexCoord, 0);
@@ -356,6 +367,7 @@ META_PERMUTATION_1(TONE_MAPPING_MODE_NONE=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_NEUTRAL=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_ACES=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_AGX=1)
+META_PERMUTATION_1(TONE_MAPPING_MODE_SMOOTHSTEP=1)
 float4 PS_Lut3D(Quad_GS2PS input) : SV_Target
 {
 	return CombineLUTs(input.Vertex.TexCoord, input.LayerIndex);

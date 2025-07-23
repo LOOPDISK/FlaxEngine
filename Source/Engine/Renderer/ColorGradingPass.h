@@ -15,7 +15,7 @@ private:
     bool _useVolumeTexture;
     PixelFormat _lutFormat;
     AssetReference<Shader> _shader;
-    GPUPipelineStatePermutationsPs<4> _psLut;
+    GPUPipelineStatePermutationsPs<5> _psLut;
 
 public:
 
