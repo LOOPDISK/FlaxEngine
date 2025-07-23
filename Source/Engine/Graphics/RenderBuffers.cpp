@@ -114,7 +114,7 @@ GPUTexture* RenderBuffers::RequestHalfResDepth(GPUContext* context)
 PixelFormat RenderBuffers::GetOutputFormat() const
 {
     // buffers hack
-    return _useAlpha ? PixelFormat::R16G16B16A16_Float : PixelFormat::R11G11B10_Float;
+    return _useAlpha ? PixelFormat::R16G16B16A16_Float : PixelFormat::R16G16B16A16_Float;
 }
 
 bool RenderBuffers::GetUseAlpha() const
