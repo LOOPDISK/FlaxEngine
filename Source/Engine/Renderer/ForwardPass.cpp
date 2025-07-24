@@ -118,7 +118,7 @@ void ForwardPass::Render(RenderContext& renderContext, GPUTexture*& input, GPUTe
         const int32 distortionWidth = width;
         const int32 distortionHeight = height;
         //lets try upping this bit depth
-        const auto tempDesc = GPUTextureDescription::New2D(distortionWidth, distortionHeight, PixelFormat::R16G16B16A16_Float);
+        const auto tempDesc = GPUTextureDescription::New2D(distortionWidth, distortionHeight, PixelFormat::R8G8B8A8_UNorm);
         auto distortionRT = RenderTargetPool::Get(tempDesc);
         RENDER_TARGET_POOL_SET_NAME(distortionRT, "Forward.Distortion");
 
