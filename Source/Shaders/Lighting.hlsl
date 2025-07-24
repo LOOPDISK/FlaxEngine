@@ -17,21 +17,30 @@ LightSample StandardShading(GBufferSample gBuffer, float energy, float3 L, float
 {
     float3 diffuseColor = GetDiffuseColor(gBuffer);
     float3 H = normalize(V + L);
-    float NoL = saturate(dot(N, L));
+    float rawNoL = dot(N, L);
     float NoV = max(dot(N, V), 1e-5);
     float NoH = saturate(dot(N, H));
     float VoH = saturate(dot(V, H));
-
+    
+    float exposure = 1.2;
+    
+    // Apply smoothstep soft clipping to both diffuse and specular
+    float amplified = rawNoL * exposure;
+    float styledNoL = smoothstep(0.0, 1.0, amplified);
+    
     LightSample lighting;
-    lighting.Diffuse = Diffuse_Lambert(diffuseColor);
+    lighting.Diffuse = Diffuse_Lambert(diffuseColor) * styledNoL;
+    
 #if LIGHTING_NO_SPECULAR
     lighting.Specular = 0;
 #else
     float3 specularColor = GetSpecularColor(gBuffer);
     float3 F = F_Schlick(specularColor, VoH);
     float D = D_GGX(gBuffer.Roughness, NoH) * energy;
-    float Vis = Vis_SmithJointApprox(gBuffer.Roughness, NoV, NoL);
-    lighting.Specular = (D * Vis) * F;
+    
+    // Use styledNoL instead of the original saturate(rawNoL)
+    float Vis = Vis_SmithJointApprox(gBuffer.Roughness, NoV, styledNoL);
+    lighting.Specular = (D * Vis) * F * styledNoL; // Apply styled lighting here too
 #endif
     lighting.Transmission = 0;
     return lighting;
@@ -137,7 +146,8 @@ float4 GetLighting(float3 viewPos, LightData lightData, GBufferSample gBuffer, f
 
 #if !LIGHTING_NO_DIRECTIONAL
     // Reduce shadow mapping artifacts
-    shadow.SurfaceShadow *= saturate(NoL * 6.0f - 0.2f) * NoL;
+    // MZ: commenting this out to make lighting appropriate level of hardness
+    //shadow.SurfaceShadow *= saturate(NoL * 6.0f - 0.2f) * NoL;
 #endif
 
     BRANCH

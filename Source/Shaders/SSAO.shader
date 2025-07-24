@@ -380,6 +380,44 @@ void SSAOTapInner(const int qualityLevel, inout float obscuranceSum, inout float
 	weightSum += weight;
 }
 
+// Ordered dithering with 4x4 Bayer matrix - hardcoded for stylization
+// Ordered dithering with 4x4 Bayer matrix - hardcoded for stylization
+float OrderedDither4x4(float2 screenPos, float value)
+{
+    // 4x4 Bayer matrix
+    const float4x4 bayerMatrix = float4x4(
+        0.0/16.0,  8.0/16.0,  2.0/16.0,  10.0/16.0,
+        12.0/16.0, 4.0/16.0,  14.0/16.0, 6.0/16.0,
+        3.0/16.0,  11.0/16.0, 1.0/16.0,  9.0/16.0,
+        15.0/16.0, 7.0/16.0,  13.0/16.0, 5.0/16.0
+    );
+    
+    // Hardcoded values for good stylistic effect
+    const int aoLevels = 4;          // 4 discrete AO levels
+    const float ditherStrength = 0.8; // 80% dithering, 20% hard quantization
+    const float ditherSize = 1.0;     // Size multiplier for dither pattern (1.0 = 1 pixel, 2.0 = 2x2 pixels per dot, etc.)
+    
+    // Get screen-stable dither pattern coordinate
+    // Use floor division to create stable blocks of ditherSize
+    int2 coord = int2(floor(screenPos / ditherSize)) % 4;
+    float threshold = bayerMatrix[coord.y][coord.x];
+    
+    // Scale value to level range
+    float scaledValue = value * (aoLevels - 1);
+    float lowerLevel = floor(scaledValue);
+    float upperLevel = ceil(scaledValue);
+    float fraction = scaledValue - lowerLevel;
+    
+    // Apply dithering
+    float ditheredLevel = (fraction > threshold) ? upperLevel : lowerLevel;
+    float quantizedLevel = round(scaledValue); // Hard quantization
+    
+    // Blend between dithered and quantized based on strength
+    float finalLevel = lerp(quantizedLevel, ditheredLevel, ditherStrength);
+    
+    return finalLevel / (aoLevels - 1);
+}
+
 void SSAOTap(const int qualityLevel, inout float obscuranceSum, inout float weightSum, const int tapIndex, const float2x2 rotScale, const float3 pixCenterPos, const float3 negViewspaceDir, float3 pixelNormal, const float2 normalizedScreenPos, const float mipOffset, const float falloffCalcMulSq, float weightMod, float2 normXY, float normXYLength)
 {
 	float2 sampleOffset;
@@ -613,10 +651,13 @@ void GenerateSSAOShadowsInternal(out float outShadowTerm, out float4 outEdges, o
     
     // Convert to occlusion
     float occlusion = 1.0 - obscurance;
-    
+
     // Modify the gradient
     occlusion = pow(saturate(occlusion), EffectShadowPow);
-    
+
+    // ADD THIS: Apply dithered quantization for stylization
+    occlusion = OrderedDither4x4(SVPos, occlusion);
+
     // Set outputs
     outShadowTerm = occlusion;
     outEdges = edgesLRTB;
