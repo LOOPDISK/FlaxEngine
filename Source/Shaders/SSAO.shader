@@ -160,13 +160,24 @@ float2 ScreenSpaceToClipSpacePositionXY(float2 screenPos)
 	return screenPos * Viewport2xPixelSize.xy - float2(1.0f, 1.0f);
 }
 
-float3 NDCToViewspace(float2 pos, float viewspaceDepth)
+
+
+float3 NDCToViewspace(float2 screenPos, float viewspaceDepth)
 {
-	GBufferData gBufferData = GetGBufferData();
-	float deviceDepth = LinearZ2DeviceDepth(gBufferData, viewspaceDepth / gBufferData.ViewFar);
-	float4 clipPos = float4(pos * float2(2.0, -2.0) + float2(-1.0, 1.0), deviceDepth, 1.0);
-	float4 viewPos = mul(clipPos, gBufferData.InvProjectionMatrix);
-	return viewPos.xyz / viewPos.w;
+    // Direct reconstruction using inverse projection
+    float2 clipPos = screenPos * float2(2.0, -2.0) + float2(-1.0, 1.0);
+    
+    GBufferData gBufferData = GetGBufferData();
+    
+    // Extract focal length from inverse projection matrix
+    float focalLengthX = 1.0f / gBufferData.InvProjectionMatrix._11;
+    float focalLengthY = 1.0f / gBufferData.InvProjectionMatrix._22;
+    
+    float2 viewPos;
+    viewPos.x = clipPos.x * viewspaceDepth / focalLengthX;
+    viewPos.y = clipPos.y * viewspaceDepth / focalLengthY;
+    
+    return float3(viewPos.x, viewPos.y, viewspaceDepth);
 }
 
 // Calculate effect radius and fit our screen sampling pattern inside it
@@ -411,190 +422,205 @@ void SSAOTap(const int qualityLevel, inout float obscuranceSum, inout float weig
 	SSAOTapInner(qualityLevel, obscuranceSum, weightSum, samplingMirroredUV, mipLevel, pixCenterPos, negViewspaceDir, pixelNormal, falloffCalcMulSq, weightMod, tapIndex * 2 + 1);
 }
 
-// This function is designed to only work with half/half depth at the moment - there's a couple of hardcoded paths that expect pixel/texel size, so it will not work for full res
-void GenerateSSAOShadowsInternal(out float outShadowTerm, out float4 outEdges, out float outWeight, const float2 SVPos/*, const float2 normalizedScreenPos*/, int qualityLevel)
+// Replace the existing CalculateEdges function with this normal-based version
+float4 CalculateNormalEdges(float3 centerNormal, float3 leftNormal, float3 rightNormal, 
+                           float3 topNormal, float3 bottomNormal)
 {
-	float2 SVPosRounded = trunc(SVPos);
-	uint2 SVPosui = uint2(SVPosRounded); // same as uint2(SVPos)
-	
-	const int numberOfTaps = g_numTaps[qualityLevel];
-	float pixZ, pixLZ, pixTZ, pixRZ, pixBZ;
+    const float threshold = 0.8; // Adjust as needed (higher = more sensitive to normal changes)
+    float4 edgesLRTB;
+    edgesLRTB.x = saturate((dot(centerNormal, leftNormal) - threshold) / (1.0 - threshold));
+    edgesLRTB.y = saturate((dot(centerNormal, rightNormal) - threshold) / (1.0 - threshold));
+    edgesLRTB.z = saturate((dot(centerNormal, topNormal) - threshold) / (1.0 - threshold));
+    edgesLRTB.w = saturate((dot(centerNormal, bottomNormal) - threshold) / (1.0 - threshold));
+    return edgesLRTB;
+}
 
-	float4 valuesUL = TextureGatherRed(g_ViewspaceDepthSource, SamplerPointWrap, SVPosRounded * HalfViewportPixelSize);
-	float4 valuesBR = TextureGatherRed(g_ViewspaceDepthSource, SamplerPointWrap, SVPosRounded * HalfViewportPixelSize, int2(1, 1));
-	
-	// Get this pixel's viewspace depth
-	pixZ = valuesUL.y;
-	
-	// Skip too far pixels
-	if (pixZ > EffectMaxDistance)
-	{
-		outShadowTerm = 1;
-		outEdges = 1;
-		outWeight = 0;
-		return;
-	}
-	
-	// Get left right top bottom neighbouring pixels for edge detection (gets compiled out on qualityLevel == 0)
-	pixLZ = valuesUL.x;
-	pixTZ = valuesUL.z;
-	pixRZ = valuesBR.z;
-	pixBZ = valuesBR.x;
-	
-	float2 normalizedScreenPos = SVPosRounded * Viewport2xPixelSize + Viewport2xPixelSize_x_025;
-	float3 pixCenterPos = NDCToViewspace(normalizedScreenPos, pixZ); // g
-	
-	// Load this pixel's viewspace normal
-	uint2 fullResCoord = SVPosui * 2 + PerPassFullResCoordOffset.xy;
-	float3 pixelNormal = LoadNormal(fullResCoord);
-	
-	float2 pixelDirRBViewspaceSizeAtCenterZ = NDCToViewspace(normalizedScreenPos.xy + ViewportPixelSize.xy, pixCenterPos.z).xy - pixCenterPos.xy;
-	
-	float pixLookupRadiusMod;
-	float falloffCalcMulSq;
-	
-	// Calculate effect radius and fit our screen sampling pattern inside it
-	float effectViewspaceRadius;
-	CalculateRadiusParameters(length(pixCenterPos), pixelDirRBViewspaceSizeAtCenterZ, pixLookupRadiusMod, effectViewspaceRadius, falloffCalcMulSq);
-	
-	// Calculate samples rotation/scaling
-	float2x2 rotScale;
-	{
-		// Reduce effect radius near the screen edges slightly; ideally, one would render a larger depth buffer (5% on each side) instead
-		if (qualityLevel >= SSAO_REDUCE_RADIUS_NEAR_SCREEN_BORDER_ENABLE_AT_QUALITY_PRESET)
-		{
-			float nearScreenBorder = min(min(normalizedScreenPos.x, 1.0 - normalizedScreenPos.x), min(normalizedScreenPos.y, 1.0 - normalizedScreenPos.y));
-			nearScreenBorder = saturate(10.0 * nearScreenBorder + 0.6);
-			pixLookupRadiusMod *= nearScreenBorder;
-		}
-		
-		// Load & update pseudo-random rotation matrix
-		uint pseudoRandomIndex = uint(SVPosRounded.y * 2 + SVPosRounded.x) % 5;
-		float4 rs = PatternRotScaleMatrices[pseudoRandomIndex];
-		rotScale = float2x2(rs.x * pixLookupRadiusMod, rs.y * pixLookupRadiusMod, rs.z * pixLookupRadiusMod, rs.w * pixLookupRadiusMod);
-	}
-	
-	// The main obscurance & sample weight storage
-	float obscuranceSum = 0.0;
-	float weightSum = 0.0;
-	
-	// Edge mask for between this and left/right/top/bottom neighbour pixels - not used in quality level 0 so initialize to "no edge" (1 is no edge, 0 is edge)
-	float4 edgesLRTB = float4(1.0, 1.0, 1.0, 1.0);
-	
-	// Move center pixel slightly towards camera to avoid imprecision artifacts due to using of 16bit depth buffer; a lot smaller offsets needed when using 32bit floats
-	pixCenterPos *= DepthPrecisionOffsetMod;
-	
-	if (qualityLevel >= SSAO_DEPTH_BASED_EDGES_ENABLE_AT_QUALITY_PRESET)
-	{
-		edgesLRTB = CalculateEdges(pixZ, pixLZ, pixRZ, pixTZ, pixBZ);
-	}
-	
-	// Adds a more high definition sharp effect, which gets blurred out (reuses left/right/top/bottom samples that we used for edge detection)
-	if (qualityLevel >= SSAO_DETAIL_AO_ENABLE_AT_QUALITY_PRESET)
-	{
-		// Approximate neighbouring pixels positions (actually just deltas or "positions - pixCenterPos")
-		float3 viewspaceDirZNormalized = float3(pixCenterPos.xy / pixCenterPos.zz, 1.0);
-		float3 pixLDelta = float3(-pixelDirRBViewspaceSizeAtCenterZ.x, 0.0, 0.0) + viewspaceDirZNormalized * (pixLZ - pixCenterPos.z); // very close approximation of: float3 pixLPos  = NDCToViewspace(normalizedScreenPos + float2(-HalfViewportPixelSize.x, 0.0), pixLZ).xyz - pixCenterPos.xyz;
-		float3 pixRDelta = float3(+pixelDirRBViewspaceSizeAtCenterZ.x, 0.0, 0.0) + viewspaceDirZNormalized * (pixRZ - pixCenterPos.z); // very close approximation of: float3 pixRPos  = NDCToViewspace(normalizedScreenPos + float2(+HalfViewportPixelSize.x, 0.0), pixRZ).xyz - pixCenterPos.xyz;
-		float3 pixTDelta = float3(0.0, -pixelDirRBViewspaceSizeAtCenterZ.y, 0.0) + viewspaceDirZNormalized * (pixTZ - pixCenterPos.z); // very close approximation of: float3 pixTPos  = NDCToViewspace(normalizedScreenPos + float2(0.0, -HalfViewportPixelSize.y), pixTZ).xyz - pixCenterPos.xyz;
-		float3 pixBDelta = float3(0.0, +pixelDirRBViewspaceSizeAtCenterZ.y, 0.0) + viewspaceDirZNormalized * (pixBZ - pixCenterPos.z); // very close approximation of: float3 pixBPos  = NDCToViewspace(normalizedScreenPos + float2(0.0, +HalfViewportPixelSize.y), pixBZ).xyz - pixCenterPos.xyz;
-		
-		// This is to avoid various artifacts
-		const float rangeReductionConst = 4.0f;                         
-		const float modifiedFalloffCalcMulSq = rangeReductionConst * falloffCalcMulSq;
-		
-		float4 additionalObscurance;
-		additionalObscurance.x = CalculatePixelObscurance(pixelNormal, pixLDelta, modifiedFalloffCalcMulSq);
-		additionalObscurance.y = CalculatePixelObscurance(pixelNormal, pixRDelta, modifiedFalloffCalcMulSq);
-		additionalObscurance.z = CalculatePixelObscurance(pixelNormal, pixTDelta, modifiedFalloffCalcMulSq);
-		additionalObscurance.w = CalculatePixelObscurance(pixelNormal, pixBDelta, modifiedFalloffCalcMulSq);
 
-		obscuranceSum += DetailAOStrength * dot(additionalObscurance, edgesLRTB);
-	}
-	
-	// Sharp normals also create edges - but this adds to the cost as well
-	if (qualityLevel >= SSAO_NORMAL_BASED_EDGES_ENABLE_AT_QUALITY_PRESET)
-	{
-		float3 neighbourNormalL = LoadNormal(fullResCoord, int2(-2, 0));
-		float3 neighbourNormalR = LoadNormal(fullResCoord, int2(2, 0));
-		float3 neighbourNormalT = LoadNormal(fullResCoord, int2(0, -2));
-		float3 neighbourNormalB = LoadNormal(fullResCoord, int2(0, 2));
-		
-		const float dotThreshold = SSAO_NORMAL_BASED_EDGES_DOT_THRESHOLD;
-		
-		float4 normalEdgesLRTB;
-		normalEdgesLRTB.x = saturate((dot(pixelNormal, neighbourNormalL) + dotThreshold));
-		normalEdgesLRTB.y = saturate((dot(pixelNormal, neighbourNormalR) + dotThreshold));
-		normalEdgesLRTB.z = saturate((dot(pixelNormal, neighbourNormalT) + dotThreshold));
-		normalEdgesLRTB.w = saturate((dot(pixelNormal, neighbourNormalB) + dotThreshold));
-		
-		edgesLRTB *= normalEdgesLRTB;
-	}
-	
-	const float globalMipOffset = SSAO_DEPTH_MIPS_GLOBAL_OFFSET;
-	float mipOffset = (qualityLevel < SSAO_DEPTH_MIPS_ENABLE_AT_QUALITY_PRESET) ? (0) : (log2(pixLookupRadiusMod) + globalMipOffset);
-	
-	// Used to tilt the second set of samples so that the disk is effectively rotated by the normal
-	// effective at removing one set of artifacts, but too expensive for lower quality settings
-	float2 normXY = float2(pixelNormal.x, pixelNormal.y);
-	float normXYLength = length(normXY);
-	normXY /= float2(normXYLength, -normXYLength);
-	normXYLength *= SSAO_TILT_SAMPLES_AMOUNT;
-	
-	const float3 negViewspaceDir = -normalize(pixCenterPos);
-	
-	// UNROLL // <- doesn't seem to help on any platform, although the compilers seem to unroll anyway if const number of tap used!
-	for (int i = 0; i < numberOfTaps; i++)
-	{
-		SSAOTap(qualityLevel, obscuranceSum, weightSum, i, rotScale, pixCenterPos, negViewspaceDir, pixelNormal, normalizedScreenPos, mipOffset, falloffCalcMulSq, 1.0, normXY, normXYLength);
-	}
-	
-	// Calculate weighted average
-	float obscurance = obscuranceSum / weightSum;
-	
-	// Calculate fadeout (1 close, gradient, 0 far)
-	float fadeOut = 1 - saturate(pixCenterPos.z * EffectFadeOutMul + EffectFadeOutAdd);
-	
-	// Calculate near cam fade (pixels near camera has some artifacts)
-	fadeOut *= saturate(pixZ * EffectNearFadeMul + (-10.0f / 24.0f));
-	
-	// Reduce the SSAO shadowing if we're on the edge to remove artifacts on edges (we don't care for the lower quality one)
-	if (qualityLevel >= SSAO_DEPTH_BASED_EDGES_ENABLE_AT_QUALITY_PRESET)
-	{
-		//float edgeCount = dot(1.0-edgesLRTB, float4(1.0, 1.0, 1.0, 1.0));
-		
-		// when there's more than 2 opposite edges, start fading out the occlusion to reduce aliasing artifacts
-		float edgeFadeoutFactor = saturate((1.0 - edgesLRTB.x - edgesLRTB.y) * 0.35) + saturate((1.0 - edgesLRTB.z - edgesLRTB.w) * 0.35);
-		
-		// (experimental) if you want to reduce the effect next to any edge
-		//edgeFadeoutFactor += 0.1 * saturate(dot(1 - edgesLRTB, float4(1, 1, 1, 1)));
-		
-		fadeOut *= saturate(1.0 - edgeFadeoutFactor);
-	}
-	
-	// Same as a bove, but a lot more conservative version
-	//fadeOut *= saturate(dot(edgesLRTB, float4(0.9, 0.9, 0.9, 0.9)) - 2.6);
-	
-	// Strength
-	obscurance *= EffectShadowStrength;
-	
-	// Clamp
-	obscurance = min(obscurance, 0.98f);
-	
-	// Apply fadeout
-	obscurance *= fadeOut;
-	
-	// Conceptually switch to occlusion with the meaning being visibility (grows with visibility, occlusion == 1 implies full visibility), to be in line with what is more commonly used.
-	float occlusion = 1.0 - obscurance;
-	
-	// Modify the gradient
-	// Note: this cannot be moved to a later pass because of loss of precision after storing in the render target
-	occlusion = pow(saturate(occlusion), EffectShadowPow);
-	
-	// Set outputs
-	outShadowTerm = occlusion;    // Our final 'occlusion' term (0 means fully occluded, 1 means fully lit)
-	outEdges = edgesLRTB;    // These are used to prevent blurring across edges, 1 means no edge, 0 means edge, 0.5 means half way there, etc.
-	outWeight = weightSum;
+// Modified GenerateSSAOShadowsInternal function
+void GenerateSSAOShadowsInternal(out float outShadowTerm, out float4 outEdges, out float outWeight, const float2 SVPos, int qualityLevel)
+{
+    float2 SVPosRounded = trunc(SVPos);
+    uint2 SVPosui = uint2(SVPosRounded);
+    
+    const int numberOfTaps = g_numTaps[qualityLevel];
+    float pixZ, pixLZ, pixTZ, pixRZ, pixBZ;
+
+    float4 valuesUL = TextureGatherRed(g_ViewspaceDepthSource, SamplerPointWrap, SVPosRounded * HalfViewportPixelSize);
+    float4 valuesBR = TextureGatherRed(g_ViewspaceDepthSource, SamplerPointWrap, SVPosRounded * HalfViewportPixelSize, int2(1, 1));
+    
+    // Get this pixel's viewspace depth
+    pixZ = valuesUL.y;
+    
+    // Skip too far pixels
+    if (pixZ > EffectMaxDistance)
+    {
+        outShadowTerm = 1;
+        outEdges = 1;
+        outWeight = 0;
+        return;
+    }
+    
+    // Get left right top bottom neighbouring pixels for edge detection
+    pixLZ = valuesUL.x;
+    pixTZ = valuesUL.z;
+    pixRZ = valuesBR.z;
+    pixBZ = valuesBR.x;
+    
+    float2 normalizedScreenPos = SVPosRounded * Viewport2xPixelSize + Viewport2xPixelSize_x_025;
+    float3 pixCenterPos = NDCToViewspace(normalizedScreenPos, pixZ);
+    
+    // Load this pixel's viewspace normal and neighboring normals
+    uint2 fullResCoord = SVPosui * 2 + PerPassFullResCoordOffset.xy;
+    float3 pixelNormal = LoadNormal(fullResCoord);
+    
+    // Load neighboring normals for edge detection
+    float3 neighbourNormalL = LoadNormal(fullResCoord, int2(-2, 0));
+    float3 neighbourNormalR = LoadNormal(fullResCoord, int2(2, 0));
+    float3 neighbourNormalT = LoadNormal(fullResCoord, int2(0, -2));
+    float3 neighbourNormalB = LoadNormal(fullResCoord, int2(0, 2));
+    
+    float2 pixelDirRBViewspaceSizeAtCenterZ = NDCToViewspace(normalizedScreenPos.xy + ViewportPixelSize.xy, pixCenterPos.z).xy - pixCenterPos.xy;
+    
+    float pixLookupRadiusMod;
+    float falloffCalcMulSq;
+    
+    // Calculate effect radius and fit our screen sampling pattern inside it
+    float effectViewspaceRadius;
+    CalculateRadiusParameters(length(pixCenterPos), pixelDirRBViewspaceSizeAtCenterZ, pixLookupRadiusMod, effectViewspaceRadius, falloffCalcMulSq);
+    
+    // Calculate samples rotation/scaling
+    float2x2 rotScale;
+    {
+        // Reduce effect radius near the screen edges slightly
+        if (qualityLevel >= SSAO_REDUCE_RADIUS_NEAR_SCREEN_BORDER_ENABLE_AT_QUALITY_PRESET)
+        {
+            float nearScreenBorder = min(min(normalizedScreenPos.x, 1.0 - normalizedScreenPos.x), min(normalizedScreenPos.y, 1.0 - normalizedScreenPos.y));
+            nearScreenBorder = saturate(10.0 * nearScreenBorder + 0.6);
+            pixLookupRadiusMod *= nearScreenBorder;
+        }
+        
+        // Load & update pseudo-random rotation matrix
+        uint pseudoRandomIndex = uint(SVPosRounded.y * 2 + SVPosRounded.x) % 5;
+        float4 rs = PatternRotScaleMatrices[pseudoRandomIndex];
+        rotScale = float2x2(rs.x * pixLookupRadiusMod, rs.y * pixLookupRadiusMod, rs.z * pixLookupRadiusMod, rs.w * pixLookupRadiusMod);
+    }
+    
+    // The main obscurance & sample weight storage
+    float obscuranceSum = 0.0;
+    float weightSum = 0.0;
+    
+    // Edge mask - using normal-based edge detection instead of depth-based
+    float4 edgesLRTB = float4(1.0, 1.0, 1.0, 1.0);
+    
+    // Move center pixel slightly towards camera to avoid imprecision artifacts
+    pixCenterPos *= DepthPrecisionOffsetMod;
+    
+    // REPLACE depth-based edge detection with normal-based edge detection
+    if (qualityLevel >= SSAO_DEPTH_BASED_EDGES_ENABLE_AT_QUALITY_PRESET)
+    {
+        // Use normal-based edge detection instead of depth-based
+        edgesLRTB = CalculateNormalEdges(pixelNormal, neighbourNormalL, neighbourNormalR, neighbourNormalT, neighbourNormalB);
+    }
+    
+    if (qualityLevel >= SSAO_DETAIL_AO_ENABLE_AT_QUALITY_PRESET)
+    {
+        // Same position calculations...
+        float3 viewspaceDirZNormalized = float3(pixCenterPos.xy / pixCenterPos.zz, 1.0);
+        float3 pixLDelta = float3(-pixelDirRBViewspaceSizeAtCenterZ.x, 0.0, 0.0) + viewspaceDirZNormalized * (pixLZ - pixCenterPos.z);
+        float3 pixRDelta = float3(+pixelDirRBViewspaceSizeAtCenterZ.x, 0.0, 0.0) + viewspaceDirZNormalized * (pixRZ - pixCenterPos.z);
+        float3 pixTDelta = float3(0.0, -pixelDirRBViewspaceSizeAtCenterZ.y, 0.0) + viewspaceDirZNormalized * (pixTZ - pixCenterPos.z);
+        float3 pixBDelta = float3(0.0, +pixelDirRBViewspaceSizeAtCenterZ.y, 0.0) + viewspaceDirZNormalized * (pixBZ - pixCenterPos.z);
+    
+        // Make it less aggressive on smooth surfaces
+        const float rangeReductionConst = 8.0f; // Increased from 4.0f
+        const float modifiedFalloffCalcMulSq = rangeReductionConst * falloffCalcMulSq;
+    
+        float4 additionalObscurance;
+        additionalObscurance.x = CalculatePixelObscurance(pixelNormal, pixLDelta, modifiedFalloffCalcMulSq);
+        additionalObscurance.y = CalculatePixelObscurance(pixelNormal, pixRDelta, modifiedFalloffCalcMulSq);
+        additionalObscurance.z = CalculatePixelObscurance(pixelNormal, pixTDelta, modifiedFalloffCalcMulSq);
+        additionalObscurance.w = CalculatePixelObscurance(pixelNormal, pixBDelta, modifiedFalloffCalcMulSq);
+
+        // Reduce the contribution significantly
+        obscuranceSum += DetailAOStrength * 0.2f * dot(additionalObscurance, edgesLRTB);
+    }
+    
+    // Remove the redundant normal-based edges section since we're now doing it above
+    // DELETE THIS ENTIRE BLOCK:
+    /*
+    if (qualityLevel >= SSAO_NORMAL_BASED_EDGES_ENABLE_AT_QUALITY_PRESET)
+    {
+        float3 neighbourNormalL = LoadNormal(fullResCoord, int2(-2, 0));
+        float3 neighbourNormalR = LoadNormal(fullResCoord, int2(2, 0));
+        float3 neighbourNormalT = LoadNormal(fullResCoord, int2(0, -2));
+        float3 neighbourNormalB = LoadNormal(fullResCoord, int2(0, 2));
+        
+        const float dotThreshold = SSAO_NORMAL_BASED_EDGES_DOT_THRESHOLD;
+        
+        float4 normalEdgesLRTB;
+        normalEdgesLRTB.x = saturate((dot(pixelNormal, neighbourNormalL) + dotThreshold));
+        normalEdgesLRTB.y = saturate((dot(pixelNormal, neighbourNormalR) + dotThreshold));
+        normalEdgesLRTB.z = saturate((dot(pixelNormal, neighbourNormalT) + dotThreshold));
+        normalEdgesLRTB.w = saturate((dot(pixelNormal, neighbourNormalB) + dotThreshold));
+        
+        edgesLRTB *= normalEdgesLRTB;
+    }
+    */
+    
+    const float globalMipOffset = SSAO_DEPTH_MIPS_GLOBAL_OFFSET;
+    float mipOffset = (qualityLevel < SSAO_DEPTH_MIPS_ENABLE_AT_QUALITY_PRESET) ? (0) : (log2(pixLookupRadiusMod) + globalMipOffset);
+    
+    // Used to tilt the second set of samples
+    float2 normXY = float2(pixelNormal.x, pixelNormal.y);
+    float normXYLength = length(normXY);
+    normXY /= float2(normXYLength, -normXYLength);
+    normXYLength *= SSAO_TILT_SAMPLES_AMOUNT;
+    
+    const float3 negViewspaceDir = -normalize(pixCenterPos);
+    
+    for (int i = 0; i < numberOfTaps; i++)
+    {
+        SSAOTap(qualityLevel, obscuranceSum, weightSum, i, rotScale, pixCenterPos, negViewspaceDir, pixelNormal, normalizedScreenPos, mipOffset, falloffCalcMulSq, 1.0, normXY, normXYLength);
+    }
+
+
+    
+    // Calculate weighted average
+    float obscurance = obscuranceSum / weightSum;
+    
+    // Calculate fadeout
+    float fadeOut = 1 - saturate(pixCenterPos.z * EffectFadeOutMul + EffectFadeOutAdd);
+    
+    // Calculate near cam fade
+    fadeOut *= saturate(pixZ * EffectNearFadeMul + (-10.0f / 24.0f));
+    
+    // Reduce SSAO shadowing on edges (now using normal-based edges)
+    if (qualityLevel >= SSAO_DEPTH_BASED_EDGES_ENABLE_AT_QUALITY_PRESET)
+    {
+        // When there's more than 2 opposite edges, start fading out the occlusion
+        float edgeFadeoutFactor = saturate((1.0 - edgesLRTB.x - edgesLRTB.y) * 0.35) + saturate((1.0 - edgesLRTB.z - edgesLRTB.w) * 0.35);
+        fadeOut *= saturate(1.0 - edgeFadeoutFactor);
+    }
+    
+    // Strength
+    obscurance *= EffectShadowStrength;
+    
+    // Clamp
+    obscurance = min(obscurance, 0.98f);
+    
+    // Apply fadeout
+    obscurance *= fadeOut;
+    
+    // Convert to occlusion
+    float occlusion = 1.0 - obscurance;
+    
+    // Modify the gradient
+    occlusion = pow(saturate(occlusion), EffectShadowPow);
+    
+    // Set outputs
+    outShadowTerm = occlusion;
+    outEdges = edgesLRTB;
+    outWeight = weightSum;
 }
 
 META_PS(true, FEATURE_LEVEL_ES2)
