@@ -25,6 +25,7 @@
 #include "Engine/Utilities/StringConverter.h"
 #include "Engine/Platform/BatteryInfo.h"
 #include <iostream>
+#include <Engine/Debug/DebugLog.h>
 
 // Check types sizes
 static_assert(sizeof(int8) == 1, "Invalid int8 type size.");
@@ -513,7 +514,11 @@ void PlatformBase::Assert(const char* message, const char* file, int line)
 void PlatformBase::CheckFailed(const char* message, const char* file, int line)
 {
     const StringAsUTF16<256> fileUTF16(file);
-    const String msg = String::Format(TEXT("Check failed!\nFile: {0}\nLine: {1}\n\nExpression: {2}"), fileUTF16.Get(), line, String(message));
+    String msg = String::Format(TEXT("Check failed!\nFile: {0}\nLine: {1}\n\nExpression: {2}"), fileUTF16.Get(), line, String(message));
+    msg.Append(TEXT("\nNative Stack Trace:\n"));
+    msg.Append(GetStackTrace(1)); // add c++ stack trace
+    msg.Append(TEXT("\nManaged Stack Trace:\n"));
+    msg.Append(DebugLog::GetStackTrace()); // add c# stack trace
     LOG_STR(Error, msg);
 }
 
