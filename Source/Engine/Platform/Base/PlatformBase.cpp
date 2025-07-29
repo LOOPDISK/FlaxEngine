@@ -374,6 +374,9 @@ void PlatformBase::Fatal(const StringView& msg, void* context, FatalErrorType er
             LOG(Error, "External Used Virtual Memory: {0} ({1}%)", Utilities::BytesToText(externalUsedVirtual), (int32)(100 * externalUsedVirtual / memoryStats.TotalVirtualMemory));
         }
     }
+    // Log c# stack trace
+    LOG(Error, "\nManaged stack trace:\n{0}", DebugLog::GetStackTrace());
+
     if (Log::Logger::LogFilePath.HasChars())
     {
         // Create separate folder with crash info
