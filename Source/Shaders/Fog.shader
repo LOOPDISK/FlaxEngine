@@ -57,6 +57,7 @@ float4 PS_Fog(Quad_VS2PS input) : SV_Target0
 	skipDistance = max(ExponentialHeightFog.VolumetricFogMaxDistance - 100, 0);
 #endif
 
+
 	// Calculate exponential fog color
 	float4 fog = GetExponentialHeightFog(ExponentialHeightFog, worldPos, GBuffer.ViewPos, skipDistance, viewPos.z);
 

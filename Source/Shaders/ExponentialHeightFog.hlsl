@@ -61,8 +61,13 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     float exponentialHeightLineIntegralCalc = rayOriginTerms * (abs(falloff) > 0.01f ? lineIntegral : lineIntegralTaylor);
     float exponentialHeightLineIntegral = exponentialHeightLineIntegralCalc * rayLength;
 
-    // Calculate the light that went through the fog
-    float expFogFactor = max(saturate(exp2(-exponentialHeightLineIntegral)), exponentialHeightFog.FogMinOpacity);
+    // Calculate the light that went through the fog using gradual buildup
+    float buildupScale = 0.1;      // TWEAK: Lower = more gradual buildup, Higher = faster buildup
+    float buildupPower = 0.2;      // TWEAK: Higher = more gradual start (try 3.0-6.0)
+    float t = saturate(exponentialHeightLineIntegral * buildupScale);
+    // Cubic/quartic curve for very gradual start: t^n
+    float gradualCurve = pow(t, buildupPower);
+    float expFogFactor = max(1.0 - gradualCurve, exponentialHeightFog.FogMinOpacity);
 
     // Calculate the directional light inscattering
     float3 inscatteringColor = exponentialHeightFog.FogInscatteringColor;
