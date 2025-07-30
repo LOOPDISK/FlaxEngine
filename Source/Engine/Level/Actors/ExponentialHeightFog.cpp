@@ -48,8 +48,8 @@ void ExponentialHeightFog::Draw(RenderContext& renderContext)
             GPUPipelineState::Description psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
             psDesc.DepthWriteEnable = false;
             psDesc.BlendMode.BlendEnable = true;
-            psDesc.BlendMode.SrcBlend = BlendingMode::Blend::One;
-            psDesc.BlendMode.DestBlend = BlendingMode::Blend::SrcAlpha;
+            psDesc.BlendMode.SrcBlend = BlendingMode::Blend::SrcAlpha;
+            psDesc.BlendMode.DestBlend = BlendingMode::Blend::InvSrcAlpha;
             psDesc.BlendMode.BlendOp = BlendingMode::Operation::Add;
             psDesc.BlendMode.SrcBlendAlpha = BlendingMode::Blend::One;
             psDesc.BlendMode.DestBlendAlpha = BlendingMode::Blend::Zero;
