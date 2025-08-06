@@ -754,6 +754,7 @@ CreateAssetResult ImportModel::CreatePrefab(CreateAssetContext& context, const M
             Transform positionOffset = Transform::Identity;
             positionOffset.Translation = node.LocalTransform.Translation * scale;
             positionOffset.Orientation = node.LocalTransform.Orientation; // Add this line
+            positionOffset.Scale = node.LocalTransform.Scale; // Add this line
             // to include rotation
             if (options.UseLocalOrigin)
             {
