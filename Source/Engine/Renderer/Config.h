@@ -42,6 +42,10 @@ GPU_CB_STRUCT(ShaderExponentialHeightFogData {
     float VolumetricFogMaxDistance;
     float DirectionalInscatteringStartDistance;
     float StartDistance;
+
+    float EnvironmentInfluence;
+    float EnvironmentMipLevel;
+    Float2 Padding;
     });
 
 /// <summary>

@@ -6,6 +6,7 @@
 #include "Engine/Scripting/ScriptingObjectReference.h"
 #include "Engine/Renderer/DrawCall.h"
 #include "Engine/Content/Assets/Shader.h"
+#include "Engine/Content/Assets/CubeTexture.h"
 #include "Engine/Content/AssetReference.h"
 #include "Engine/Graphics/GPUPipelineStatePermutations.h"
 
@@ -39,6 +40,24 @@ public:
     /// </summary>
     API_FIELD(Attributes="EditorOrder(30), DefaultValue(typeof(Color), \"0.448,0.634,1.0\"), EditorDisplay(\"Exponential Height Fog\")")
     Color FogInscatteringColor = Color(0.448f, 0.634f, 1.0f);
+
+    /// <summary>
+    /// The environment cube texture used to tint fog color based on viewing direction. Uses a low-resolution mip for performance.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(35), DefaultValue(null), EditorDisplay(\"Exponential Height Fog\")")
+    AssetReference<CubeTexture> EnvironmentTexture;
+
+    /// <summary>
+    /// Controls how much the environment texture influences the fog color (0 = no influence, 1 = full influence).
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(36), DefaultValue(0.5f), Limit(0, 1, 0.01f), EditorDisplay(\"Exponential Height Fog\")")
+    float EnvironmentInfluence = 0.5f;
+
+    /// <summary>
+    /// The mip level to sample from the environment texture. Higher values give more blurred/diffuse results.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(37), DefaultValue(3.0f), Limit(0, 10, 0.1f), EditorDisplay(\"Exponential Height Fog\")")
+    float EnvironmentMipLevel = 3.0f;
 
     /// <summary>
     /// Maximum opacity of the fog.

@@ -177,6 +177,8 @@ void ExponentialHeightFog::GetExponentialHeightFogData(const RenderView& view, S
     }
     result.ApplyDirectionalInscattering = useDirectionalLightInscattering ? 1.0f : 0.0f;
     result.VolumetricFogMaxDistance = VolumetricFogDistance;
+    result.EnvironmentInfluence = EnvironmentInfluence;
+    result.EnvironmentMipLevel = EnvironmentMipLevel;
 }
 
 GPU_CB_STRUCT(Data {
@@ -199,6 +201,16 @@ void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderCon
     context->BindCB(0, cb);
     context->BindSR(0, renderContext.Buffers->DepthBuffer);
     context->BindSR(1, integratedLightScattering ? integratedLightScattering->ViewVolume() : nullptr);
+    
+    // Bind environment texture for fog coloring if available
+    if (EnvironmentTexture && EnvironmentTexture->IsLoaded())
+    {
+        context->BindSR(6, EnvironmentTexture->GetTexture());
+    }
+    else
+    {
+        context->BindSR(6, static_cast<GPUTexture*>(nullptr));
+    }
 
     // TODO: instead of rendering fullscreen triangle, draw quad transformed at the fog start distance (also it could use early depth discard)
 

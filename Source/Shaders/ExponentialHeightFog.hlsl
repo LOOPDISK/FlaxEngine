@@ -6,6 +6,10 @@
 #include "./Flax/Common.hlsl"
 #include "./Flax/Math.hlsl"
 
+// Environment cube texture for fog coloring
+TextureCube EnvironmentTexture : register(t6);
+SamplerState EnvironmentSampler : register(s6);
+
 // Structure that contains information about exponential height fog
 struct ExponentialHeightFogData
 {
@@ -27,6 +31,10 @@ struct ExponentialHeightFogData
     float VolumetricFogMaxDistance;
     float DirectionalInscatteringStartDistance;
     float StartDistance;
+
+    float EnvironmentInfluence;
+    float EnvironmentMipLevel;
+    float2 Padding;
 };
 
 float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, float3 posWS, float3 camWS, float skipDistance, float sceneDistance)
@@ -71,6 +79,15 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
 
     // Calculate the directional light inscattering
     float3 inscatteringColor = exponentialHeightFog.FogInscatteringColor;
+    
+    // Sample environment texture if influence is enabled
+    BRANCH
+    if (exponentialHeightFog.EnvironmentInfluence > 0.0f)
+    {
+        float3 environmentColor = EnvironmentTexture.SampleLevel(EnvironmentSampler, cameraToReceiverNorm, exponentialHeightFog.EnvironmentMipLevel).rgb;
+        inscatteringColor = lerp(inscatteringColor, environmentColor * inscatteringColor, exponentialHeightFog.EnvironmentInfluence);
+    }
+    
     float3 directionalInscattering = 0;
     BRANCH
     if (exponentialHeightFog.ApplyDirectionalInscattering > 0)
