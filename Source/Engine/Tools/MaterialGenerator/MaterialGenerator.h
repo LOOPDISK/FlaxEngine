@@ -118,6 +118,7 @@ private:
     MaterialLayer* _treeLayer = nullptr;
     String _treeLayerVarName;
     MaterialValue _ddx, _ddy, _cameraVector;
+    bool _needsHexTileFunctions = false;
 
 public:
 

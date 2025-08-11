@@ -22,6 +22,222 @@ namespace
         TEXT("SamplerLinearWrap"),
         TEXT("SamplerPointWrap"),
     };
+
+    // Hex tiling constants
+    const Char* HexTileFunctions = TEXT(R"(
+#ifndef M_PI
+#define M_PI 3.14159265359
+#endif
+
+static float g_fallOffContrast = 0.6;
+static float g_exp = 7.0;
+
+// Output: weights associated with each hex tile and integer centers
+void TriangleGrid(out float w1, out float w2, out float w3, 
+                  out int2 vertex1, out int2 vertex2, out int2 vertex3,
+                  float2 st)
+{
+    // Scaling of the input
+    st *= 2.0 * sqrt(3.0);
+
+    // Skew input space into simplex triangle grid
+    const float2x2 gridToSkewedGrid = 
+        float2x2(1.0, -0.57735027, 0.0, 1.15470054);
+    float2 skewedCoord = mul(gridToSkewedGrid, st);
+
+    int2 baseId = int2(floor(skewedCoord));
+    float3 temp = float3(frac(skewedCoord), 0.0);
+    temp.z = 1.0 - temp.x - temp.y;
+
+    float s = step(0.0, -temp.z);
+    float s2 = 2.0 * s - 1.0;
+
+    w1 = -temp.z * s2;
+    w2 = s - temp.y * s2;
+    w3 = s - temp.x * s2;
+
+    vertex1 = baseId + int2(s, s);
+    vertex2 = baseId + int2(s, 1 - s);
+    vertex3 = baseId + int2(1 - s, s);
+}
+
+// RWS variant for large worlds
+void TriangleGridRWS(out float w1, out float w2, out float w3, 
+                     out int2 vertex1, out int2 vertex2, out int2 vertex3,
+                     float2 st, float2 st_offs)
+{
+    // Scaling of the input
+    st *= 2.0 * sqrt(3.0);
+    st_offs *= 2.0 * sqrt(3.0);
+
+    // Skew input space into simplex triangle grid
+    const float2x2 gridToSkewedGrid = 
+        float2x2(1.0, -0.57735027, 0.0, 1.15470054);
+    float2 skewedCoord = mul(gridToSkewedGrid, st);
+    float2 skewedCoord_offs = mul(gridToSkewedGrid, st_offs);
+
+    // separate out large 2D integer offset
+    int2 baseId_offs = int2(floor(skewedCoord_offs));
+    float2 comb_skew = skewedCoord + frac(skewedCoord_offs);
+    int2 baseId = int2(floor(comb_skew)) + baseId_offs;
+    float3 temp = float3(frac(comb_skew), 0.0);
+    temp.z = 1.0 - temp.x - temp.y;
+
+    float s = step(0.0, -temp.z);
+    float s2 = 2.0 * s - 1.0;
+
+    w1 = -temp.z * s2;
+    w2 = s - temp.y * s2;
+    w3 = s - temp.x * s2;
+
+    vertex1 = baseId + int2(s, s);
+    vertex2 = baseId + int2(s, 1 - s);
+    vertex3 = baseId + int2(1 - s, s);
+}
+
+float2 hash(float2 p)
+{
+    float2 r = mul(float2x2(127.1, 311.7, 269.5, 183.3), p);
+    return frac(sin(r) * 43758.5453);
+}
+
+float2x2 LoadRot2x2(int2 idx, float rotStrength)
+{
+    float angle = abs(idx.x * idx.y) + abs(idx.x + idx.y) + M_PI;
+
+    // remap to +/-pi
+    angle = fmod(angle, 2.0 * M_PI); 
+    if (angle < 0.0) angle += 2.0 * M_PI;
+    if (angle > M_PI) angle -= 2.0 * M_PI;
+
+    angle *= rotStrength;
+
+    float cs = cos(angle), si = sin(angle);
+    return float2x2(cs, -si, si, cs);
+}
+
+float2 MakeCenST(int2 Vertex)
+{
+    float2x2 invSkewMat = float2x2(1.0, 0.5, 0.0, 1.0/1.15470054);
+    return mul(invSkewMat, Vertex) / (2.0 * sqrt(3.0));
+}
+
+float3 Gain3(float3 x, float r)
+{
+    // increase contrast when r>0.5 and reduce contrast if less
+    float k = log(1.0 - r) / log(0.5);
+
+    float3 s = 2.0 * step(0.5, x);
+    float3 m = 2.0 * (1.0 - s);
+
+    float3 res = 0.5 * s + 0.25 * m * pow(max(0.0, s + x * m), k);
+    
+    return res.xyz / (res.x + res.y + res.z);
+}
+
+float3 ProduceHexWeights(float3 W, int2 vertex1, int2 vertex2, int2 vertex3)
+{
+    float3 res = 0.0;
+
+    int v1 = (vertex1.x - vertex1.y) % 3;
+    if (v1 < 0) v1 += 3;
+
+    int vh = v1 < 2 ? (v1 + 1) : 0;
+    int vl = v1 > 0 ? (v1 - 1) : 2;
+    int v2 = vertex1.x < vertex3.x ? vl : vh;
+    int v3 = vertex1.x < vertex3.x ? vh : vl;
+
+    res.x = v3 == 0 ? W.z : (v2 == 0 ? W.y : W.x);
+    res.y = v3 == 1 ? W.z : (v2 == 1 ? W.y : W.x);
+    res.z = v3 == 2 ? W.z : (v2 == 2 ? W.y : W.x);
+
+    return res;
+}
+
+// Hex tile color sampling function
+void hex2colTex(out float4 color, out float3 weights,
+                Texture2D tex, SamplerState samp, float2 st,
+                float rotStrength, float r)
+{
+    float2 dSTdx = ddx(st), dSTdy = ddy(st);
+
+    // Get triangle info
+    float w1, w2, w3;
+    int2 vertex1, vertex2, vertex3;
+    TriangleGrid(w1, w2, w3, vertex1, vertex2, vertex3, st);
+
+    float2x2 rot1 = LoadRot2x2(vertex1, rotStrength);
+    float2x2 rot2 = LoadRot2x2(vertex2, rotStrength);
+    float2x2 rot3 = LoadRot2x2(vertex3, rotStrength);
+
+    float2 cen1 = MakeCenST(vertex1);
+    float2 cen2 = MakeCenST(vertex2);
+    float2 cen3 = MakeCenST(vertex3);
+
+    float2 st1 = mul(st - cen1, rot1) + cen1 + hash(vertex1);
+    float2 st2 = mul(st - cen2, rot2) + cen2 + hash(vertex2);
+    float2 st3 = mul(st - cen3, rot3) + cen3 + hash(vertex3);
+
+    // Fetch input
+    float4 c1 = tex.SampleGrad(samp, st1, mul(dSTdx, rot1), mul(dSTdy, rot1));
+    float4 c2 = tex.SampleGrad(samp, st2, mul(dSTdx, rot2), mul(dSTdy, rot2));
+    float4 c3 = tex.SampleGrad(samp, st3, mul(dSTdx, rot3), mul(dSTdy, rot3));
+
+    // use luminance as weight
+    float3 Lw = float3(0.299, 0.587, 0.114);
+    float3 Dw = float3(dot(c1.xyz, Lw), dot(c2.xyz, Lw), dot(c3.xyz, Lw));
+    
+    Dw = lerp(1.0, Dw, g_fallOffContrast);
+    float3 W = Dw * pow(float3(w1, w2, w3), g_exp);
+    W /= (W.x + W.y + W.z);
+    if (r != 0.5) W = Gain3(W, r);
+
+    color = W.x * c1 + W.y * c2 + W.z * c3;
+    weights = ProduceHexWeights(W.xyz, vertex1, vertex2, vertex3);
+}
+
+// RWS hex tile color sampling function
+void hex2colTexRWS(out float4 color, out float3 weights,
+                   Texture2D tex, SamplerState samp, float2 st, float2 st_offs,
+                   float rotStrength, float r)
+{
+    float2 dSTdx = ddx(st), dSTdy = ddy(st);
+
+    // Get triangle info
+    float w1, w2, w3;
+    int2 vertex1, vertex2, vertex3;
+    TriangleGridRWS(w1, w2, w3, vertex1, vertex2, vertex3, st, st_offs);
+
+    float2x2 rot1 = LoadRot2x2(vertex1, rotStrength);
+    float2x2 rot2 = LoadRot2x2(vertex2, rotStrength);
+    float2x2 rot3 = LoadRot2x2(vertex3, rotStrength);
+
+    float2 cen1 = MakeCenST(vertex1);
+    float2 cen2 = MakeCenST(vertex2);
+    float2 cen3 = MakeCenST(vertex3);
+
+    float2 st1 = mul(st, rot1) + frac(mul(st_offs - cen1, rot1) + cen1) + hash(vertex1);
+    float2 st2 = mul(st, rot2) + frac(mul(st_offs - cen2, rot2) + cen2) + hash(vertex2);
+    float2 st3 = mul(st, rot3) + frac(mul(st_offs - cen3, rot3) + cen3) + hash(vertex3);
+
+    // Fetch input
+    float4 c1 = tex.SampleGrad(samp, st1, mul(dSTdx, rot1), mul(dSTdy, rot1));
+    float4 c2 = tex.SampleGrad(samp, st2, mul(dSTdx, rot2), mul(dSTdy, rot2));
+    float4 c3 = tex.SampleGrad(samp, st3, mul(dSTdx, rot3), mul(dSTdy, rot3));
+
+    // use luminance as weight
+    float3 Lw = float3(0.299, 0.587, 0.114);
+    float3 Dw = float3(dot(c1.xyz, Lw), dot(c2.xyz, Lw), dot(c3.xyz, Lw));
+    
+    Dw = lerp(1.0, Dw, g_fallOffContrast);
+    float3 W = Dw * pow(float3(w1, w2, w3), g_exp);
+    W /= (W.x + W.y + W.z);
+    if (r != 0.5) W = Gain3(W, r);
+
+    color = W.x * c1 + W.y * c2 + W.z * c3;
+    weights = ProduceHexWeights(W.xyz, vertex1, vertex2, vertex3);
+}
+)");
 };
 
 MaterialValue* MaterialGenerator::sampleTextureRaw(Node* caller, Value& value, Box* box, SerializedMaterialParam* texture)
@@ -577,24 +793,57 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         // Create texture sampling code
         if (node->TypeID == 9)
         {
-            // Sample Texture
-            const Char* format;
-            if (useLevel || !canUseSample)
+            // Sample Texture - check for hex tile mode
+            const bool hexTileEnabled = node->Values.Count() >= 4 ? node->Values[3].AsBool : false;
+            const auto rotationStrength = tryGetValue(node->TryGetBox(4), node->Values.Count() >= 5 ? node->Values[4] : 1.0f);
+            const auto contrast = tryGetValue(node->TryGetBox(5), node->Values.Count() >= 6 ? node->Values[5] : 0.5f);
+            const bool largeWorldStability = node->Values.Count() >= 7 ? node->Values[6].AsBool : false;
+            
+            if (hexTileEnabled)
             {
+                // Mark that hex tile functions are needed for this material
+                _needsHexTileFunctions = true;
+                
+                // Use hex tile sampling
+                const String hexTileFunction = largeWorldStability ? TEXT("hex2colTexRWS") : TEXT("hex2colTex");
+                String sampledValue;
+                
                 if (useOffset)
-                    format = TEXT("{0}.SampleLevel({1}, {2}, {3}, {4})");
+                {
+                    sampledValue = String::Format(TEXT("{0}({1}, {2}, {3} + {4}, {5}, {6})"),
+                                                hexTileFunction, texture.Value, samplerName, uvs.Value, offset.Value,
+                                                rotationStrength.Value, contrast.Value);
+                }
                 else
-                    format = TEXT("{0}.SampleLevel({1}, {2}, {3})");
+                {
+                    sampledValue = String::Format(TEXT("{0}({1}, {2}, {3}, {4}, {5})"),
+                                                hexTileFunction, texture.Value, samplerName, uvs.Value,
+                                                rotationStrength.Value, contrast.Value);
+                }
+                
+                textureBox->Cache = writeLocal(VariantType::Float4, sampledValue, node);
             }
             else
             {
-                if (useOffset)
-                    format = TEXT("{0}.Sample({1}, {2}, {4})");
+                // Standard texture sampling
+                const Char* format;
+                if (useLevel || !canUseSample)
+                {
+                    if (useOffset)
+                        format = TEXT("{0}.SampleLevel({1}, {2}, {3}, {4})");
+                    else
+                        format = TEXT("{0}.SampleLevel({1}, {2}, {3})");
+                }
                 else
-                    format = TEXT("{0}.Sample({1}, {2})");
+                {
+                    if (useOffset)
+                        format = TEXT("{0}.Sample({1}, {2}, {4})");
+                    else
+                        format = TEXT("{0}.Sample({1}, {2})");
+                }
+                const String sampledValue = String::Format(format, texture.Value, samplerName, uvs.Value, level.Value, offset.Value);
+                textureBox->Cache = writeLocal(VariantType::Float4, sampledValue, node);
             }
-            const String sampledValue = String::Format(format, texture.Value, samplerName, uvs.Value, level.Value, offset.Value);
-            textureBox->Cache = writeLocal(VariantType::Float4, sampledValue, node);
         }
         else
         {
@@ -708,6 +957,10 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         const auto blend = tryGetValue(node->GetBox(2), node->Values[1]).AsFloat();
         const auto offset = tryGetValue(node->TryGetBox(6), node->Values.Count() >= 3 ? node->Values[2] : Float2::Zero).AsFloat2();
         const bool local = node->Values.Count() >= 5 ? node->Values[4].AsBool : false;
+        const bool hexTileEnabled = node->Values.Count() >= 6 ? node->Values[5].AsBool : false;
+        const auto rotationStrength = tryGetValue(node->TryGetBox(7), node->Values.Count() >= 7 ? node->Values[6] : 1.0f).AsFloat();
+        const auto contrast = tryGetValue(node->TryGetBox(8), node->Values.Count() >= 8 ? node->Values[7] : 0.5f).AsFloat();
+        const bool largeWorldStability = node->Values.Count() >= 9 ? node->Values[8].AsBool : false;
 
         const Char* samplerName;
         const int32 samplerIndex = node->Values.Count() >= 4 ? node->Values[3].AsInt : LinearWrap;
@@ -728,8 +981,63 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 
         auto result = writeLocal(Value::InitForZero(ValueType::Float4), node);
 
-        const String triplanarTexture = ShaderStringBuilder()
-            .Code(TEXT(R"(
+        // Mark that hex tile functions are needed for this material
+        if (hexTileEnabled)
+        {
+            _needsHexTileFunctions = true;
+        }
+
+        String triplanarTexture;
+        if (hexTileEnabled)
+        {
+            // Hex tile triplanar implementation
+            triplanarTexture = ShaderStringBuilder()
+                .Code(TEXT(R"(
+        {
+            // Get world position and normal
+            float3 tiling = %SCALE% * 0.001f;
+            float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
+            float3 normal = normalize(%NORMAL%);
+
+            // Compute triplanar blend weights using power distribution
+            float3 blendWeights = pow(abs(normal), %BLEND%);
+            blendWeights /= dot(blendWeights, float3(1, 1, 1));
+
+            // Sample each projection plane using hex tiling
+            float4 xProjection, yProjection, zProjection;
+            
+            // X plane projection (YZ coordinates)
+            xProjection = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.yz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
+            
+            // Y plane projection (XZ coordinates)  
+            yProjection = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
+            
+            // Z plane projection (XY coordinates)
+            zProjection = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xy + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
+
+            // Blend projections using computed weights
+            %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
+        }
+)"))
+                .Replace(TEXT("%TEXTURE%"), texture.Value)
+                .Replace(TEXT("%SCALE%"), scale.Value)
+                .Replace(TEXT("%BLEND%"), blend.Value)
+                .Replace(TEXT("%OFFSET%"), offset.Value)
+                .Replace(TEXT("%RESULT%"), result.Value)
+                .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
+                .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+                .Replace(TEXT("%SAMPLER%"), samplerName)
+                .Replace(TEXT("%ROT_STRENGTH%"), rotationStrength.Value)
+                .Replace(TEXT("%CONTRAST%"), contrast.Value)
+                .Replace(TEXT("%HEX_FUNCTION%"), largeWorldStability ? TEXT("hex2colTexRWS") : TEXT("hex2colTex"))
+                .Replace(TEXT("%EXTRA_PARAMS%"), TEXT(""))
+                .Build();
+        }
+        else
+        {
+            // Standard triplanar implementation (unchanged)
+            triplanarTexture = ShaderStringBuilder()
+                .Code(TEXT(R"(
         {
             // Get world position and normal
             float3 tiling = %SCALE% * 0.001f;
@@ -749,17 +1057,19 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
         }
 )"))
-    .Replace(TEXT("%TEXTURE%"), texture.Value)
-    .Replace(TEXT("%SCALE%"), scale.Value)
-    .Replace(TEXT("%BLEND%"), blend.Value)
-    .Replace(TEXT("%OFFSET%"), offset.Value)
-    .Replace(TEXT("%RESULT%"), result.Value)
-    .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-    .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
-    .Replace(TEXT("%SAMPLER%"), samplerName)
-    .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
-    .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
-    .Build();
+                .Replace(TEXT("%TEXTURE%"), texture.Value)
+                .Replace(TEXT("%SCALE%"), scale.Value)
+                .Replace(TEXT("%BLEND%"), blend.Value)
+                .Replace(TEXT("%OFFSET%"), offset.Value)
+                .Replace(TEXT("%RESULT%"), result.Value)
+                .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
+                .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+                .Replace(TEXT("%SAMPLER%"), samplerName)
+                .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
+                .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
+                .Build();
+        }
+        
         _writer.Write(*triplanarTexture);
         value = result;
         break;
@@ -797,6 +1107,16 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         const auto blend = tryGetValue(node->GetBox(2), node->Values[1]).AsFloat();
         const auto offset = tryGetValue(node->GetBox(6), node->Values[2]).AsFloat2();
         const bool local = node->Values.Count() >= 5 ? node->Values[4].AsBool : false;
+        const bool hexTileEnabled = node->Values.Count() >= 6 ? node->Values[5].AsBool : false;
+        const auto rotationStrength = tryGetValue(node->TryGetBox(7), node->Values.Count() >= 7 ? node->Values[6] : 1.0f).AsFloat();
+        const auto contrast = tryGetValue(node->TryGetBox(8), node->Values.Count() >= 8 ? node->Values[7] : 0.5f).AsFloat();
+        const bool largeWorldStability = node->Values.Count() >= 9 ? node->Values[8].AsBool : false;
+        
+        // Mark that hex tile functions are needed for this material
+        if (hexTileEnabled)
+        {
+            _needsHexTileFunctions = true;
+        }
 
         const Char* samplerName;
         const int32 samplerIndex = node->Values[3].AsInt;
@@ -817,58 +1137,118 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 
         auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
 
-        // Reference: https://bgolus.medium.com/normal-mapping-for-a-triplanar-shader-10bf39dca05a
-        const String triplanarNormalMap = ShaderStringBuilder()
-                .Code(TEXT(R"(
+        String triplanarNormalMap;
+        if (hexTileEnabled)
         {
-            // Get world position and normal
-            float3 tiling = %SCALE% * 0.001f;
-            float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
-            float3 normal = normalize(%NORMAL%);
+            // Use hex tile triplanar normal map
+            const String hexTileFunction = largeWorldStability ? TEXT("hex2normalTexRWS") : TEXT("hex2normalTex");
+            triplanarNormalMap = ShaderStringBuilder()
+                    .Code(TEXT(R"(
+            {
+                // Get world position and normal
+                float3 tiling = %SCALE% * 0.001f;
+                float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
+                float3 normal = normalize(%NORMAL%);
 
-            // Compute triplanar blend weights using power distribution
-            float3 blendWeights = pow(abs(normal), %BLEND%);
-            blendWeights /= dot(blendWeights, float3(1, 1, 1));
+                // Compute triplanar blend weights using power distribution
+                float3 blendWeights = pow(abs(normal), %BLEND%);
+                blendWeights /= dot(blendWeights, float3(1, 1, 1));
 
-            // Unpack normal maps
-            float3 tnormalX = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.yz + %OFFSET%%SAMPLE_ARGS%).rg);
-            float3 tnormalY = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.xz + %OFFSET%%SAMPLE_ARGS%).rg);
-            float3 tnormalZ = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.xy + %OFFSET%%SAMPLE_ARGS%).rg);
+                // Sample hex tile normal maps for each projection
+                float3 tnormalX = %HEXTILE_FUNC%(%TEXTURE%, %SAMPLER%, position.yz + %OFFSET%, %ROTATION_STRENGTH%, %CONTRAST%);
+                float3 tnormalY = %HEXTILE_FUNC%(%TEXTURE%, %SAMPLER%, position.xz + %OFFSET%, %ROTATION_STRENGTH%, %CONTRAST%);
+                float3 tnormalZ = %HEXTILE_FUNC%(%TEXTURE%, %SAMPLER%, position.xy + %OFFSET%, %ROTATION_STRENGTH%, %CONTRAST%);
 
-            // Apply proper whiteout blend
-            normal = normalize(input.TBN[2]);
-            float3 axisSign = sign(normal);
-            float2 sumX = tnormalX.xy + normal.zy;
-            float2 sumY = tnormalY.xy + normal.xz;
-            float2 sumZ = tnormalZ.xy + normal.xy;
-            tnormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
-            tnormalY = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
-            tnormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+                // Apply proper whiteout blend
+                normal = normalize(input.TBN[2]);
+                float3 axisSign = sign(normal);
+                float2 sumX = tnormalX.xy + normal.zy;
+                float2 sumY = tnormalY.xy + normal.xz;
+                float2 sumZ = tnormalZ.xy + normal.xy;
+                tnormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+                tnormalY = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+                tnormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
 
-            // Blend the normal maps using the blend weights
-            float3 blendedNormal = normalize(
-                tnormalX.zyx * blendWeights.x +
-                tnormalY.xzy * blendWeights.y +
-                tnormalZ.xyz * blendWeights.z
-            );
+                // Blend the normal maps using the blend weights
+                float3 blendedNormal = normalize(
+                    tnormalX.zyx * blendWeights.x +
+                    tnormalY.xzy * blendWeights.y +
+                    tnormalZ.xyz * blendWeights.z
+                );
 
-            // Transform to tangent space
-            %RESULT% = normalize(TransformWorldVectorToTangent(input, blendedNormal));
-        }
+                // Transform to tangent space
+                %RESULT% = normalize(TransformWorldVectorToTangent(input, blendedNormal));
+            }
 )"))
-    .Replace(TEXT("%TEXTURE%"), texture.Value)
-    .Replace(TEXT("%SCALE%"), scale.Value)
-    .Replace(TEXT("%BLEND%"), blend.Value)
-    .Replace(TEXT("%OFFSET%"), offset.Value)
-    .Replace(TEXT("%RESULT%"), result.Value)
-    .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-    .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
-    .Replace(TEXT("%SAMPLER%"), samplerName)
-    .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
-    .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
-    .Build();
-            _writer.Write(*triplanarNormalMap);
-            value = result;
+        .Replace(TEXT("%TEXTURE%"), texture.Value)
+        .Replace(TEXT("%SCALE%"), scale.Value)
+        .Replace(TEXT("%BLEND%"), blend.Value)
+        .Replace(TEXT("%OFFSET%"), offset.Value)
+        .Replace(TEXT("%ROTATION_STRENGTH%"), rotationStrength.Value)
+        .Replace(TEXT("%CONTRAST%"), contrast.Value)
+        .Replace(TEXT("%RESULT%"), result.Value)
+        .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
+        .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+        .Replace(TEXT("%SAMPLER%"), samplerName)
+        .Replace(TEXT("%HEXTILE_FUNC%"), hexTileFunction)
+        .Build();
+        }
+        else
+        {
+            // Standard triplanar normal map
+            triplanarNormalMap = ShaderStringBuilder()
+                    .Code(TEXT(R"(
+            {
+                // Get world position and normal
+                float3 tiling = %SCALE% * 0.001f;
+                float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
+                float3 normal = normalize(%NORMAL%);
+
+                // Compute triplanar blend weights using power distribution
+                float3 blendWeights = pow(abs(normal), %BLEND%);
+                blendWeights /= dot(blendWeights, float3(1, 1, 1));
+
+                // Unpack normal maps
+                float3 tnormalX = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.yz + %OFFSET%%SAMPLE_ARGS%).rg);
+                float3 tnormalY = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.xz + %OFFSET%%SAMPLE_ARGS%).rg);
+                float3 tnormalZ = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.xy + %OFFSET%%SAMPLE_ARGS%).rg);
+
+                // Apply proper whiteout blend
+                normal = normalize(input.TBN[2]);
+                float3 axisSign = sign(normal);
+                float2 sumX = tnormalX.xy + normal.zy;
+                float2 sumY = tnormalY.xy + normal.xz;
+                float2 sumZ = tnormalZ.xy + normal.xy;
+                tnormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+                tnormalY = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+                tnormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+
+                // Blend the normal maps using the blend weights
+                float3 blendedNormal = normalize(
+                    tnormalX.zyx * blendWeights.x +
+                    tnormalY.xzy * blendWeights.y +
+                    tnormalZ.xyz * blendWeights.z
+                );
+
+                // Transform to tangent space
+                %RESULT% = normalize(TransformWorldVectorToTangent(input, blendedNormal));
+            }
+)"))
+        .Replace(TEXT("%TEXTURE%"), texture.Value)
+        .Replace(TEXT("%SCALE%"), scale.Value)
+        .Replace(TEXT("%BLEND%"), blend.Value)
+        .Replace(TEXT("%OFFSET%"), offset.Value)
+        .Replace(TEXT("%RESULT%"), result.Value)
+        .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
+        .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+        .Replace(TEXT("%SAMPLER%"), samplerName)
+        .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
+        .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
+        .Build();
+        }
+
+        _writer.Write(*triplanarNormalMap);
+        value = result;
             break;
     }
 
