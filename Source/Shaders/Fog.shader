@@ -58,8 +58,8 @@ float4 PS_Fog(Quad_VS2PS input) : SV_Target0
 #endif
 
 
-	// Calculate exponential fog color
-	float4 fog = GetExponentialHeightFog(ExponentialHeightFog, worldPos, GBuffer.ViewPos, skipDistance, viewPos.z);
+	// Calculate exponential fog color with depth masking
+	float4 fog = GetExponentialHeightFog(ExponentialHeightFog, worldPos, GBuffer.ViewPos, skipDistance, viewPos.z, input.TexCoord, sceneDepth);
 
 #if VOLUMETRIC_FOG
     // Sample volumetric fog and mix it in

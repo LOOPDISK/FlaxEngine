@@ -4,6 +4,7 @@
 #include "DirectionalLight.h"
 #include "Engine/Core/Math/Color.h"
 #include "Engine/Content/Content.h"
+#include "Engine/Engine/Time.h"
 #include "Engine/Graphics/GPUContext.h"
 #include "Engine/Renderer/RenderList.h"
 #include "Engine/Serialization/Serialization.h"
@@ -92,6 +93,23 @@ void ExponentialHeightFog::Serialize(SerializeStream& stream, const void* otherO
     SERIALIZE(VolumetricFogEmissive);
     SERIALIZE(VolumetricFogExtinctionScale);
     SERIALIZE(VolumetricFogDistance);
+
+    // Environment and Sun Disc properties
+    SERIALIZE(EnvironmentTexture);
+    SERIALIZE(EnvironmentInfluence);
+    SERIALIZE(EnvironmentMipLevel);
+    SERIALIZE(EnableSunDisc);
+    SERIALIZE(SunDiscSize);
+    SERIALIZE(SunDiscBrightness);
+    SERIALIZE(SunFogPenetration);
+    SERIALIZE(SunDiscSoftness);
+    SERIALIZE(SunMaxDistance);
+    SERIALIZE(SunBrightnessThresholdMin);
+    SERIALIZE(SunBrightnessThresholdMax);
+    SERIALIZE(CloudTexture);
+    SERIALIZE(CloudTiling);
+    SERIALIZE(CloudSpeed);
+    SERIALIZE(CloudUVOffset);
 }
 
 void ExponentialHeightFog::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
@@ -117,6 +135,23 @@ void ExponentialHeightFog::Deserialize(DeserializeStream& stream, ISerializeModi
     DESERIALIZE(VolumetricFogEmissive);
     DESERIALIZE(VolumetricFogExtinctionScale);
     DESERIALIZE(VolumetricFogDistance);
+
+    // Environment and Sun Disc properties  
+    DESERIALIZE(EnvironmentTexture);
+    DESERIALIZE(EnvironmentInfluence);
+    DESERIALIZE(EnvironmentMipLevel);
+    DESERIALIZE(EnableSunDisc);
+    DESERIALIZE(SunDiscSize);
+    DESERIALIZE(SunDiscBrightness);
+    DESERIALIZE(SunFogPenetration);
+    DESERIALIZE(SunDiscSoftness);
+    DESERIALIZE(SunMaxDistance);
+    DESERIALIZE(SunBrightnessThresholdMin);
+    DESERIALIZE(SunBrightnessThresholdMax);
+    DESERIALIZE(CloudTexture);
+    DESERIALIZE(CloudTiling);
+    DESERIALIZE(CloudSpeed);
+    DESERIALIZE(CloudUVOffset);
 }
 
 bool ExponentialHeightFog::HasContentLoaded() const
@@ -179,6 +214,19 @@ void ExponentialHeightFog::GetExponentialHeightFogData(const RenderView& view, S
     result.VolumetricFogMaxDistance = VolumetricFogDistance;
     result.EnvironmentInfluence = EnvironmentInfluence;
     result.EnvironmentMipLevel = EnvironmentMipLevel;
+    result.EnableSunDisc = EnableSunDisc ? 1.0f : 0.0f;
+    result.SunDiscSize = SunDiscSize;
+    result.SunDiscBrightness = SunDiscBrightness;
+    result.SunFogPenetration = SunFogPenetration;
+    result.SunDiscSoftness = SunDiscSoftness;
+    result.SunMaxDistance = SunMaxDistance;
+    result.SunBrightnessThresholdMin = SunBrightnessThresholdMin;
+    result.SunBrightnessThresholdMax = SunBrightnessThresholdMax;
+    result.CloudTiling = CloudTiling;
+    result.CloudSpeed = CloudSpeed;
+    result.CloudUVOffset = CloudUVOffset;
+    // Use the same time source as materials for consistent animation
+    result.TimeParam = Time::Draw.UnscaledTime.GetTotalSeconds();
 }
 
 GPU_CB_STRUCT(Data {
@@ -205,11 +253,21 @@ void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderCon
     // Bind environment texture for fog coloring if available
     if (EnvironmentTexture && EnvironmentTexture->IsLoaded())
     {
-        context->BindSR(6, EnvironmentTexture->GetTexture());
+        context->BindSR(10, EnvironmentTexture->GetTexture());
     }
     else
     {
-        context->BindSR(6, static_cast<GPUTexture*>(nullptr));
+        context->BindSR(10, static_cast<GPUTexture*>(nullptr));
+    }
+    
+    // Bind cloud texture for sun masking if available
+    if (CloudTexture && CloudTexture->IsLoaded())
+    {
+        context->BindSR(11, CloudTexture->GetTexture());
+    }
+    else
+    {
+        context->BindSR(11, static_cast<GPUTexture*>(nullptr));
     }
 
     // TODO: instead of rendering fullscreen triangle, draw quad transformed at the fog start distance (also it could use early depth discard)

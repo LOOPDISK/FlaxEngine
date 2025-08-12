@@ -45,7 +45,19 @@ GPU_CB_STRUCT(ShaderExponentialHeightFogData {
 
     float EnvironmentInfluence;
     float EnvironmentMipLevel;
-    Float2 Padding;
+    
+    float EnableSunDisc;
+    float SunDiscSize;
+    float SunDiscBrightness;
+    float SunFogPenetration;
+    float SunDiscSoftness;
+    float SunMaxDistance;
+    float SunBrightnessThresholdMin;
+    float SunBrightnessThresholdMax;
+    float CloudTiling;
+    float TimeParam;
+    Float2 CloudSpeed;
+    Float2 CloudUVOffset;
     });
 
 /// <summary>
