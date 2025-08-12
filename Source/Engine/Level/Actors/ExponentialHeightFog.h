@@ -7,7 +7,6 @@
 #include "Engine/Renderer/DrawCall.h"
 #include "Engine/Content/Assets/Shader.h"
 #include "Engine/Content/Assets/CubeTexture.h"
-#include "Engine/Content/Assets/Texture.h"
 #include "Engine/Content/AssetReference.h"
 #include "Engine/Graphics/GPUPipelineStatePermutations.h"
 
@@ -59,79 +58,6 @@ public:
     /// </summary>
     API_FIELD(Attributes="EditorOrder(37), DefaultValue(3.0f), Limit(0, 10, 0.1f), EditorDisplay(\"Exponential Height Fog\")")
     float EnvironmentMipLevel = 3.0f;
-
-public:
-    /// <summary>
-    /// Enable sun disc rendering that appears to poke through the fog.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(250), DefaultValue(false), EditorDisplay(\"Sun Disc\")")
-    bool EnableSunDisc = false;
-
-    /// <summary>
-    /// Angular size of the sun disc in degrees. Real sun is approximately 0.5 degrees.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(251), DefaultValue(0.5f), Limit(0.1f, 5.0f, 0.05f), EditorDisplay(\"Sun Disc\")")
-    float SunDiscSize = 0.5f;
-
-    /// <summary>
-    /// Brightness intensity of the sun disc. Higher values create more HDR bloom effects.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(252), DefaultValue(100.0f), Limit(0, 1000, 1.0f), EditorDisplay(\"Sun Disc\")")
-    float SunDiscBrightness = 100.0f;
-
-    /// <summary>
-    /// How much the sun burns through fog (0 = no effect, 1 = fully visible through fog).
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(253), DefaultValue(0.7f), Limit(0, 1, 0.01f), EditorDisplay(\"Sun Disc\")")
-    float SunFogPenetration = 0.7f;
-
-    /// <summary>
-    /// Softness of the sun disc edges (0 = hard edge, 1 = very soft/diffuse).
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(254), DefaultValue(0.3f), Limit(0, 1, 0.01f), EditorDisplay(\"Sun Disc\")")
-    float SunDiscSoftness = 0.3f;
-
-    /// <summary>
-    /// Maximum distance at which sun disc is visible. Objects closer than this will hide the sun.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(255), DefaultValue(100000.0f), Limit(10, 100000, 10.0f), EditorDisplay(\"Sun Disc\")")
-    float SunMaxDistance = 100000.0f;
-
-    /// <summary>
-    /// Minimum environment brightness value that allows sun to poke through (0-1). Dark areas below this hide the sun.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(256), DefaultValue(0.5f), Limit(0, 1, 0.01f), EditorDisplay(\"Sun Disc\")")
-    float SunBrightnessThresholdMin = 0.5f;
-
-    /// <summary>
-    /// Maximum environment brightness value for sun penetration (0-1). Areas brighter than this show full sun.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(257), DefaultValue(0.8f), Limit(0, 1, 0.01f), EditorDisplay(\"Sun Disc\")")
-    float SunBrightnessThresholdMax = 0.8f;
-
-    /// <summary>
-    /// 2D texture used for cloud masking of the sun disc. Should be a tileable cloud pattern.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(258), DefaultValue(null), EditorDisplay(\"Sun Disc\")")
-    AssetReference<Texture> CloudTexture;
-
-    /// <summary>
-    /// Tiling scale for the cloud texture. Higher values create smaller, more detailed clouds.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(259), DefaultValue(1.0f), Limit(0.1f, 10.0f, 0.1f), EditorDisplay(\"Sun Disc\")")
-    float CloudTiling = 1.0f;
-
-    /// <summary>
-    /// Speed and direction of cloud movement. X and Y control direction and speed of animation.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(260), DefaultValue(typeof(Float2), \"1.0,0.5\"), EditorDisplay(\"Sun Disc\")")
-    Float2 CloudSpeed = Float2(1.0f, 0.5f);
-
-    /// <summary>
-    /// Manual UV offset for debugging. Allows you to manually offset the cloud texture UVs.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(261), DefaultValue(typeof(Float2), \"0,0\"), EditorDisplay(\"Sun Disc\")")
-    Float2 CloudUVOffset = Float2(0.0f, 0.0f);
 
     /// <summary>
     /// Maximum opacity of the fog.
