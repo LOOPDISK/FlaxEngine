@@ -205,11 +205,11 @@ void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderCon
     // Bind environment texture for fog coloring if available
     if (EnvironmentTexture && EnvironmentTexture->IsLoaded())
     {
-        context->BindSR(9, EnvironmentTexture->GetTexture());
+        context->BindSR(11, EnvironmentTexture->GetTexture());
     }
     else
     {
-        context->BindSR(9, static_cast<GPUTexture*>(nullptr));
+        context->BindSR(11, static_cast<GPUTexture*>(nullptr));
     }
 
     // TODO: instead of rendering fullscreen triangle, draw quad transformed at the fog start distance (also it could use early depth discard)

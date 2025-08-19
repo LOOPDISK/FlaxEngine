@@ -7,8 +7,8 @@
 #include "./Flax/Math.hlsl"
 
 // Environment cube texture for fog coloring
-TextureCube EnvironmentTexture : register(t9);
-SamplerState EnvironmentSampler : register(s9);
+TextureCube EnvironmentTexture : register(t11);
+SamplerState EnvironmentSampler : register(s11);
 
 // Structure that contains information about exponential height fog
 struct ExponentialHeightFogData
