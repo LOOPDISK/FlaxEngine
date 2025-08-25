@@ -24,6 +24,7 @@ TextureCube Probe : register(t4);
 Texture2D Reflections : register(t5);
 Texture2D PreIntegratedGF : register(t6);
 
+
 // Vertex Shader for models rendering
 META_VS(true, FEATURE_LEVEL_ES2)
 META_VS_IN_ELEMENT(POSITION, 0, R32G32B32_FLOAT, 0, ALIGN, PER_VERTEX, 0, true)
@@ -78,13 +79,25 @@ float4 PS_CombinePass(Quad_VS2PS input) : SV_Target0
 
 	// Calculate specular color
 	float3 specularColor = GetSpecularColor(gBuffer);
-	if (gBuffer.Metalness < 0.001)
-		specularColor = 0.04f * gBuffer.Specular;
 
 	// Calculate reflecion color
 	float3 V = normalize(gBufferData.ViewPos - gBuffer.WorldPos);
 	float NoV = saturate(dot(gBuffer.Normal, V));
-	reflections *= EnvBRDF(PreIntegratedGF, specularColor, gBuffer.Roughness, NoV);
+	
+	// Combined approach: Working F0 calculation with proper metalness handling
+	// Use the F0 range that worked for middle faces + additional specular boost for dielectrics only
+	
+	// Calculate F0 using the working formula (0.04 to 0.20 range)
+	float dielectric_f0_scalar = 0.04 + 0.16 * gBuffer.Specular; // This worked for middle faces
+	float3 metallic_f0 = gBuffer.Color.rgb; // Metals use full color as F0
+	float3 F0 = lerp(float3(dielectric_f0_scalar, dielectric_f0_scalar, dielectric_f0_scalar), metallic_f0, gBuffer.Metalness);
+	
+	// Schlick Fresnel with roughness compensation  
+	float3 F = F0 + (max(float3(1.0 - gBuffer.Roughness, 1.0 - gBuffer.Roughness, 1.0 - gBuffer.Roughness), F0) - F0) * pow(1.0 - NoV, 5.0);
+	
+	// Apply additional specular scaling only to dielectrics (avoid double-scaling for metals)
+	float specular_boost = lerp(gBuffer.Specular, 1.0, gBuffer.Metalness);
+	reflections *= F * specular_boost;
 
 	// Apply specular occlusion
 	float roughnessSq = gBuffer.Roughness * gBuffer.Roughness;
