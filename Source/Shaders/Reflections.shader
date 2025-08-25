@@ -99,9 +99,6 @@ float4 PS_CombinePass(Quad_VS2PS input) : SV_Target0
 	float specular_boost = lerp(gBuffer.Specular, 1.0, gBuffer.Metalness);
 	reflections *= F * specular_boost;
 
-
-
-
 	// Apply specular occlusion
 	float roughnessSq = gBuffer.Roughness * gBuffer.Roughness;
 	float specularOcclusion = GetSpecularOcclusion(NoV, roughnessSq, gBuffer.AO);
