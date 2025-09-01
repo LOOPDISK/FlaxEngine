@@ -548,6 +548,19 @@ void ParticleEffect::OnParticleSystemModified()
 void ParticleEffect::OnParticleSystemLoaded()
 {
     ApplyModifiedParameters();
+#if USE_EDITOR
+    // When one of the emitters gets edited, cached parameters need to be applied
+    auto& emitters = ParticleSystem.Get()->Emitters;
+    for (auto& emitter : emitters)
+    {
+        emitter.Loaded.BindUnique<ParticleEffect, &ParticleEffect::OnParticleEmitterLoaded>(this);
+    }
+#endif
+}
+
+void ParticleEffect::OnParticleEmitterLoaded()
+{
+    ApplyModifiedParameters();
 }
 
 bool ParticleEffect::HasContentLoaded() const
@@ -581,8 +594,17 @@ void ParticleEffect::OnDebugDrawSelected()
 {
     DEBUG_DRAW_WIRE_BOX(_box, Color::Violet * 0.7f, 0, true);
 
-    // Base
     Actor::OnDebugDrawSelected();
+}
+
+void ParticleEffect::OnDebugDraw()
+{
+    if (ShowDebugDraw)
+    {
+        Particles::DebugDraw(this);
+    }
+
+    Actor::OnDebugDraw();
 }
 
 #endif
@@ -813,6 +835,10 @@ void ParticleEffect::OnActiveInTreeChanged()
         // Invalidate the simulation
         CacheModifiedParameters();
         Instance.ClearState();
+    }
+    else
+    {
+        ApplyModifiedParameters();
     }
 }
 

@@ -643,14 +643,7 @@ namespace FlaxEditor.Viewport
                 if (selectedParents[i].IsActiveInHierarchy)
                     selectedParents[i].OnDebugDraw(_debugDrawData);
             }
-
-            unsafe
-            {
-                fixed (IntPtr* actors = _debugDrawData.ActorsPtrs)
-                {
-                    DebugDraw.DrawActors(new IntPtr(actors), _debugDrawData.ActorsCount, false);
-                }
-            }
+            _debugDrawData.DrawActors();
 
             // Debug draw all actors in prefab and collect actors
             var view = Task.View;
@@ -670,10 +663,7 @@ namespace FlaxEditor.Viewport
             if ((view.Flags & ViewFlags.PhysicsDebug) != 0 || view.Mode == ViewMode.PhysicsColliders)
             {
                 foreach (var actor in _debugDrawActors)
-                {
-                    if (actor is Collider c && c.IsActiveInHierarchy)
-                        DebugDraw.DrawColliderDebugPhysics(c, renderContext.View);
-                }
+                    DebugDraw.DrawDebugPhysics(actor, renderContext.View);
             }
 
             // Draw lights debug
