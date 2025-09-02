@@ -387,15 +387,19 @@ void ReflectionsPass::Render(RenderContext& renderContext, GPUTextureView* light
 
     auto tempDesc = GPUTextureDescription::New2D(renderContext.Buffers->GetWidth(), renderContext.Buffers->GetHeight(), PixelFormat::R11G11B10_Float);
     auto reflectionsBuffer = RenderTargetPool::Get(tempDesc);
+    auto diffuseReflectionsBuffer = RenderTargetPool::Get(tempDesc);
     RENDER_TARGET_POOL_SET_NAME(reflectionsBuffer, "Reflections");
+    RENDER_TARGET_POOL_SET_NAME(diffuseReflectionsBuffer, "DiffuseReflections");
     context->Clear(*reflectionsBuffer, Color::Black);
+    context->Clear(*diffuseReflectionsBuffer, Color::Black);
 
     // Reflection Probes pass
     if (renderProbes)
     {
         PROFILE_GPU_CPU("Env Probes");
 
-        context->SetRenderTarget(*reflectionsBuffer);
+        GPUTextureView* probeRenderTargets[] = { *reflectionsBuffer, *diffuseReflectionsBuffer };
+        context->SetRenderTarget(nullptr, Span<GPUTextureView*>(probeRenderTargets, 2));
 
         // Sort probes by the radius
         Sorting::QuickSort(renderContext.List->EnvironmentProbes.Get(), renderContext.List->EnvironmentProbes.Count(), &SortProbes);
@@ -468,9 +472,11 @@ void ReflectionsPass::Render(RenderContext& renderContext, GPUTextureView* light
         }
         context->BindSR(5, reflectionsBuffer);
         context->BindSR(6, _preIntegratedGF->GetTexture());
+        context->BindSR(7, diffuseReflectionsBuffer);
         context->SetState(_psCombinePass);
         context->DrawFullscreenTriangle();
     }
 
     RenderTargetPool::Release(reflectionsBuffer);
+    RenderTargetPool::Release(diffuseReflectionsBuffer);
 }
