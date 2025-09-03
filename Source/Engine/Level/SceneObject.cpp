@@ -99,6 +99,25 @@ void SceneObject::Serialize(SerializeStream& stream, const void* otherObj)
     stream.JKEY("ID");
     stream.Guid(_id);
 
+    // Add human-readable name for debugging
+    stream.JKEY("Name");
+    if (const auto actor = dynamic_cast<const Actor*>(this))
+    {
+        stream.String(actor->GetName());
+    }
+    else
+    {
+        // For scripts and other objects, use type name and parent path if available
+        String displayName = String(GetType().Fullname);
+        if (_parent)
+        {
+            const String parentPath = _parent->GetNamePath();
+            if (!parentPath.IsEmpty())
+                displayName = parentPath + TEXT("/") + displayName;
+        }
+        stream.String(displayName);
+    }
+
     if (other && HasPrefabLink())
     {
         stream.JKEY("PrefabID");

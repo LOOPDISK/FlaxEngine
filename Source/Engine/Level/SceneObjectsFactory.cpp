@@ -319,7 +319,16 @@ void SceneObjectsFactory::HandleObjectDeserializationError(const ISerializable::
     PrettyJsonWriter writer(buffer);
     value.Accept(writer.GetWriter());
     String bufferStr(buffer.GetString());
-    LOG(Warning, "Failed to deserialize scene object from data: {0}", bufferStr);
+    
+    // Extract object name for better debugging
+    String objectName = TEXT("Unknown");
+    const auto nameMember = value.FindMember("Name");
+    if (nameMember != value.MemberEnd() && nameMember->value.IsString())
+    {
+        objectName = nameMember->value.GetString();
+    }
+    
+    LOG(Warning, "Failed to deserialize scene object '{0}' from data: {1}", objectName, bufferStr);
 
     // Try to log some useful info about missing object (eg. it's parent name for faster fixing)
     const auto parentIdMember = value.FindMember("ParentID");
