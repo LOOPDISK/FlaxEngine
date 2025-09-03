@@ -485,6 +485,23 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Output(0, "UVs", typeof(Float2), 0)
                 }
             },
+
+
+            new NodeArchetype
+            {
+                TypeID = 23,
+                Title = "Local Generated Position",
+                AlternativeTitles = new string[] { "local pos" },
+                Description = "Local Generated Position, taking into account scale and rotation",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(200, 50),
+
+                Elements = new []
+                {
+                    NodeElementArchetype.Factory.Output(0, "Pos", typeof(Float3), 0)
+                }
+            },
+
             new NodeArchetype
             {
                 TypeID = 24,
@@ -521,21 +538,6 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 8, 5),
                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 9, "Large World"),
                     NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 9, 8),
-                }
-            },
-
-            new NodeArchetype
-            {
-                TypeID = 23,
-                Title = "Local Generated Position",
-                AlternativeTitles = new string[] { "local pos" },
-                Description = "Local Generated Position, taking into account scale and rotation",
-                Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(200, 50),
-
-                Elements = new []
-                {
-                    NodeElementArchetype.Factory.Output(0, "Pos", typeof(Float3), 0)
                 }
             },
             new NodeArchetype

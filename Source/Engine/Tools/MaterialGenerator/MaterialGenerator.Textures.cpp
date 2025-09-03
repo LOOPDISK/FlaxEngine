@@ -403,7 +403,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 {
     switch (node->TypeID)
     {
-    // Texture
+        // Texture
     case 1:
     {
         // Check if texture has been selected
@@ -554,17 +554,17 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             "	{2} = {10} + currOffset;\n"
             "	}}\n"
         ),
-                                   minSteps.Value, // {0}
-                                   heightTexture.Value, // {1}
-                                   result.Value, // {2}
-                                   maxSteps.Value, // {3}
-                                   scale.Value, // {4}
-                                   _ddx.Value, // {5}
-                                   _ddy.Value, // {6}
-                                   channel, // {7}
-                                   cameraVectorTS.Value, // {8}
-                                   cameraVectorWS.Value, // {9}
-                                   uvs.Value // {10}   
+            minSteps.Value, // {0}
+            heightTexture.Value, // {1}
+            result.Value, // {2}
+            maxSteps.Value, // {3}
+            scale.Value, // {4}
+            _ddx.Value, // {5}
+            _ddy.Value, // {6}
+            channel, // {7}
+            cameraVectorTS.Value, // {8}
+            cameraVectorWS.Value, // {9}
+            uvs.Value // {10}   
         );
         _writer.Write(*code);
         value = result;
@@ -724,7 +724,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
     }
     // Sample Texture
     case 9:
-    // Procedural Texture Sample
+        // Procedural Texture Sample
     case 17:
     {
         // Get input boxes
@@ -798,29 +798,29 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             const auto rotationStrength = tryGetValue(node->TryGetBox(4), node->Values.Count() >= 5 ? node->Values[4] : 1.0f);
             const auto contrast = tryGetValue(node->TryGetBox(5), node->Values.Count() >= 6 ? node->Values[5] : 0.5f);
             const bool largeWorldStability = node->Values.Count() >= 7 ? node->Values[6].AsBool : false;
-            
+
             if (hexTileEnabled)
             {
                 // Mark that hex tile functions are needed for this material
                 _needsHexTileFunctions = true;
-                
+
                 // Use hex tile sampling
                 const String hexTileFunction = largeWorldStability ? TEXT("hex2colTexRWS") : TEXT("hex2colTex");
                 String sampledValue;
-                
+
                 if (useOffset)
                 {
                     sampledValue = String::Format(TEXT("{0}({1}, {2}, {3} + {4}, {5}, {6})"),
-                                                hexTileFunction, texture.Value, samplerName, uvs.Value, offset.Value,
-                                                rotationStrength.Value, contrast.Value);
+                        hexTileFunction, texture.Value, samplerName, uvs.Value, offset.Value,
+                        rotationStrength.Value, contrast.Value);
                 }
                 else
                 {
                     sampledValue = String::Format(TEXT("{0}({1}, {2}, {3}, {4}, {5})"),
-                                                hexTileFunction, texture.Value, samplerName, uvs.Value,
-                                                rotationStrength.Value, contrast.Value);
+                        hexTileFunction, texture.Value, samplerName, uvs.Value,
+                        rotationStrength.Value, contrast.Value);
                 }
-                
+
                 textureBox->Cache = writeLocal(VariantType::Float4, sampledValue, node);
             }
             else
@@ -885,11 +885,11 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                 "   {3} = tex1 + tex2 + tex3;\n"
                 "   }}\n"
             ),
-                                                   uvs.Value, // {0}
-                                                   texture.Value, // {1}
-                                                   samplerName, // {2}
-                                                   textureBox->Cache.Value, // {3}
-                                                   offset.Value // {4}
+                uvs.Value, // {0}
+                texture.Value, // {1}
+                samplerName, // {2}
+                textureBox->Cache.Value, // {3}
+                offset.Value // {4}
             );
 
             _writer.Write(*proceduralSample);
@@ -1019,19 +1019,19 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
         }
 )"))
-                .Replace(TEXT("%TEXTURE%"), texture.Value)
-                .Replace(TEXT("%SCALE%"), scale.Value)
-                .Replace(TEXT("%BLEND%"), blend.Value)
-                .Replace(TEXT("%OFFSET%"), offset.Value)
-                .Replace(TEXT("%RESULT%"), result.Value)
-                .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-                .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
-                .Replace(TEXT("%SAMPLER%"), samplerName)
-                .Replace(TEXT("%ROT_STRENGTH%"), rotationStrength.Value)
-                .Replace(TEXT("%CONTRAST%"), contrast.Value)
-                .Replace(TEXT("%HEX_FUNCTION%"), largeWorldStability ? TEXT("hex2colTexRWS") : TEXT("hex2colTex"))
-                .Replace(TEXT("%EXTRA_PARAMS%"), TEXT(""))
-                .Build();
+.Replace(TEXT("%TEXTURE%"), texture.Value)
+.Replace(TEXT("%SCALE%"), scale.Value)
+.Replace(TEXT("%BLEND%"), blend.Value)
+.Replace(TEXT("%OFFSET%"), offset.Value)
+.Replace(TEXT("%RESULT%"), result.Value)
+.Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
+.Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+.Replace(TEXT("%SAMPLER%"), samplerName)
+.Replace(TEXT("%ROT_STRENGTH%"), rotationStrength.Value)
+.Replace(TEXT("%CONTRAST%"), contrast.Value)
+.Replace(TEXT("%HEX_FUNCTION%"), largeWorldStability ? TEXT("hex2colTexRWS") : TEXT("hex2colTex"))
+.Replace(TEXT("%EXTRA_PARAMS%"), TEXT(""))
+.Build();
         }
         else
         {
@@ -1057,25 +1057,25 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
         }
 )"))
-                .Replace(TEXT("%TEXTURE%"), texture.Value)
-                .Replace(TEXT("%SCALE%"), scale.Value)
-                .Replace(TEXT("%BLEND%"), blend.Value)
-                .Replace(TEXT("%OFFSET%"), offset.Value)
-                .Replace(TEXT("%RESULT%"), result.Value)
-                .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-                .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
-                .Replace(TEXT("%SAMPLER%"), samplerName)
-                .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
-                .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
-                .Build();
+.Replace(TEXT("%TEXTURE%"), texture.Value)
+.Replace(TEXT("%SCALE%"), scale.Value)
+.Replace(TEXT("%BLEND%"), blend.Value)
+.Replace(TEXT("%OFFSET%"), offset.Value)
+.Replace(TEXT("%RESULT%"), result.Value)
+.Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
+.Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+.Replace(TEXT("%SAMPLER%"), samplerName)
+.Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
+.Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
+.Build();
         }
-        
+
         _writer.Write(*triplanarTexture);
         value = result;
         break;
     }
     // Get Lightmap UV
-    case 18: 
+    case 18:
     {
         auto output = writeLocal(Value::InitForZero(ValueType::Float2), node);
         auto lightmapUV = String::Format(TEXT(
@@ -1111,7 +1111,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         const auto rotationStrength = tryGetValue(node->TryGetBox(7), node->Values.Count() >= 7 ? node->Values[6] : 1.0f).AsFloat();
         const auto contrast = tryGetValue(node->TryGetBox(8), node->Values.Count() >= 8 ? node->Values[7] : 0.5f).AsFloat();
         const bool largeWorldStability = node->Values.Count() >= 9 ? node->Values[8].AsBool : false;
-        
+
         // Mark that hex tile functions are needed for this material
         if (hexTileEnabled)
         {
@@ -1143,7 +1143,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             // Use hex tile triplanar normal map
             const String hexTileFunction = largeWorldStability ? TEXT("hex2normalTexRWS") : TEXT("hex2normalTex");
             triplanarNormalMap = ShaderStringBuilder()
-                    .Code(TEXT(R"(
+                .Code(TEXT(R"(
             {
                 // Get world position and normal
                 float3 tiling = %SCALE% * 0.001f;
@@ -1180,24 +1180,24 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                 %RESULT% = normalize(TransformWorldVectorToTangent(input, blendedNormal));
             }
 )"))
-        .Replace(TEXT("%TEXTURE%"), texture.Value)
-        .Replace(TEXT("%SCALE%"), scale.Value)
-        .Replace(TEXT("%BLEND%"), blend.Value)
-        .Replace(TEXT("%OFFSET%"), offset.Value)
-        .Replace(TEXT("%ROTATION_STRENGTH%"), rotationStrength.Value)
-        .Replace(TEXT("%CONTRAST%"), contrast.Value)
-        .Replace(TEXT("%RESULT%"), result.Value)
-        .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-        .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
-        .Replace(TEXT("%SAMPLER%"), samplerName)
-        .Replace(TEXT("%HEXTILE_FUNC%"), hexTileFunction)
-        .Build();
+.Replace(TEXT("%TEXTURE%"), texture.Value)
+.Replace(TEXT("%SCALE%"), scale.Value)
+.Replace(TEXT("%BLEND%"), blend.Value)
+.Replace(TEXT("%OFFSET%"), offset.Value)
+.Replace(TEXT("%ROTATION_STRENGTH%"), rotationStrength.Value)
+.Replace(TEXT("%CONTRAST%"), contrast.Value)
+.Replace(TEXT("%RESULT%"), result.Value)
+.Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
+.Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+.Replace(TEXT("%SAMPLER%"), samplerName)
+.Replace(TEXT("%HEXTILE_FUNC%"), hexTileFunction)
+.Build();
         }
         else
         {
             // Standard triplanar normal map
             triplanarNormalMap = ShaderStringBuilder()
-                    .Code(TEXT(R"(
+                .Code(TEXT(R"(
             {
                 // Get world position and normal
                 float3 tiling = %SCALE% * 0.001f;
@@ -1234,22 +1234,22 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                 %RESULT% = normalize(TransformWorldVectorToTangent(input, blendedNormal));
             }
 )"))
-        .Replace(TEXT("%TEXTURE%"), texture.Value)
-        .Replace(TEXT("%SCALE%"), scale.Value)
-        .Replace(TEXT("%BLEND%"), blend.Value)
-        .Replace(TEXT("%OFFSET%"), offset.Value)
-        .Replace(TEXT("%RESULT%"), result.Value)
-        .Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-        .Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
-        .Replace(TEXT("%SAMPLER%"), samplerName)
-        .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
-        .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
-        .Build();
+.Replace(TEXT("%TEXTURE%"), texture.Value)
+.Replace(TEXT("%SCALE%"), scale.Value)
+.Replace(TEXT("%BLEND%"), blend.Value)
+.Replace(TEXT("%OFFSET%"), offset.Value)
+.Replace(TEXT("%RESULT%"), result.Value)
+.Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
+.Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+.Replace(TEXT("%SAMPLER%"), samplerName)
+.Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
+.Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
+.Build();
         }
 
         _writer.Write(*triplanarNormalMap);
         value = result;
-            break;
+        break;
     }
 
     // Local Space position
@@ -1280,7 +1280,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             "    }}\n"
         ),
 
-            result.Value     
+            result.Value
         );
 
         _writer.Write(*local_pos);

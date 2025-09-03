@@ -1460,7 +1460,16 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
         if (material.Name.IsEmpty())
             material.Name = TEXT("Material ") + StringUtils::ToString(i);
 
-        material.AssetID = Guid::New();  // Ensure unique ID for material slot reference
+        // Only assign a GUID if we're actually going to create/import a material
+        if (autoImportOutput.HasChars() && options.ImportMaterials && material.UsesProperties())
+        {
+            material.AssetID = Guid::New();  // Ensure unique ID for material slot reference
+        }
+        else
+        {
+            // Mark slot as empty if no material will be imported
+            material.AssetID = Guid::Empty;
+        }
 
         // Auto-import materials - check options.ImportMaterials directly
         if (autoImportOutput.IsEmpty() || !options.ImportMaterials || !material.UsesProperties())

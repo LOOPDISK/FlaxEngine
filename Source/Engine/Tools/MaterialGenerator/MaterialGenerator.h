@@ -121,7 +121,6 @@ private:
     bool _needsHexTileFunctions = false;
 
 public:
-
     MaterialGenerator();
     ~MaterialGenerator();
 
@@ -212,6 +211,7 @@ public:
 
     static MaterialValue getUVs;
     static MaterialValue getTime;
+    static MaterialValue getUnscaledTime;
     static MaterialValue getNormal;
     static MaterialValue getNormalZero;
     static MaterialValue getVertexColor;
