@@ -207,6 +207,8 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             if (materialInfo.BlendMode != MaterialBlendMode::Opaque && EnumHasAnyFlags(materialInfo.FeaturesFlags, MaterialFeaturesFlags::ScreenSpaceReflections))
                 ADD_FEATURE(SDFReflectionsFeature);
         }
+        if (EnumHasAnyFlags(materialInfo.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride))
+            ADD_FEATURE(WeaponFOVOverrideFeature);
         if (materialInfo.BlendMode != MaterialBlendMode::Opaque)
             ADD_FEATURE(ForwardShadingFeature);
         break;
