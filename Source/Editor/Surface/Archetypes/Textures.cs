@@ -415,7 +415,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Triplanar Texture",
                 Description = "Projects a texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 200),
+                Size = new Float2(280, 240),  // Increased height for new inputs
                 DefaultValues = new object[]
                 {
                     Float3.One, // Scale
@@ -436,15 +436,17 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float2), 6, 2),
                     NodeElementArchetype.Factory.Input(4, "Rotation Strength", true, typeof(float), 7, 6),
                     NodeElementArchetype.Factory.Input(5, "Contrast", true, typeof(float), 8, 7),
+                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),  // New input
+                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),    // New input
                     NodeElementArchetype.Factory.Output(0, "Color", typeof(Float4), 3),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 6, "Sampler"),
-                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 6 - 1, 100, 3, typeof(CommonSamplerType)),
-                    NodeElementArchetype.Factory.Text(155, Surface.Constants.LayoutOffsetY * 7, "Local"),
-                    NodeElementArchetype.Factory.Bool(190, Surface.Constants.LayoutOffsetY * 7, 4),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Hex Tile"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 8, 5),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 9, "Large World"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 9, 8),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Sampler"),
+                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 8 - 1, 100, 3, typeof(CommonSamplerType)),
+                    NodeElementArchetype.Factory.Text(155, Surface.Constants.LayoutOffsetY * 9, "Local"),
+                    NodeElementArchetype.Factory.Bool(190, Surface.Constants.LayoutOffsetY * 9, 4),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 10, "Hex Tile"),
+                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 10, 5),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 11, "Large World"),
+                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 11, 8),
                 }
             },
             new NodeArchetype
@@ -508,7 +510,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Triplanar Normal Map",
                 Description = "Projects a normal map texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 200),
+                Size = new Float2(280, 240),  // Increased height for new inputs
                 DefaultValues = new object[]
                 {
                     Float3.One, // Scale
@@ -529,15 +531,17 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float2), 6, 2),
                     NodeElementArchetype.Factory.Input(4, "Rotation Strength", true, typeof(float), 7, 6),
                     NodeElementArchetype.Factory.Input(5, "Contrast", true, typeof(float), 8, 7),
+                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),  // New input
+                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),    // New input
                     NodeElementArchetype.Factory.Output(0, "Vector", typeof(Float3), 3),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 6, "Sampler"),
-                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 6 - 1, 100, 3, typeof(CommonSamplerType)),
-                    NodeElementArchetype.Factory.Text(155, Surface.Constants.LayoutOffsetY * 7, "Local"),
-                    NodeElementArchetype.Factory.Bool(190, Surface.Constants.LayoutOffsetY * 7, 4),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Hex Tile"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 8, 5),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 9, "Large World"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 9, 8),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Sampler"),
+                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 8 - 1, 100, 3, typeof(CommonSamplerType)),
+                    NodeElementArchetype.Factory.Text(155, Surface.Constants.LayoutOffsetY * 9, "Local"),
+                    NodeElementArchetype.Factory.Bool(190, Surface.Constants.LayoutOffsetY * 9, 4),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 10, "Hex Tile"),
+                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 10, 5),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 11, "Large World"),
+                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 11, 8),
                 }
             },
             new NodeArchetype
