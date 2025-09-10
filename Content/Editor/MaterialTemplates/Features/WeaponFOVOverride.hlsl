@@ -34,19 +34,26 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     float4 viewPosition = mul(float4(worldPosition, 1.0), ViewMatrix);
     
     // Calculate FOV scaling factor
-    // Camera FOV = 90°, Weapon FOV = 30°
-    // tan(45°) = 1.0, tan(15°) ≈ 0.2679
+    // Camera FOV = 90°, Weapon FOV = 120° (higher FOV makes weapons appear larger)
+    // tan(45°) = 1.0, tan(60°) ≈ 1.732
     float cameraFovHalf = radians(45.0); // 90° / 2
-    float weaponFovHalf = radians(15.0);  // 30° / 2
+    float weaponFovHalf = radians(70.0);  // 120° / 2
     float fovScale = tan(weaponFovHalf) / tan(cameraFovHalf);
-    // fovScale = 0.2679 / 1.0 = 0.2679
+    // fovScale = 1.732 / 1.0 = 1.732 (makes weapons appear larger)
     
-    // Apply FOV scaling to X and Y in view space (this zooms in)
+    // Apply FOV scaling to X and Y in view space (this makes weapons appear larger)
     viewPosition.xy *= fovScale;
     
-    // Now apply the normal view-projection matrix
+    // Now apply the normal projection matrix
     // This maintains the same depth relationships as the main camera
-    return mul(viewPosition, ProjectionMatrix);
+    // Reconstruct projection matrix from ViewInfo
+    float4x4 projectionMatrix = (float4x4)0;
+    projectionMatrix[0][0] = 1.0f / ViewInfo.x; // Projection[0,0]
+    projectionMatrix[1][1] = 1.0f / ViewInfo.y; // Projection[1,1]  
+    projectionMatrix[2][2] = ViewInfo.z; // (Far / (Far - Near))
+    projectionMatrix[2][3] = 1.0f;
+    projectionMatrix[3][2] = ViewInfo.w * ViewFar; // (-Far * Near) / (Far - Near)
+    return mul(viewPosition, projectionMatrix);
 }
 
 // Apply weapon FOV override with custom parameters
