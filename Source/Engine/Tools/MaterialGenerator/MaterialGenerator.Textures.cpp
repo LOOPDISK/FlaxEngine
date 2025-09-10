@@ -1493,6 +1493,659 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         value = result;
         break;
     }
+
+
+    case 116: // Advanced Triplanar
+    {
+        // --- 1. Input Validation ---
+        auto topTextureBox = node->TryGetBox(0);
+        auto sideTextureBox = node->TryGetBox(1);
+        auto heightTextureBox = node->TryGetBox(2);
+
+        if (!topTextureBox || !topTextureBox->HasConnection() ||
+            !sideTextureBox || !sideTextureBox->HasConnection() ||
+            !heightTextureBox || !heightTextureBox->HasConnection())
+        {
+            // All three textures are required for this node to function.
+            OnError(node, box, TEXT("Top Texture, Side Texture, and Height Texture are all required."));
+            return;
+        }
+
+        // --- 2. Get All Node Values ---
+        const auto topTexture = eatBox(topTextureBox->GetParent<Node>(), topTextureBox->FirstConnection());
+        const auto sideTexture = eatBox(sideTextureBox->GetParent<Node>(), sideTextureBox->FirstConnection());
+        const auto heightTexture = eatBox(heightTextureBox->GetParent<Node>(), heightTextureBox->FirstConnection());
+
+        const auto scale = tryGetValue(node->GetBox(3), node->Values[0]).AsFloat3();
+        const auto blendSharpness = tryGetValue(node->GetBox(4), node->Values[1]).AsFloat();
+        const auto offset = tryGetValue(node->GetBox(5), node->Values[2]).AsFloat2();
+        const auto samplerIndex = node->Values[3].AsInt;
+        const bool local = node->Values[4].AsBool;
+        const int32 projectionScheme = node->Values[5].AsInt;
+        const bool hardEdgeBlend = node->Values[6].AsBool;
+        const auto hardEdgeCutoff = tryGetValue(node->GetBox(8), node->Values[7]).AsFloat();
+
+        // --- 3. Handle Position, Normal, and Sampler ---
+        auto positionValue = tryGetValue(node->TryGetBox(6), Value(VariantType::Float3, TEXT("input.WorldPosition.xyz"))).AsFloat3();
+        auto normalValue = tryGetValue(node->TryGetBox(7), Value(VariantType::Float3, TEXT("input.TBN[2]"))).AsFloat3();
+
+        String positionStr = positionValue.Value;
+        String normalStr = normalValue.Value;
+        if (local)
+        {
+            positionStr = String::Format(TEXT("TransformWorldVectorToLocal(input, {0} - GetObjectPosition(input)) / GetObjectScale(input)"), positionValue.Value);
+            normalStr = String::Format(TEXT("TransformWorldVectorToLocal(input, {0})"), normalValue.Value);
+        }
+
+        const Char* samplerName;
+        if (samplerIndex == TextureGroup)
+        {
+            auto& textureGroupSampler = findOrAddTextureGroupSampler(samplerIndex);
+            samplerName = *textureGroupSampler.ShaderName;
+        }
+        else if (samplerIndex >= 0 && samplerIndex < ARRAY_COUNT(SamplerNames))
+        {
+            samplerName = SamplerNames[samplerIndex];
+        }
+        else
+        {
+            OnError(node, box, TEXT("Invalid texture sampler."));
+            return;
+        }
+
+        const bool canUseSample = CanUseSample(_treeType);
+        const String sampleMethod = canUseSample ? TEXT("Sample") : TEXT("SampleLevel");
+        const String sampleArgs = canUseSample ? TEXT("") : TEXT(", 0");
+
+        // --- 4. Select Shader Logic Template based on Projection Scheme ---
+        auto result = writeLocal(Value::InitForZero(ValueType::Float4), node);
+        const Char* blendLogicTemplate = TEXT("");
+
+        switch (projectionScheme)
+        {
+        case 0: // WorldAlignedTop
+        {
+            if (hardEdgeBlend)
+            {
+                blendLogicTemplate = TEXT(R"(
+    // World Aligned Top with Hard Edge Blend
+    // Use top texture only for upward normals, side texture for downward normals
+    float4 topColor = normal.y > 0 ? %TOP_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%) : %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%);
+    float4 sideColorX = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%);
+    float4 sideColorZ = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%);
+    
+    // Get height values
+    float topHeight = normal.y > 0 ? %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r : %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    // Blend side projections
+    float sideLerpFactor = blendWeights.x / (blendWeights.x + blendWeights.z + 1e-6f);
+    float4 sidesColor = lerp(sideColorZ, sideColorX, sideLerpFactor);
+    float sideHeight = lerp(sideHeightZ, sideHeightX, sideLerpFactor);
+    
+    // Height-influenced hard edge selection with cutoff affecting midpoint
+    float heightDifference = topHeight - sideHeight;
+    float adjustedBlendY = blendWeights.y + (heightDifference - %CUTOFF%) * %SHARPNESS%;
+    
+    if (adjustedBlendY > 0.5f)
+    {
+        %RESULT% = topColor;
+    }
+    else
+    {
+        %RESULT% = sidesColor;
+    }
+)");
+            }
+            else
+            {
+                blendLogicTemplate = TEXT(R"(
+    // World Aligned Top with Smooth Height-based Blend
+    // Use top texture only for upward normals, side texture for downward normals
+    float4 topColor = normal.y > 0 ? %TOP_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%) : %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%);
+    float4 sideColorX = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%);
+    float4 sideColorZ = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%);
+
+    // Blend the two side projections based on normal direction
+    float sideLerpFactor = blendWeights.x / (blendWeights.x + blendWeights.z + 1e-6f);
+    float4 sidesColor = lerp(sideColorZ, sideColorX, sideLerpFactor);
+
+    // Get height values for top and combined side projections
+    float topHeight = normal.y > 0 ? %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r : %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    float sideHeight = lerp(sideHeightZ, sideHeightX, sideLerpFactor);
+
+    // Create blend mask with cutoff affecting the midpoint of height blend
+    float heightDifference = topHeight - sideHeight;
+    float heightMask = saturate((heightDifference - %CUTOFF% + (blendWeights.y - 0.5f)) * %SHARPNESS%);
+
+    %RESULT% = lerp(sidesColor, topColor, heightMask);
+)");
+            }
+            break;
+        }
+        case 1: // FourAxisBlend
+        {
+            if (hardEdgeBlend)
+            {
+                blendLogicTemplate = TEXT(R"(
+    // Four Axis Blend with Hard Edge and Height Influence
+    float4 topColor = %TOP_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%);
+    float4 sideColorX = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%);
+    float4 sideColorZ = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%);
+    
+    // Get height values
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    // Blend side projections together
+    float sideLerpFactor = blendWeights.x / (blendWeights.x + blendWeights.z + 1e-6f);
+    float4 sidesColor = lerp(sideColorZ, sideColorX, sideLerpFactor);
+    float sideHeight = lerp(sideHeightZ, sideHeightX, sideLerpFactor);
+
+    // Height-influenced hard edge with cutoff affecting midpoint
+    float heightDifference = topHeight - sideHeight;
+    float adjustedBlendY = blendWeights.y + (heightDifference - %CUTOFF%) * %SHARPNESS%;
+    
+    %RESULT% = adjustedBlendY > 0.5f ? topColor : sidesColor;
+)");
+            }
+            else
+            {
+                blendLogicTemplate = TEXT(R"(
+    // Four Axis Blend with Smooth Height Influence
+    float4 topColor = %TOP_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%);
+    float4 sideColorX = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%);
+    float4 sideColorZ = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%);
+    
+    // Get height values
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    // Blend side projections together
+    float sideLerpFactor = blendWeights.x / (blendWeights.x + blendWeights.z + 1e-6f);
+    float4 sidesColor = lerp(sideColorZ, sideColorX, sideLerpFactor);
+    float sideHeight = lerp(sideHeightZ, sideHeightX, sideLerpFactor);
+
+    // Height-influenced blend with cutoff affecting midpoint
+    float heightDifference = topHeight - sideHeight;
+    float heightInfluencedWeight = saturate(blendWeights.y + (heightDifference - %CUTOFF%) * %SHARPNESS%);
+    
+    %RESULT% = lerp(sidesColor, topColor, heightInfluencedWeight);
+)");
+            }
+            break;
+        }
+        case 2: // SimpleCube
+        {
+            if (hardEdgeBlend)
+            {
+                blendLogicTemplate = TEXT(R"(
+    // Simple Cube with Hard Edge and Height Selection
+    float4 topColor = %TOP_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%);
+    float4 sideColorX = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%);
+    float4 sideColorZ = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%);
+    
+    // Get height values
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    // Height-influenced selection with hard edges, cutoff affects midpoint
+    float3 heightAdjustedWeights = blendWeights;
+    heightAdjustedWeights.y += (topHeight - max(sideHeightX, sideHeightZ) - %CUTOFF%) * %SHARPNESS%;
+    heightAdjustedWeights.x += (sideHeightX - max(topHeight, sideHeightZ) - %CUTOFF%) * %SHARPNESS%;
+    heightAdjustedWeights.z += (sideHeightZ - max(topHeight, sideHeightX) - %CUTOFF%) * %SHARPNESS%;
+    
+    if (heightAdjustedWeights.y > heightAdjustedWeights.x && heightAdjustedWeights.y > heightAdjustedWeights.z)
+        %RESULT% = topColor;
+    else if (heightAdjustedWeights.x > heightAdjustedWeights.z)
+        %RESULT% = sideColorX;
+    else
+        %RESULT% = sideColorZ;
+)");
+            }
+            else
+            {
+                blendLogicTemplate = TEXT(R"(
+    // Simple Cube with Smooth Height-influenced Blending
+    float4 topColor = %TOP_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%);
+    float4 sideColorX = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%);
+    float4 sideColorZ = %SIDE_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%);
+    
+    // Get height values
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    // Height-influenced smooth blending with cutoff affecting midpoint
+    float3 heightAdjustedWeights = blendWeights;
+    heightAdjustedWeights.y += (topHeight - (sideHeightX + sideHeightZ) * 0.5f - %CUTOFF%) * %SHARPNESS%;
+    heightAdjustedWeights.x += (sideHeightX - (topHeight + sideHeightZ) * 0.5f - %CUTOFF%) * %SHARPNESS%;
+    heightAdjustedWeights.z += (sideHeightZ - (topHeight + sideHeightX) * 0.5f - %CUTOFF%) * %SHARPNESS%;
+    
+    // Normalize weights
+    heightAdjustedWeights = max(heightAdjustedWeights, float3(0.001f, 0.001f, 0.001f));
+    heightAdjustedWeights /= (heightAdjustedWeights.x + heightAdjustedWeights.y + heightAdjustedWeights.z);
+    
+    %RESULT% = topColor * heightAdjustedWeights.y + 
+               sideColorX * heightAdjustedWeights.x + 
+               sideColorZ * heightAdjustedWeights.z;
+)");
+            }
+            break;
+        }
+        }
+
+        // --- 5. Assemble Final Shader ---
+        String mainTemplate = TEXT(R"(
+{
+    float3 pos = (%POSITION%) * (%SCALE% * 0.01f);
+    float3 normal = normalize(%NORMAL%);
+    float3 blendWeights = pow(abs(normal), %SHARPNESS%);
+    blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);
+)");
+        String closingTemplate = TEXT(R"(
+}
+)");
+        String fullShaderTemplate = mainTemplate + blendLogicTemplate + closingTemplate;
+
+        String fullShader = ShaderStringBuilder()
+            .Code(*fullShaderTemplate)
+            .Replace(TEXT("%POSITION%"), *positionStr)
+            .Replace(TEXT("%NORMAL%"), *normalStr)
+            .Replace(TEXT("%SCALE%"), scale.Value)
+            .Replace(TEXT("%SHARPNESS%"), blendSharpness.Value)
+            .Replace(TEXT("%OFFSET%"), offset.Value)
+            .Replace(TEXT("%CUTOFF%"), hardEdgeCutoff.Value)
+            .Replace(TEXT("%TOP_TEX%"), topTexture.Value)
+            .Replace(TEXT("%SIDE_TEX%"), sideTexture.Value)
+            .Replace(TEXT("%HEIGHT_TEX%"), heightTexture.Value)
+            .Replace(TEXT("%RESULT%"), result.Value)
+            .Replace(TEXT("%SAMPLER%"), samplerName)
+            .Replace(TEXT("%SAMPLE%"), *sampleMethod)
+            .Replace(TEXT("%ARGS%"), *sampleArgs)
+            .Build();
+
+        _writer.Write(*fullShader);
+        value = result;
+        break;
+    }
+
+
+
+    case 117: // Advanced Triplanar Normal Map
+    {
+        // --- 1. Input Validation ---
+        auto topNormalBox = node->TryGetBox(0);
+        auto sideNormalBox = node->TryGetBox(1);
+        auto heightTextureBox = node->TryGetBox(2);
+
+        if (!topNormalBox || !topNormalBox->HasConnection() ||
+            !sideNormalBox || !sideNormalBox->HasConnection() ||
+            !heightTextureBox || !heightTextureBox->HasConnection())
+        {
+            // All three textures are required for this node to function.
+            OnError(node, box, TEXT("Top Normal Map, Side Normal Map, and Height Texture are all required."));
+            return;
+        }
+
+        // --- 2. Get All Node Values ---
+        const auto topNormalTexture = eatBox(topNormalBox->GetParent<Node>(), topNormalBox->FirstConnection());
+        const auto sideNormalTexture = eatBox(sideNormalBox->GetParent<Node>(), sideNormalBox->FirstConnection());
+        const auto heightTexture = eatBox(heightTextureBox->GetParent<Node>(), heightTextureBox->FirstConnection());
+
+        const auto scale = tryGetValue(node->GetBox(3), node->Values[0]).AsFloat3();
+        const auto blendSharpness = tryGetValue(node->GetBox(4), node->Values[1]).AsFloat();
+        const auto offset = tryGetValue(node->GetBox(5), node->Values[2]).AsFloat2();
+        const auto samplerIndex = node->Values[3].AsInt;
+        const bool local = node->Values[4].AsBool;
+        const int32 projectionScheme = node->Values[5].AsInt;
+        const bool hardEdgeBlend = node->Values[6].AsBool;
+        const auto hardEdgeCutoff = tryGetValue(node->GetBox(8), node->Values[7]).AsFloat();
+
+        // --- 3. Handle Position, Normal, and Sampler ---
+        auto positionValue = tryGetValue(node->TryGetBox(6), Value(VariantType::Float3, TEXT("input.WorldPosition.xyz"))).AsFloat3();
+        auto normalValue = tryGetValue(node->TryGetBox(7), Value(VariantType::Float3, TEXT("input.TBN[2]"))).AsFloat3();
+
+        String positionStr = positionValue.Value;
+        String normalStr = normalValue.Value;
+        if (local)
+        {
+            positionStr = String::Format(TEXT("TransformWorldVectorToLocal(input, {0} - GetObjectPosition(input)) / GetObjectScale(input)"), positionValue.Value);
+            normalStr = String::Format(TEXT("TransformWorldVectorToLocal(input, {0})"), normalValue.Value);
+        }
+
+        const Char* samplerName;
+        if (samplerIndex == TextureGroup)
+        {
+            auto& textureGroupSampler = findOrAddTextureGroupSampler(samplerIndex);
+            samplerName = *textureGroupSampler.ShaderName;
+        }
+        else if (samplerIndex >= 0 && samplerIndex < ARRAY_COUNT(SamplerNames))
+        {
+            samplerName = SamplerNames[samplerIndex];
+        }
+        else
+        {
+            OnError(node, box, TEXT("Invalid texture sampler."));
+            return;
+        }
+
+        const bool canUseSample = CanUseSample(_treeType);
+        const String sampleMethod = canUseSample ? TEXT("Sample") : TEXT("SampleLevel");
+        const String sampleArgs = canUseSample ? TEXT("") : TEXT(", 0");
+
+        // --- 4. Select Shader Logic Template based on Projection Scheme ---
+        auto result = writeLocal(Value::InitForZero(ValueType::Float3), node);
+        const Char* blendLogicTemplate = TEXT("");
+
+        switch (projectionScheme)
+        {
+        case 0: // WorldAlignedTop
+        {
+            if (hardEdgeBlend)
+            {
+                blendLogicTemplate = TEXT(R"(
+    // World Aligned Top Normal Map with Hard Edge Blend
+    // Use top normal only for upward normals, side normal for downward normals
+    float3 topNormal = UnpackNormalMap((normal.y > 0 ? %TOP_NORMAL% : %SIDE_NORMAL%).%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalX = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalZ = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).rg);
+    
+    // Get height values for blending decision
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    // Blend side normal projections
+    float sideLerpFactor = blendWeights.x / (blendWeights.x + blendWeights.z + 1e-6f);
+    float sideHeight = lerp(sideHeightZ, sideHeightX, sideLerpFactor);
+    
+    // Apply whiteout blending for side normals
+    float3 worldNormal = normalize(input.TBN[2]);
+    float3 axisSign = sign(worldNormal);
+    float2 sumX = sideNormalX.xy + worldNormal.zy;
+    float2 sumZ = sideNormalZ.xy + worldNormal.xy;
+    sideNormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+    sideNormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+    float3 blendedSideNormal = normalize(lerp(sideNormalZ.xyz, sideNormalX.zyx, sideLerpFactor));
+    
+    // Apply whiteout blending for top normal
+    float2 sumY = topNormal.xy + worldNormal.xy;
+    topNormal = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+    
+    // Height-influenced hard edge selection with cutoff affecting midpoint
+    float heightDifference = topHeight - sideHeight;
+    float adjustedBlendY = blendWeights.y + (heightDifference - %CUTOFF%) * %SHARPNESS%;
+    
+    float3 finalNormal;
+    if (adjustedBlendY > 0.5f)
+    {
+        finalNormal = topNormal.xyz;
+    }
+    else
+    {
+        finalNormal = blendedSideNormal;
+    }
+    
+    // Transform to tangent space
+    %RESULT% = normalize(TransformWorldVectorToTangent(input, finalNormal));
+)");
+            }
+            else
+            {
+                blendLogicTemplate = TEXT(R"(
+    // World Aligned Top Normal Map with Smooth Height-based Blend
+    // Use top normal only for upward normals, side normal for downward normals
+    float3 topNormal = UnpackNormalMap((normal.y > 0 ? %TOP_NORMAL% : %SIDE_NORMAL%).%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalX = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalZ = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).rg);
+
+    // Get height values
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    float sideLerpFactor = blendWeights.x / (blendWeights.x + blendWeights.z + 1e-6f);
+    float sideHeight = lerp(sideHeightZ, sideHeightX, sideLerpFactor);
+
+    // Apply whiteout blending for normals
+    float3 worldNormal = normalize(input.TBN[2]);
+    float3 axisSign = sign(worldNormal);
+    float2 sumX = sideNormalX.xy + worldNormal.zy;
+    float2 sumY = topNormal.xy + worldNormal.xy;
+    float2 sumZ = sideNormalZ.xy + worldNormal.xy;
+    sideNormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+    topNormal = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+    sideNormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+
+    // Blend side normals
+    float3 blendedSideNormal = normalize(lerp(sideNormalZ.xyz, sideNormalX.zyx, sideLerpFactor));
+    
+    // Create blend mask with cutoff affecting the midpoint of height blend
+    float heightDifference = topHeight - sideHeight;
+    float heightMask = saturate((heightDifference - %CUTOFF% + (blendWeights.y - 0.5f)) * %SHARPNESS%);
+
+    float3 finalNormal = normalize(lerp(blendedSideNormal, topNormal.xyz, heightMask));
+    
+    // Transform to tangent space
+    %RESULT% = normalize(TransformWorldVectorToTangent(input, finalNormal));
+)");
+            }
+            break;
+        }
+        case 1: // FourAxisBlend
+        {
+            if (hardEdgeBlend)
+            {
+                blendLogicTemplate = TEXT(R"(
+    // Four Axis Normal Blend with Hard Edge and Height Influence
+    float3 topNormal = UnpackNormalMap(%TOP_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalX = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalZ = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).rg);
+    
+    // Get height values
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    float sideLerpFactor = blendWeights.x / (blendWeights.x + blendWeights.z + 1e-6f);
+    float sideHeight = lerp(sideHeightZ, sideHeightX, sideLerpFactor);
+
+    // Apply whiteout blending
+    float3 worldNormal = normalize(input.TBN[2]);
+    float3 axisSign = sign(worldNormal);
+    float2 sumX = sideNormalX.xy + worldNormal.zy;
+    float2 sumY = topNormal.xy + worldNormal.xy;
+    float2 sumZ = sideNormalZ.xy + worldNormal.xy;
+    sideNormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+    topNormal = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+    sideNormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+
+    float3 blendedSideNormal = normalize(lerp(sideNormalZ.xyz, sideNormalX.zyx, sideLerpFactor));
+
+    // Height-influenced hard edge with cutoff affecting midpoint
+    float heightDifference = topHeight - sideHeight;
+    float adjustedBlendY = blendWeights.y + (heightDifference - %CUTOFF%) * %SHARPNESS%;
+    
+    float3 finalNormal = adjustedBlendY > 0.5f ? topNormal.xyz : blendedSideNormal;
+    
+    // Transform to tangent space
+    %RESULT% = normalize(TransformWorldVectorToTangent(input, finalNormal));
+)");
+            }
+            else
+            {
+                blendLogicTemplate = TEXT(R"(
+    // Four Axis Normal Blend with Smooth Height Influence
+    float3 topNormal = UnpackNormalMap(%TOP_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalX = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalZ = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).rg);
+    
+    // Get height values
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    float sideLerpFactor = blendWeights.x / (blendWeights.x + blendWeights.z + 1e-6f);
+    float sideHeight = lerp(sideHeightZ, sideHeightX, sideLerpFactor);
+
+    // Apply whiteout blending
+    float3 worldNormal = normalize(input.TBN[2]);
+    float3 axisSign = sign(worldNormal);
+    float2 sumX = sideNormalX.xy + worldNormal.zy;
+    float2 sumY = topNormal.xy + worldNormal.xy;
+    float2 sumZ = sideNormalZ.xy + worldNormal.xy;
+    sideNormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+    topNormal = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+    sideNormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+
+    float3 blendedSideNormal = normalize(lerp(sideNormalZ.xyz, sideNormalX.zyx, sideLerpFactor));
+
+    // Height-influenced blend with cutoff affecting midpoint
+    float heightDifference = topHeight - sideHeight;
+    float heightInfluencedWeight = saturate(blendWeights.y + (heightDifference - %CUTOFF%) * %SHARPNESS%);
+    
+    float3 finalNormal = normalize(lerp(blendedSideNormal, topNormal.xyz, heightInfluencedWeight));
+    
+    // Transform to tangent space
+    %RESULT% = normalize(TransformWorldVectorToTangent(input, finalNormal));
+)");
+            }
+            break;
+        }
+        case 2: // SimpleCube
+        {
+            if (hardEdgeBlend)
+            {
+                blendLogicTemplate = TEXT(R"(
+    // Simple Cube Normal Map with Hard Edge and Height Selection
+    float3 topNormal = UnpackNormalMap(%TOP_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalX = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalZ = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).rg);
+    
+    // Get height values
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    // Apply whiteout blending
+    float3 worldNormal = normalize(input.TBN[2]);
+    float3 axisSign = sign(worldNormal);
+    float2 sumX = sideNormalX.xy + worldNormal.zy;
+    float2 sumY = topNormal.xy + worldNormal.xy;
+    float2 sumZ = sideNormalZ.xy + worldNormal.xy;
+    sideNormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+    topNormal = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+    sideNormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+    
+    // Height-influenced selection with hard edges, cutoff affects midpoint
+    float3 heightAdjustedWeights = blendWeights;
+    heightAdjustedWeights.y += (topHeight - max(sideHeightX, sideHeightZ) - %CUTOFF%) * %SHARPNESS%;
+    heightAdjustedWeights.x += (sideHeightX - max(topHeight, sideHeightZ) - %CUTOFF%) * %SHARPNESS%;
+    heightAdjustedWeights.z += (sideHeightZ - max(topHeight, sideHeightX) - %CUTOFF%) * %SHARPNESS%;
+    
+    float3 finalNormal;
+    if (heightAdjustedWeights.y > heightAdjustedWeights.x && heightAdjustedWeights.y > heightAdjustedWeights.z)
+        finalNormal = topNormal.xyz;
+    else if (heightAdjustedWeights.x > heightAdjustedWeights.z)
+        finalNormal = sideNormalX.zyx;
+    else
+        finalNormal = sideNormalZ.xyz;
+    
+    // Transform to tangent space
+    %RESULT% = normalize(TransformWorldVectorToTangent(input, finalNormal));
+)");
+            }
+            else
+            {
+                blendLogicTemplate = TEXT(R"(
+    // Simple Cube Normal Map with Smooth Height-influenced Blending
+    float3 topNormal = UnpackNormalMap(%TOP_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalX = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).rg);
+    float3 sideNormalZ = UnpackNormalMap(%SIDE_NORMAL%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).rg);
+    
+    // Get height values
+    float topHeight = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xz + %OFFSET%%ARGS%).r;
+    float sideHeightX = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.yz + %OFFSET%%ARGS%).r;
+    float sideHeightZ = %HEIGHT_TEX%.%SAMPLE%(%SAMPLER%, pos.xy + %OFFSET%%ARGS%).r;
+    
+    // Apply whiteout blending
+    float3 worldNormal = normalize(input.TBN[2]);
+    float3 axisSign = sign(worldNormal);
+    float2 sumX = sideNormalX.xy + worldNormal.zy;
+    float2 sumY = topNormal.xy + worldNormal.xy;
+    float2 sumZ = sideNormalZ.xy + worldNormal.xy;
+    sideNormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+    topNormal = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+    sideNormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+    
+    // Height-influenced smooth blending with cutoff affecting midpoint
+    float3 heightAdjustedWeights = blendWeights;
+    heightAdjustedWeights.y += (topHeight - (sideHeightX + sideHeightZ) * 0.5f - %CUTOFF%) * %SHARPNESS%;
+    heightAdjustedWeights.x += (sideHeightX - (topHeight + sideHeightZ) * 0.5f - %CUTOFF%) * %SHARPNESS%;
+    heightAdjustedWeights.z += (sideHeightZ - (topHeight + sideHeightX) * 0.5f - %CUTOFF%) * %SHARPNESS%;
+    
+    // Normalize weights
+    heightAdjustedWeights = max(heightAdjustedWeights, float3(0.001f, 0.001f, 0.001f));
+    heightAdjustedWeights /= (heightAdjustedWeights.x + heightAdjustedWeights.y + heightAdjustedWeights.z);
+    
+    float3 finalNormal = normalize(
+        topNormal.xyz * heightAdjustedWeights.y + 
+        sideNormalX.zyx * heightAdjustedWeights.x + 
+        sideNormalZ.xyz * heightAdjustedWeights.z
+    );
+    
+    // Transform to tangent space
+    %RESULT% = normalize(TransformWorldVectorToTangent(input, finalNormal));
+)");
+            }
+            break;
+        }
+        }
+
+        // --- 5. Assemble Final Shader ---
+        String mainTemplate = TEXT(R"(
+{
+    float3 pos = (%POSITION%) * (%SCALE% * 0.01f);
+    float3 normal = normalize(%NORMAL%);
+    float3 blendWeights = pow(abs(normal), %SHARPNESS%);
+    blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);
+)");
+        String closingTemplate = TEXT(R"(
+}
+)");
+        String fullShaderTemplate = mainTemplate + blendLogicTemplate + closingTemplate;
+
+        String fullShader = ShaderStringBuilder()
+            .Code(*fullShaderTemplate)
+            .Replace(TEXT("%POSITION%"), *positionStr)
+            .Replace(TEXT("%NORMAL%"), *normalStr)
+            .Replace(TEXT("%SCALE%"), scale.Value)
+            .Replace(TEXT("%SHARPNESS%"), blendSharpness.Value)
+            .Replace(TEXT("%OFFSET%"), offset.Value)
+            .Replace(TEXT("%CUTOFF%"), hardEdgeCutoff.Value)
+            .Replace(TEXT("%TOP_NORMAL%"), topNormalTexture.Value)
+            .Replace(TEXT("%SIDE_NORMAL%"), sideNormalTexture.Value)
+            .Replace(TEXT("%HEIGHT_TEX%"), heightTexture.Value)
+            .Replace(TEXT("%RESULT%"), result.Value)
+            .Replace(TEXT("%SAMPLER%"), samplerName)
+            .Replace(TEXT("%SAMPLE%"), *sampleMethod)
+            .Replace(TEXT("%ARGS%"), *sampleArgs)
+            .Build();
+
+        _writer.Write(*fullShader);
+        value = result;
+        break;
+    }
+
+
+
+
     default:
         break;
     }
