@@ -77,15 +77,6 @@ namespace FlaxEditor.Windows.Assets
             [EditorOrder(140), DefaultValue(false), VisibleIf(nameof(IsStandard)), EditorDisplay("Rendering"), Tooltip("Enable weapon FOV override for FPS weapon rendering with custom projection matrix.")]
             public bool WeaponFOVOverride;
 
-            [EditorOrder(150), DefaultValue(60.0f), VisibleIf(nameof(WeaponFOVOverride)), EditorDisplay("Rendering"), Tooltip("Custom Field Of View angle for weapon rendering."), Range(30.0f, 120.0f)]
-            public float WeaponFOV;
-
-            [EditorOrder(160), DefaultValue(0.1f), VisibleIf(nameof(WeaponFOVOverride)), EditorDisplay("Rendering"), Tooltip("Custom Near Plane distance for weapon rendering."), Limit(0.0001f)]
-            public float WeaponNearPlane;
-
-            [EditorOrder(170), DefaultValue(10000.0f), VisibleIf(nameof(WeaponFOVOverride)), EditorDisplay("Rendering"), Tooltip("Custom Far Plane distance for weapon rendering."), Limit(10.0f)]
-            public float WeaponFarPlane;
-
             // Transparency
 
             [EditorOrder(200), DefaultValue(MaterialTransparentLightingMode.Surface), VisibleIf(nameof(IsForward)), EditorDisplay("Transparency"), Tooltip("Transparent material lighting mode.")]
