@@ -514,6 +514,123 @@ public:
 /// <summary>
 /// The structure members override flags.
 /// </summary>
+API_ENUM(Attributes="Flags") enum class DepthHazeSettingsOverride : int32
+{
+    /// <summary>
+    /// None properties.
+    /// </summary>
+    None = 0,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.Enabled"/> property.
+    /// </summary>
+    Enabled = 1 << 0,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.Intensity"/> property.
+    /// </summary>
+    Intensity = 1 << 1,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.Threshold"/> property.
+    /// </summary>
+    Threshold = 1 << 2,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.ThresholdKnee"/> property.
+    /// </summary>
+    ThresholdKnee = 1 << 3,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.Clamp"/> property.
+    /// </summary>
+    Clamp = 1 << 4,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.BaseMix"/> property.
+    /// </summary>
+    BaseMix = 1 << 5,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.HighMix"/> property.
+    /// </summary>
+    HighMix = 1 << 6,
+
+    /// <summary>
+    /// All properties.
+    /// </summary>
+    All = Enabled | Intensity | Threshold | ThresholdKnee | Clamp | BaseMix | HighMix,
+};
+
+/// <summary>
+/// Contains settings for Depth Haze effect rendering.
+/// </summary>
+API_STRUCT() struct FLAXENGINE_API DepthHazeSettings : ISerializable
+{
+    API_AUTO_SERIALIZATION();
+    DECLARE_SCRIPTING_TYPE_NO_SPAWN(DepthHazeSettings);
+    typedef DepthHazeSettingsOverride Override;
+
+    /// <summary>
+    /// The flags for overriden properties.
+    /// </summary>
+    API_FIELD(Attributes="HideInEditor")
+    DepthHazeSettingsOverride OverrideFlags = Override::None;
+
+    /// <summary>
+    /// If checked, depth haze effect will be rendered.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(0), PostProcessSetting((int)DepthHazeSettingsOverride.Enabled)")
+    bool Enabled = true;
+
+    /// <summary>
+    /// Overall depth haze effect strength. Higher values create a stronger haze effect.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 100.0f, 0.001f), EditorOrder(1), PostProcessSetting((int)DepthHazeSettingsOverride.Intensity)")
+    float Intensity = 0.5f;
+
+    /// <summary>
+    /// Luminance threshold where depth haze begins.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 100.0f, 0.1f), EditorOrder(2), PostProcessSetting((int)DepthHazeSettingsOverride.Threshold)")
+    float Threshold = 0.5f;
+
+    /// <summary>
+    /// Controls the threshold rolloff curve. Higher values create a softer transition.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 100.0f, 0.01f), EditorOrder(3), PostProcessSetting((int)DepthHazeSettingsOverride.ThresholdKnee)")
+    float ThresholdKnee = 0.5f;
+
+    /// <summary>
+    /// Maximum brightness limit for depth haze highlights.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 100.0f, 0.1f), EditorOrder(4), PostProcessSetting((int)DepthHazeSettingsOverride.Clamp)")
+    float Clamp = 1.0f;
+
+    /// <summary>
+    /// Base mip contribution for wider, softer depth haze.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 1.0f, 0.01f), EditorOrder(5), PostProcessSetting((int)DepthHazeSettingsOverride.BaseMix)")
+    float BaseMix = 0.6f;
+
+    /// <summary>
+    /// High mip contribution for tighter, core depth haze.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 1.0f, 0.01f), EditorOrder(6), PostProcessSetting((int)DepthHazeSettingsOverride.HighMix)")
+    float HighMix = 1.0f;
+
+public:
+    /// <summary>
+    /// Blends the settings using given weight.
+    /// </summary>
+    /// <param name="other">The other settings.</param>
+    /// <param name="weight">The blend weight.</param>
+    void BlendWith(DepthHazeSettings& other, float weight);
+};
+
+/// <summary>
+/// The structure members override flags.
+/// </summary>
 API_ENUM(Attributes ="Flags") enum class ToneMappingSettingsOverride : int32
 {
     /// <summary>
@@ -2035,6 +2152,12 @@ API_STRUCT() struct FLAXENGINE_API PostProcessSettings : ISerializable
     /// </summary>
     API_FIELD(Attributes="EditorDisplay(\"Global Illumination\"), EditorOrder(150), JsonProperty(\"GI\")")
     GlobalIlluminationSettings GlobalIllumination;
+
+    /// <summary>
+    /// The depth haze effect settings.
+    /// </summary>
+    API_FIELD(Attributes="EditorDisplay(\"Depth Haze\"), EditorOrder(190)")
+    DepthHazeSettings DepthHaze;
 
     /// <summary>
     /// The bloom effect settings.

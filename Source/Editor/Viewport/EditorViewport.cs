@@ -1065,6 +1065,7 @@ namespace FlaxEditor.Viewport
             InputActions.Add(options => options.Decals, () => Task.ViewFlags ^= ViewFlags.Decals);
             InputActions.Add(options => options.CustomPostProcess, () => Task.ViewFlags ^= ViewFlags.CustomPostProcess);
             InputActions.Add(options => options.Bloom, () => Task.ViewFlags ^= ViewFlags.Bloom);
+            InputActions.Add(options => options.DepthHaze, () => Task.ViewFlags ^= ViewFlags.DepthHaze);
             InputActions.Add(options => options.ToneMapping, () => Task.ViewFlags ^= ViewFlags.ToneMapping);
             InputActions.Add(options => options.EyeAdaptation, () => Task.ViewFlags ^= ViewFlags.EyeAdaptation);
             InputActions.Add(options => options.CameraArtifacts, () => Task.ViewFlags ^= ViewFlags.CameraArtifacts);
@@ -2113,6 +2114,7 @@ namespace FlaxEditor.Viewport
             new ViewFlagOptions(ViewFlags.Decals, "Decals", Editor.Instance.Options.Options.Input.Decals),
             new ViewFlagOptions(ViewFlags.CustomPostProcess, "Custom Post Process", Editor.Instance.Options.Options.Input.CustomPostProcess),
             new ViewFlagOptions(ViewFlags.Bloom, "Bloom", Editor.Instance.Options.Options.Input.Bloom),
+            new ViewFlagOptions(ViewFlags.DepthHaze, "Depth Haze", Editor.Instance.Options.Options.Input.DepthHaze),
             new ViewFlagOptions(ViewFlags.ToneMapping, "Tone Mapping", Editor.Instance.Options.Options.Input.ToneMapping),
             new ViewFlagOptions(ViewFlags.EyeAdaptation, "Eye Adaptation", Editor.Instance.Options.Options.Input.EyeAdaptation),
             new ViewFlagOptions(ViewFlags.CameraArtifacts, "Camera Artifacts", Editor.Instance.Options.Options.Input.CameraArtifacts),

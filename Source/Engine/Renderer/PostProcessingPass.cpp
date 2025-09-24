@@ -13,6 +13,16 @@
 #define GB_KERNEL_SIZE (GB_RADIUS * 2 + 1)
 
 GPU_CB_STRUCT(Data{
+    float DepthHazeIntensity; // Overall depth haze strength multiplier
+    float DepthHazeClamp; // Maximum brightness limit for depth haze
+    float DepthHazeThreshold; // Luminance threshold where depth haze begins
+    float DepthHazeThresholdKnee; // Controls the threshold rolloff curve
+
+    float DepthHazeBaseMix; // Base mip contribution
+    float DepthHazeHighMix; // High mip contribution
+    float DepthHazeMipCount;
+    float DepthHazeLayer;
+
     float BloomIntensity; // Overall bloom strength multiplier
     float BloomClamp; // Maximum brightness limit for bloom
     float BloomThreshold; // Luminance threshold where bloom begins
@@ -73,6 +83,9 @@ String PostProcessingPass::ToString() const
 bool PostProcessingPass::Init()
 {
     // Create pipeline states
+    _psDepthHazeBrightPass = GPUDevice::Instance->CreatePipelineState();
+    _psDepthHazeDownsample = GPUDevice::Instance->CreatePipelineState();
+    _psDepthHazeDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
     _psBloomBrightPass = GPUDevice::Instance->CreatePipelineState();
     _psBloomDownsample = GPUDevice::Instance->CreatePipelineState();
     _psBloomDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
@@ -113,6 +126,24 @@ bool PostProcessingPass::setupResources()
 
     // Create pipeline stages
     GPUPipelineState::Description psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
+    if (!_psDepthHazeBrightPass->IsValid())
+    {
+        psDesc.PS = shader->GetPS("PS_DepthHazeBrightPass");
+        if (_psDepthHazeBrightPass->Init(psDesc))
+            return true;
+    }
+    if (!_psDepthHazeDownsample->IsValid())
+    {
+        psDesc.PS = shader->GetPS("PS_DepthHazeDownsample");
+        if (_psDepthHazeDownsample->Init(psDesc))
+            return true;
+    }
+    if (!_psDepthHazeDualFilterUpsample->IsValid())
+    {
+        psDesc.PS = shader->GetPS("PS_DepthHazeDualFilterUpsample");
+        if (_psDepthHazeDualFilterUpsample->Init(psDesc))
+            return true;
+    }
     if (!_psBloomBrightPass->IsValid())
     {
         psDesc.PS = shader->GetPS("PS_BloomBrightPass");
@@ -222,6 +253,9 @@ void PostProcessingPass::Dispose()
     RendererPass::Dispose();
 
     // Cleanup
+    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeBrightPass);
+    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDownsample);
+    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDualFilterUpsample);
     SAFE_DELETE_GPU_RESOURCE(_psBloomBrightPass);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDualFilterUpsample);
@@ -262,6 +296,8 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     context->ResetRenderTarget();
 
     PostProcessSettings& settings = renderContext.List->Settings;
+    // HARDCODE DEPTH HAZE TO ALWAYS BE ACTIVE
+    bool useDepthHaze = true; // EnumHasAnyFlags(view.Flags, ViewFlags::DepthHaze) && settings.DepthHaze.Enabled && settings.DepthHaze.Intensity > 0.0f;
     bool useBloom = EnumHasAnyFlags(view.Flags, ViewFlags::Bloom) && settings.Bloom.Enabled && settings.Bloom.Intensity > 0.0f;
     bool useToneMapping = EnumHasAnyFlags(view.Flags, ViewFlags::ToneMapping) && settings.ToneMapping.Mode != ToneMappingMode::None;
     bool useCameraArtifacts = EnumHasAnyFlags(view.Flags, ViewFlags::CameraArtifacts) && (settings.CameraArtifacts.VignetteIntensity > 0.0f || settings.CameraArtifacts.GrainAmount > 0.0f || settings.CameraArtifacts.ChromaticDistortion > 0.0f || settings.CameraArtifacts.ScreenFadeColor.A > 0.0f);
@@ -279,7 +315,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     int32 bloomMipCount = CalculateBloomMipCount(w1, h1);
 
     // Ensure to have valid data and if at least one effect should be applied
-    if (!(useBloom || useToneMapping || useCameraArtifacts) || checkIfSkipPass() || w8 <= 1 || h8 <= 1)
+    if (!(useDepthHaze || useBloom || useToneMapping || useCameraArtifacts) || checkIfSkipPass() || w8 <= 1 || h8 <= 1)
     {
         // Resources are missing. Do not perform rendering. Just copy raw frame
         context->SetViewportAndScissors((float)output->Width(), (float)output->Height());
@@ -317,6 +353,15 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.ChromaticDistortion = 0;
         data.ScreenFadeColor = Color::Transparent;
     }
+    // HARDCODED DEPTH HAZE VALUES - always active, bypassing all settings
+    data.DepthHazeIntensity = 10.0f;  // High intensity for visibility
+    data.DepthHazeClamp = 10.0f;      // High clamp limit
+    data.DepthHazeThreshold = 0.5f;   // Medium threshold for bright pass
+    data.DepthHazeThresholdKnee = 1.5f; // Smooth transition
+    data.DepthHazeBaseMix = 1.0f;     // Full base layer contribution
+    data.DepthHazeHighMix = 1.0f;     // Full high-frequency contribution
+    data.DepthHazeMipCount = (float)bloomMipCount;
+    data.DepthHazeLayer = 0.0f;
     if (useBloom)
     {
         data.BloomIntensity = settings.Bloom.Intensity;
@@ -374,6 +419,81 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     context->BindCB(0, cb0);
 
     ////////////////////////////////////////////////////////////////////////////////////
+    // Depth Haze
+
+    auto depthHazeTempDesc = GPUTextureDescription::New2D(w2, h2, bloomMipCount, output->Format(), GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
+    auto depthHazeBuffer1 = RenderTargetPool::Get(depthHazeTempDesc);
+    RENDER_TARGET_POOL_SET_NAME(depthHazeBuffer1, "PostProcessing.DepthHaze");
+    auto depthHazeBuffer2 = RenderTargetPool::Get(depthHazeTempDesc);
+    RENDER_TARGET_POOL_SET_NAME(depthHazeBuffer2, "PostProcessing.DepthHaze");
+
+    for (int32 mip = 0; mip < bloomMipCount; mip++)
+    {
+        context->Clear(depthHazeBuffer1->View(0, mip), Color::Transparent);
+        context->Clear(depthHazeBuffer2->View(0, mip), Color::Transparent);
+    }
+
+    GPUTexture* depthHazeInput = input;
+    if (useDepthHaze)
+    {
+        context->SetRenderTarget(depthHazeBuffer1->View(0, 0));
+        context->SetViewportAndScissors((float)w2, (float)h2);
+        context->BindSR(0, depthHazeInput->View());
+        context->SetState(_psDepthHazeBrightPass);
+        context->DrawFullscreenTriangle();
+        context->ResetRenderTarget();
+
+        // Progressive downsamples
+        for (int32 mip = 1; mip < bloomMipCount; mip++)
+        {
+            const int32 mipWidth = w2 >> mip;
+            const int32 mipHeight = h2 >> mip;
+
+            context->SetRenderTarget(depthHazeBuffer1->View(0, mip));
+            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
+            context->BindSR(0, depthHazeBuffer1->View(0, mip - 1));
+            context->SetState(_psDepthHazeDownsample);
+            context->DrawFullscreenTriangle();
+            context->ResetRenderTarget();
+        }
+
+        // Progressive upsamples
+        for (int32 mip = bloomMipCount - 2; mip >= 0; mip--)
+        {
+            auto upscaleBuffer = depthHazeBuffer2;
+            if (mip == bloomMipCount - 2)
+            {
+                // If it's the first, copy the chain over
+                upscaleBuffer = depthHazeBuffer1;
+            }
+            const int32 mipWidth = w2 >> mip;
+            const int32 mipHeight = h2 >> mip;
+
+            data.DepthHazeLayer = static_cast<float>(mip);
+            context->UpdateCB(cb0, &data);
+            context->SetRenderTarget(depthHazeBuffer2->View(0, mip));
+            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
+            context->BindSR(0, upscaleBuffer->View(0, mip + 1));
+            context->BindSR(1, depthHazeBuffer1->View(0, mip + 1));
+            context->SetState(_psDepthHazeDualFilterUpsample);
+            context->DrawFullscreenTriangle();
+            context->ResetRenderTarget();
+        }
+
+        // Set depth haze output
+        context->UnBindSR(0);
+        context->UnBindSR(1);
+        context->BindSR(8, depthHazeBuffer2->View(0, 0));
+
+        // Use depth haze output as input for bloom
+        depthHazeInput = depthHazeBuffer2;
+    }
+    else
+    {
+        context->UnBindSR(8);
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////
     // Bloom
 
     auto tempDesc = GPUTextureDescription::New2D(w2, h2, bloomMipCount, output->Format(), GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
@@ -392,7 +512,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     {
         context->SetRenderTarget(bloomBuffer1->View(0, 0));
         context->SetViewportAndScissors((float)w2, (float)h2);
-        context->BindSR(0, input->View());
+        context->BindSR(0, depthHazeInput->View());
         context->SetState(_psBloomBrightPass);
         context->DrawFullscreenTriangle();
         context->ResetRenderTarget();
@@ -530,9 +650,16 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     // - 4 - LensDirt - lens dirt texture
     // - 5 - LensStar - lens star texture
     // - 7 - ColorGradingLUT
+    // - 8 - DepthHaze - depth haze
     context->BindSR(0, input->View());
     context->BindSR(4, GetCustomOrDefault(settings.LensFlares.LensDirt, _defaultLensDirt, TEXT("Engine/Textures/DefaultLensDirt")));
     context->BindSR(7, colorGradingLutView);
+
+    // Ensure depth haze is bound for composite
+    if (useDepthHaze)
+        context->BindSR(8, depthHazeBuffer2->View(0, 0));
+    else
+        context->BindSR(8, (GPUResourceView*)nullptr);
 
     // Composite final frame during single pass (done in full resolution)
     context->SetViewportAndScissors((float)output->Width(), (float)output->Height());
@@ -541,6 +668,8 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     context->DrawFullscreenTriangle();
 
     // Cleanup
+    RenderTargetPool::Release(depthHazeBuffer1);
+    RenderTargetPool::Release(depthHazeBuffer2);
     RenderTargetPool::Release(bloomBuffer1);
     RenderTargetPool::Release(bloomBuffer2);
 }

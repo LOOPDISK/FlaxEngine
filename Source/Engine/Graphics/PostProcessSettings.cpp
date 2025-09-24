@@ -48,6 +48,19 @@ void BloomSettings::BlendWith(BloomSettings& other, float weight)
     BLEND_FLOAT(HighMix);
 }
 
+void DepthHazeSettings::BlendWith(DepthHazeSettings& other, float weight)
+{
+    const bool isHalf = weight >= 0.5f;
+
+    BLEND_BOOL(Enabled);
+    BLEND_FLOAT(Intensity);
+    BLEND_FLOAT(Threshold);
+    BLEND_FLOAT(ThresholdKnee);
+    BLEND_FLOAT(Clamp);
+    BLEND_FLOAT(BaseMix);
+    BLEND_FLOAT(HighMix);
+}
+
 void ToneMappingSettings::BlendWith(ToneMappingSettings& other, float weight)
 {
     const bool isHalf = weight >= 0.5f;
@@ -227,6 +240,7 @@ void PostProcessSettings::BlendWith(PostProcessSettings& other, float weight)
 {
     AmbientOcclusion.BlendWith(other.AmbientOcclusion, weight);
     GlobalIllumination.BlendWith(other.GlobalIllumination, weight);
+    DepthHaze.BlendWith(other.DepthHaze, weight);
     Bloom.BlendWith(other.Bloom, weight);
     ToneMapping.BlendWith(other.ToneMapping, weight);
     ColorGrading.BlendWith(other.ColorGrading, weight);

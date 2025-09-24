@@ -44,6 +44,7 @@ void PostFxVolume::Blend(PostProcessSettings& other, float weight)
 {
     other.AmbientOcclusion.BlendWith(AmbientOcclusion, weight);
     other.GlobalIllumination.BlendWith(GlobalIllumination, weight);
+    other.DepthHaze.BlendWith(DepthHaze, weight);
     other.Bloom.BlendWith(Bloom, weight);
     other.ToneMapping.BlendWith(ToneMapping, weight);
     other.ColorGrading.BlendWith(ColorGrading, weight);

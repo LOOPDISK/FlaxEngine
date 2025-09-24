@@ -12,6 +12,9 @@ class PostProcessingPass : public RendererPass<PostProcessingPass>
 {
 private:
     AssetReference<Shader> _shader;
+    GPUPipelineState* _psDepthHazeBrightPass = nullptr;
+    GPUPipelineState* _psDepthHazeDownsample = nullptr;
+    GPUPipelineState* _psDepthHazeDualFilterUpsample = nullptr;
     GPUPipelineState* _psBloomBrightPass = nullptr;
     GPUPipelineState* _psBloomDownsample = nullptr;
     GPUPipelineState* _psBloomDualFilterUpsample = nullptr;
@@ -37,6 +40,9 @@ private:
 #if COMPILE_WITH_DEV_ENV
     void OnShaderReloading(Asset* obj)
     {
+        _psDepthHazeBrightPass->ReleaseGPU();
+        _psDepthHazeDownsample->ReleaseGPU();
+        _psDepthHazeDualFilterUpsample->ReleaseGPU();
         _psBloomBrightPass->ReleaseGPU();
         _psBloomDownsample->ReleaseGPU();
         _psBloomDualFilterUpsample->ReleaseGPU();

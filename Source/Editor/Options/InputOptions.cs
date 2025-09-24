@@ -536,6 +536,10 @@ namespace FlaxEditor.Options
         public InputBinding Bloom = new InputBinding(KeyboardKeys.None);
 
         [DefaultValue(typeof(InputBinding), "None")]
+        [EditorDisplay("View Flags"), EditorOrder(3165)]
+        public InputBinding DepthHaze = new InputBinding(KeyboardKeys.None);
+
+        [DefaultValue(typeof(InputBinding), "None")]
         [EditorDisplay("View Flags"), EditorOrder(3170)]
         public InputBinding ToneMapping = new InputBinding(KeyboardKeys.None);
 
