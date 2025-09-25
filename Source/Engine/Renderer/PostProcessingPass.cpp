@@ -498,12 +498,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     auto depthMipBuffer = RenderTargetPool::Get(depthMipDesc);
     RENDER_TARGET_POOL_SET_NAME(depthMipBuffer, "PostProcessing.DepthMips");
 
-    // Create depth haze result buffer (declare outside useDepthHaze block for proper cleanup)
-    auto depthHazeResultDesc = GPUTextureDescription::New2D(w2, h2, bloomMipCount, output->Format(), GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
-    auto depthHazeResult = RenderTargetPool::Get(depthHazeResultDesc);
-    RENDER_TARGET_POOL_SET_NAME(depthHazeResult, "PostProcessing.DepthHazeResult");
-
-    // Clear all mips
+    // Clear mip chains
     for (int32 mip = 0; mip < bloomMipCount; mip++)
     {
         context->Clear(scatteringColorBuffer->View(0, mip), Color::Transparent);
@@ -551,39 +546,15 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
             context->ResetRenderTarget();
         }
 
-        // Clear depth haze result mips
-        for (int32 mip = 0; mip < bloomMipCount; mip++)
-        {
-            context->Clear(depthHazeResult->View(0, mip), Color::Transparent);
-        }
+        // Depth haze mip chains are ready - no upsampling needed since we sample directly
 
-        // Progressive upsamples with depth-guided blending
-        for (int32 mip = bloomMipCount - 2; mip >= 0; mip--)
-        {
-            const int32 mipWidth = w2 >> mip;
-            const int32 mipHeight = h2 >> mip;
+        // NOTE: No upsampling needed - we sample directly from mip chain in composite
+        // This saves performance and simplifies the algorithm
 
-            data.DepthHazeLayer = static_cast<float>(mip);
-            context->UpdateCB(cb0, &data);
-            context->SetRenderTarget(depthHazeResult->View(0, mip));
-            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
-
-            // Bind inputs for depth-guided upsampling
-            context->BindSR(0, scatteringColorBuffer->View(0, mip + 1));  // Current color mip level
-            context->BindSR(1, mip == bloomMipCount - 2 ? nullptr : depthHazeResult->View(0, mip + 1)); // Previous upscale result (null for first)
-            context->BindSR(2, depthBuffer->View());                      // Raw depth buffer
-            context->BindSR(3, depthMipBuffer->View(0, mip + 1));         // Corresponding depth mip level
-
-            context->SetState(_psDepthHazeDualFilterUpsample);
-            context->DrawFullscreenTriangle();
-            context->ResetRenderTarget();
-        }
-
-        // Bind final depth haze result and mip chains for composite/debug
-        context->BindSR(1, depthHazeResult->View(0, 0));    // Final depth haze result
-        context->BindSR(8, scatteringColorBuffer->View());  // Color mip chain (debug)
+        // Bind mip chains for composite (debug visualization also uses these)
+        context->BindSR(8, scatteringColorBuffer->View());  // Color mip chain for depth-selective sampling
         context->BindSR(9, depthBuffer->View());             // Raw depth buffer
-        context->BindSR(10, depthMipBuffer->View());         // Depth mip chain (debug)
+        context->BindSR(10, depthMipBuffer->View());         // Depth mip chain (debug only)
     }
     else
     {
@@ -743,23 +714,30 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     }
 
     // Composite pass inputs mapping:
-    // - 0 - Input0   - scene color
-    // - 1 - Input1   - depth haze result
-    // - 2 - Input2   - bloom
-    // - 3 - Input3   - lens flare color
-    // - 4 - LensDirt - lens dirt texture
-    // - 5 - LensStar - lens star texture
+    // - 0 - Input0      - scene color
+    // - 1 - Input1      - (unused now - we sample mips directly)
+    // - 2 - Input2      - bloom
+    // - 3 - Input3      - lens flare color
+    // - 4 - LensDirt    - lens dirt texture
+    // - 5 - LensStar    - lens star texture
     // - 7 - ColorGradingLUT
-    // - 8 - DepthHaze - depth haze (debug mip chain)
+    // - 8 - DepthHaze   - depth haze color mip chain (for depth-selective sampling)
+    // - 9 - DepthBuffer - raw depth buffer (for depth-based masking)
     context->BindSR(0, input->View());
     context->BindSR(4, GetCustomOrDefault(settings.LensFlares.LensDirt, _defaultLensDirt, TEXT("Engine/Textures/DefaultLensDirt")));
     context->BindSR(7, colorGradingLutView);
 
-    // Bind depth haze debug visualization
+    // Bind depth haze resources for depth-selective sampling
     if (useDepthHaze)
-        context->BindSR(8, scatteringColorBuffer->View()); // Debug: Color mip chain for visualization
+    {
+        context->BindSR(8, scatteringColorBuffer->View()); // Color mip chain for sampling
+        context->BindSR(9, depthBuffer->View());           // Raw depth buffer for masking
+    }
     else
+    {
         context->BindSR(8, (GPUResourceView*)nullptr);
+        context->BindSR(9, (GPUResourceView*)nullptr);
+    }
 
     // Composite final frame during single pass (done in full resolution)
     context->SetViewportAndScissors((float)output->Width(), (float)output->Height());
@@ -770,7 +748,6 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     // Cleanup
     RenderTargetPool::Release(scatteringColorBuffer);
     RenderTargetPool::Release(depthMipBuffer);
-    RenderTargetPool::Release(depthHazeResult);
     RenderTargetPool::Release(bloomBuffer1);
     RenderTargetPool::Release(bloomBuffer2);
 }

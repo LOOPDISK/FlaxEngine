@@ -999,11 +999,44 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     // Apply post-exposure
     sceneColor *= PostExposure;
 
-    // Add depth haze effect (Input1)
+    // Add depth haze effect with proper depth-based masking
     if (DepthHazeIntensity > 0.0)
     {
-        float3 depthHazeContribution = Input1.Sample(SamplerLinearClamp, input.TexCoord).rgb;
-        sceneColor += depthHazeContribution * DepthHazeIntensity;
+        // Get the current pixel's depth and linearize it
+        float rawDepth = DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord).r;
+        float pixelDepth = LinearizeZ(rawDepth, ViewInfo);
+
+        // Map depth to mip levels based on atmospheric scattering zones
+        float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
+        float normalizedDepth = saturate((pixelDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
+
+        // Calculate which mip level this pixel should use (0 = sharp, higher = more blur)
+        float targetMip = normalizedDepth * (DepthHazeMipCount - 1);
+        float targetMipPow = pow(normalizedDepth, DepthHazePower) * (DepthHazeMipCount - 1);
+
+        // Sample between two closest mip levels for smooth transitions
+        int lowMip = (int)floor(targetMipPow);
+        int highMip = min(lowMip + 1, (int)DepthHazeMipCount - 1);
+        float mipBlend = frac(targetMipPow);
+
+        // Sample the appropriate blur levels from the color mip chain
+        float3 lowMipSample = DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, lowMip).rgb;
+        float3 highMipSample = DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, highMip).rgb;
+        float3 scatteredColor = lerp(lowMipSample, highMipSample, mipBlend);
+
+        // Apply mip intensity based on the blend factor
+        float mipFade = targetMipPow / max(DepthHazeMipCount - 1, 1.0);
+        float mipIntensity = lerp(DepthHazeBaseMix, DepthHazeHighMix, mipFade);
+        scatteredColor *= mipIntensity;
+
+        // Create depth-based scattering mask (0 = no scattering, 1 = full scattering)
+        float scatteringMask = smoothstep(DepthHazeNearDistance * 0.8, DepthHazeNearDistance * 1.2, pixelDepth);
+        scatteringMask = saturate(scatteringMask);
+
+        // CORRECT APPROACH: Replace scene color with scattered version based on depth
+        // Near objects: mostly original color (sharp)
+        // Far objects: mostly scattered color (blurred through atmosphere)
+        sceneColor = lerp(sceneColor, scatteredColor, scatteringMask * DepthHazeIntensity);
     }
 
     // Add bloom effect (Input2)
