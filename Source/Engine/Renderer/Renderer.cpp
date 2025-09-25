@@ -224,6 +224,7 @@ void Renderer::Render(SceneRenderTask* task)
             | ViewFlags::AntiAliasing
             | ViewFlags::CustomPostProcess
             | ViewFlags::Bloom
+            | ViewFlags::DepthHaze
             | ViewFlags::ToneMapping
             | ViewFlags::EyeAdaptation
             | ViewFlags::CameraArtifacts

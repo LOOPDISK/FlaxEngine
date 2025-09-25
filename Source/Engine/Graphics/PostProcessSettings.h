@@ -532,19 +532,19 @@ API_ENUM(Attributes="Flags") enum class DepthHazeSettingsOverride : int32
     Intensity = 1 << 1,
 
     /// <summary>
-    /// Overrides <see cref="DepthHazeSettings.Threshold"/> property.
+    /// Overrides <see cref="DepthHazeSettings.NearDistance"/> property.
     /// </summary>
-    Threshold = 1 << 2,
+    NearDistance = 1 << 2,
 
     /// <summary>
-    /// Overrides <see cref="DepthHazeSettings.ThresholdKnee"/> property.
+    /// Overrides <see cref="DepthHazeSettings.FarDistance"/> property.
     /// </summary>
-    ThresholdKnee = 1 << 3,
+    FarDistance = 1 << 3,
 
     /// <summary>
-    /// Overrides <see cref="DepthHazeSettings.Clamp"/> property.
+    /// Overrides <see cref="DepthHazeSettings.Power"/> property.
     /// </summary>
-    Clamp = 1 << 4,
+    Power = 1 << 4,
 
     /// <summary>
     /// Overrides <see cref="DepthHazeSettings.BaseMix"/> property.
@@ -559,7 +559,7 @@ API_ENUM(Attributes="Flags") enum class DepthHazeSettingsOverride : int32
     /// <summary>
     /// All properties.
     /// </summary>
-    All = Enabled | Intensity | Threshold | ThresholdKnee | Clamp | BaseMix | HighMix,
+    All = Enabled | Intensity | NearDistance | FarDistance | Power | BaseMix | HighMix,
 };
 
 /// <summary>
@@ -590,22 +590,22 @@ API_STRUCT() struct FLAXENGINE_API DepthHazeSettings : ISerializable
     float Intensity = 0.5f;
 
     /// <summary>
-    /// Luminance threshold where depth haze begins.
+    /// Distance where atmospheric scattering begins (in world units/cm).
     /// </summary>
-    API_FIELD(Attributes="Limit(0, 100.0f, 0.1f), EditorOrder(2), PostProcessSetting((int)DepthHazeSettingsOverride.Threshold)")
-    float Threshold = 0.5f;
+    API_FIELD(Attributes="Limit(0, 100000.0f, 10.0f), EditorOrder(2), PostProcessSetting((int)DepthHazeSettingsOverride.NearDistance)")
+    float NearDistance = 500.0f;
 
     /// <summary>
-    /// Controls the threshold rolloff curve. Higher values create a softer transition.
+    /// Distance where atmospheric scattering reaches maximum effect (in world units/cm).
     /// </summary>
-    API_FIELD(Attributes="Limit(0, 100.0f, 0.01f), EditorOrder(3), PostProcessSetting((int)DepthHazeSettingsOverride.ThresholdKnee)")
-    float ThresholdKnee = 0.5f;
+    API_FIELD(Attributes="Limit(0, 100000.0f, 10.0f), EditorOrder(3), PostProcessSetting((int)DepthHazeSettingsOverride.FarDistance)")
+    float FarDistance = 5000.0f;
 
     /// <summary>
-    /// Maximum brightness limit for depth haze highlights.
+    /// Power curve for atmospheric scattering falloff. Higher values create sharper transitions.
     /// </summary>
-    API_FIELD(Attributes="Limit(0, 100.0f, 0.1f), EditorOrder(4), PostProcessSetting((int)DepthHazeSettingsOverride.Clamp)")
-    float Clamp = 1.0f;
+    API_FIELD(Attributes="Limit(0.1f, 4.0f, 0.01f), EditorOrder(4), PostProcessSetting((int)DepthHazeSettingsOverride.Power)")
+    float Power = 1.0f;
 
     /// <summary>
     /// Base mip contribution for wider, softer depth haze.

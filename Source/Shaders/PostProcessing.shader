@@ -937,14 +937,16 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 		color.rgb += lensFlares;
 	}
 
-    // DEBUG: Atmospheric Scattering Mip Chain Visualization
-    float2 screenPos = input.TexCoord;
-    float stripWidth = 0.25; // Width of each side strip (25% of screen)
-    float mipCount = DepthHazeMipCount;
-    float mipHeight = 1.0 / mipCount; // Height per mip level
+    // DEBUG: Atmospheric Scattering Mip Chain Visualization (ALWAYS SHOW FOR DEBUGGING)
+    if (true) // TEMP: Force debug to always show
+    {
+        float2 screenPos = input.TexCoord;
+        float stripWidth = 0.25; // Width of each side strip (25% of screen)
+        float mipCount = DepthHazeMipCount;
+        float mipHeight = 1.0 / mipCount; // Height per mip level
 
-    // Left side: Show atmospheric scattering color mips
-    if (screenPos.x < stripWidth)
+        // Left side: Show atmospheric scattering color mips
+        if (screenPos.x < stripWidth)
     {
         // Determine which mip level we're in based on Y position
         int mipLevel = (int)(screenPos.y / mipHeight);
@@ -994,6 +996,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 
         color.rgb = float3(depthVisualized, depthVisualized, depthVisualized);
         return color;
+        }
     }
 
     // Depth Haze (depth-based atmospheric perspective)

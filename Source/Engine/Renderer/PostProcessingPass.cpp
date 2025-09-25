@@ -4,6 +4,7 @@
 #include "RenderList.h"
 #include "Engine/Content/Assets/Shader.h"
 #include "Engine/Content/Content.h"
+#include "Engine/Graphics/Graphics.h"
 #include "Engine/Graphics/GPUContext.h"
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/RenderTargetPool.h"
@@ -318,9 +319,34 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     context->ResetRenderTarget();
 
     PostProcessSettings& settings = renderContext.List->Settings;
-    // HARDCODE DEPTH HAZE TO ALWAYS BE ACTIVE
-    bool useDepthHaze = true; // EnumHasAnyFlags(view.Flags, ViewFlags::DepthHaze) && settings.DepthHaze.Enabled && settings.DepthHaze.Intensity > 0.0f;
+
+    // DEBUG: Log Graphics::PostProcessSettings.DepthHaze.Intensity
+    LOG(Info, "DepthHaze DEBUG - Graphics::PostProcessSettings.DepthHaze.Intensity: {0}", Graphics::PostProcessSettings.DepthHaze.Intensity);
+
+    // DEBUG: Log DepthHaze settings state
+    LOG(Info, "DepthHaze DEBUG - ViewFlags::DepthHaze: {0}, settings.DepthHaze.Enabled: {1}, settings.DepthHaze.Intensity: {2}",
+        EnumHasAnyFlags(view.Flags, ViewFlags::DepthHaze), settings.DepthHaze.Enabled, settings.DepthHaze.Intensity);
+
+    // DEBUG: Log raw view flags and compare to defaults
+    LOG(Info, "DepthHaze DEBUG - Raw view.Flags: {0:x}, DefaultGame: {1:x}, DefaultEditor: {2:x}",
+        (int32)view.Flags, (int32)ViewFlags::DefaultGame, (int32)ViewFlags::DefaultEditor);
+
+    // DEBUG: Show specific DepthHaze bit
+    LOG(Info, "DepthHaze DEBUG - ViewFlags::DepthHaze bit value: {0:x}, has bit: {1}",
+        (int32)ViewFlags::DepthHaze, (view.Flags & ViewFlags::DepthHaze) != ViewFlags::None);
+
+    //// TEMPORARY FIX: Force enable DepthHaze ViewFlag if missing
+    //if ((view.Flags & ViewFlags::DepthHaze) == ViewFlags::None)
+    //{
+    //    LOG(Info, "DepthHaze DEBUG - FIXING: Adding missing DepthHaze ViewFlag");
+    //    const_cast<RenderView&>(view).Flags |= ViewFlags::DepthHaze;
+    //}
+
+    bool useDepthHaze = EnumHasAnyFlags(view.Flags, ViewFlags::DepthHaze) && settings.DepthHaze.Enabled && settings.DepthHaze.Intensity > 0.0f;
     bool useBloom = EnumHasAnyFlags(view.Flags, ViewFlags::Bloom) && settings.Bloom.Enabled && settings.Bloom.Intensity > 0.0f;
+
+    // DEBUG: Log final useDepthHaze result
+    LOG(Info, "DepthHaze DEBUG - Final useDepthHaze: {0}, useBloom: {1}", useDepthHaze, useBloom);
     bool useToneMapping = EnumHasAnyFlags(view.Flags, ViewFlags::ToneMapping) && settings.ToneMapping.Mode != ToneMappingMode::None;
     bool useCameraArtifacts = EnumHasAnyFlags(view.Flags, ViewFlags::CameraArtifacts) && (settings.CameraArtifacts.VignetteIntensity > 0.0f || settings.CameraArtifacts.GrainAmount > 0.0f || settings.CameraArtifacts.ChromaticDistortion > 0.0f || settings.CameraArtifacts.ScreenFadeColor.A > 0.0f);
     bool useLensFlares = EnumHasAnyFlags(view.Flags, ViewFlags::LensFlares) && settings.LensFlares.Intensity > 0.0f && useBloom;
@@ -375,21 +401,29 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.ChromaticDistortion = 0;
         data.ScreenFadeColor = Color::Transparent;
     }
-    // HARDCODED DEPTH HAZE VALUES - always active, bypassing all settings
-    data.DepthHazeIntensity = 0.5f;       // DEBUG: High intensity to see effect
-    data.DepthHazeClamp = 1.0f;           // Lower clamp to prevent overexposure
-    data.DepthHazeThreshold = 0.0f;       // No threshold (full scene)
-    data.DepthHazeThresholdKnee = 0.0f;   // No threshold knee
-    data.DepthHazeBaseMix = 0.5f;         // Lower base layer contribution
-    data.DepthHazeHighMix = 0.5f;         // Lower high-frequency contribution
-    data.DepthHazeMipCount = (float)bloomMipCount;
-    data.DepthHazeLayer = 0.0f;
+    if (useDepthHaze)
+    {
+        data.DepthHazeIntensity = settings.DepthHaze.Intensity;
+        data.DepthHazeClamp = 1.0f;           // Not used for atmospheric scattering
+        data.DepthHazeThreshold = 0.0f;       // Not used for atmospheric scattering
+        data.DepthHazeThresholdKnee = 0.0f;   // Not used for atmospheric scattering
+        data.DepthHazeBaseMix = settings.DepthHaze.BaseMix;
+        data.DepthHazeHighMix = settings.DepthHaze.HighMix;
+        data.DepthHazeMipCount = (float)bloomMipCount;
+        data.DepthHazeLayer = 0.0f;
 
-    // New depth-based parameters - Using centimeters (Flax units)
-    data.DepthHazeNearDistance = 500.0f;   // Start fog at 5 meters (500cm)
-    data.DepthHazeFarDistance = 5000.0f;   // Maximum fog at 50 meters (5000cm)
-    data.DepthHazePower = 0.5f;            // Softer falloff curve
-    data.DepthHazeMipBlend = 0.5f;         // 50% blend between mips
+        // Atmospheric scattering distance parameters
+        data.DepthHazeNearDistance = settings.DepthHaze.NearDistance;
+        data.DepthHazeFarDistance = settings.DepthHaze.FarDistance;
+        data.DepthHazePower = settings.DepthHaze.Power;
+        data.DepthHazeMipBlend = 0.5f;         // Could be another parameter later
+    }
+    else
+    {
+        data.DepthHazeIntensity = 0;
+        data.DepthHazeNearDistance = 0;
+        data.DepthHazeFarDistance = 0;
+    }
     if (useBloom)
     {
         data.BloomIntensity = settings.Bloom.Intensity;
