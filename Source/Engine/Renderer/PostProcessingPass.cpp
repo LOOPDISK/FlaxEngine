@@ -722,21 +722,24 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     // - 5 - LensStar    - lens star texture
     // - 7 - ColorGradingLUT
     // - 8 - DepthHaze   - depth haze color mip chain (for depth-selective sampling)
-    // - 9 - DepthBuffer - raw depth buffer (for depth-based masking)
+    // - 9 - DepthBuffer - raw depth buffer (for reference depth)
+    // - 10 - DepthMips  - depth mip chain (for smooth transitions)
     context->BindSR(0, input->View());
     context->BindSR(4, GetCustomOrDefault(settings.LensFlares.LensDirt, _defaultLensDirt, TEXT("Engine/Textures/DefaultLensDirt")));
     context->BindSR(7, colorGradingLutView);
 
-    // Bind depth haze resources for depth-selective sampling
+    // Bind depth haze resources for depth-coherent sampling
     if (useDepthHaze)
     {
         context->BindSR(8, scatteringColorBuffer->View()); // Color mip chain for sampling
-        context->BindSR(9, depthBuffer->View());           // Raw depth buffer for masking
+        context->BindSR(9, depthBuffer->View());           // Raw depth buffer for reference
+        context->BindSR(10, depthMipBuffer->View());       // Depth mip chain for smooth transitions
     }
     else
     {
         context->BindSR(8, (GPUResourceView*)nullptr);
         context->BindSR(9, (GPUResourceView*)nullptr);
+        context->BindSR(10, (GPUResourceView*)nullptr);
     }
 
     // Composite final frame during single pass (done in full resolution)

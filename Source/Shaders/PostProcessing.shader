@@ -999,44 +999,72 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     // Apply post-exposure
     sceneColor *= PostExposure;
 
-    // Add depth haze effect with proper depth-based masking
+    // Add depth haze effect with depth-coherent smooth transitions
     if (DepthHazeIntensity > 0.0)
     {
-        // Get the current pixel's depth and linearize it
+        // Get raw high-resolution depth for reference
         float rawDepth = DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord).r;
-        float pixelDepth = LinearizeZ(rawDepth, ViewInfo);
+        float referenceDepth = LinearizeZ(rawDepth, ViewInfo);
 
-        // Map depth to mip levels based on atmospheric scattering zones
+        // Atmospheric scattering parameters
         float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
-        float normalizedDepth = saturate((pixelDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
+        int mipCount = (int)DepthHazeMipCount;
 
-        // Calculate which mip level this pixel should use (0 = sharp, higher = more blur)
-        float targetMip = normalizedDepth * (DepthHazeMipCount - 1);
-        float targetMipPow = pow(normalizedDepth, DepthHazePower) * (DepthHazeMipCount - 1);
+        // Accumulate atmospheric scattering contributions from all mip levels
+        float3 totalScatteredColor = 0;
+        float totalWeight = 0;
 
-        // Sample between two closest mip levels for smooth transitions
-        int lowMip = (int)floor(targetMipPow);
-        int highMip = min(lowMip + 1, (int)DepthHazeMipCount - 1);
-        float mipBlend = frac(targetMipPow);
+        // Iterate through each atmospheric depth zone (mip level)
+        for (int mip = 0; mip < mipCount; mip++)
+        {
+            // Sample the blurred depth at this mip level for smooth transitions
+            float blurredDepthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, mip).r;
+            float blurredDepth = LinearizeZ(blurredDepthValue, ViewInfo);
 
-        // Sample the appropriate blur levels from the color mip chain
-        float3 lowMipSample = DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, lowMip).rgb;
-        float3 highMipSample = DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, highMip).rgb;
-        float3 scatteredColor = lerp(lowMipSample, highMipSample, mipBlend);
+            // Define the depth range this mip level represents
+            float mipNormalized = (float)mip / max(mipCount - 1, 1.0);
+            float zoneCenterDepth = DepthHazeNearDistance + mipNormalized * depthRange;
+            float zoneWidth = depthRange / max(mipCount, 1.0);
 
-        // Apply mip intensity based on the blend factor
-        float mipFade = targetMipPow / max(DepthHazeMipCount - 1, 1.0);
-        float mipIntensity = lerp(DepthHazeBaseMix, DepthHazeHighMix, mipFade);
-        scatteredColor *= mipIntensity;
+            // Calculate how well this pixel's depth matches this atmospheric zone
+            // Use blurred depth for smooth transitions at geometry edges
+            float depthDifference = abs(blurredDepth - zoneCenterDepth) / max(zoneWidth, 1.0);
+            float depthCoherence = saturate(1.0 - depthDifference * DepthHazePower);
 
-        // Create depth-based scattering mask (0 = no scattering, 1 = full scattering)
-        float scatteringMask = smoothstep(DepthHazeNearDistance * 0.8, DepthHazeNearDistance * 1.2, pixelDepth);
-        scatteringMask = saturate(scatteringMask);
+            // Additional falloff based on distance from reference depth (reduces over-blurring)
+            float referenceFalloff = saturate(1.0 - abs(blurredDepth - referenceDepth) / max(depthRange * 0.1, 1.0));
+            float combinedWeight = depthCoherence * referenceFalloff;
 
-        // CORRECT APPROACH: Replace scene color with scattered version based on depth
-        // Near objects: mostly original color (sharp)
-        // Far objects: mostly scattered color (blurred through atmosphere)
-        sceneColor = lerp(sceneColor, scatteredColor, scatteringMask * DepthHazeIntensity);
+            // Only contribute if this zone is relevant for this pixel
+            if (combinedWeight > 0.01)
+            {
+                // Sample the atmospheric scattering for this depth zone
+                float3 mipColor = DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, mip).rgb;
+
+                // Apply mip-level specific intensity
+                float mipFade = (float)mip / max(mipCount - 1, 1.0);
+                float mipIntensity = lerp(DepthHazeBaseMix, DepthHazeHighMix, mipFade);
+                mipColor *= mipIntensity;
+
+                // Accumulate weighted contribution
+                totalScatteredColor += mipColor * combinedWeight;
+                totalWeight += combinedWeight;
+            }
+        }
+
+        // Normalize accumulated scattering
+        if (totalWeight > 0.01)
+        {
+            totalScatteredColor /= totalWeight;
+
+            // Create overall scattering mask based on distance
+            float scatteringMask = smoothstep(DepthHazeNearDistance * 0.8, DepthHazeNearDistance * 1.2, referenceDepth);
+            scatteringMask = saturate(scatteringMask);
+
+            // Blend scattered color with original scene
+            // This gives smooth atmospheric perspective without hard edges
+            sceneColor = lerp(sceneColor, totalScatteredColor, scatteringMask * DepthHazeIntensity);
+        }
     }
 
     // Add bloom effect (Input2)
