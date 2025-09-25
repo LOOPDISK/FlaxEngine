@@ -46,6 +46,11 @@ float DepthHazeHighMix;
 float DepthHazeMipCount;
 float DepthHazeLayer;
 
+float DepthHazeNearDistance;
+float DepthHazeFarDistance;
+float DepthHazePower;
+float DepthHazeMipBlend;
+
 float BloomIntensity;
 float BloomClamp;
 float BloomThreshold;
@@ -114,6 +119,8 @@ Texture2D LensDirt : register(t4);
 Texture2D LensStar : register(t5);
 Texture2D LensColor : register(t6);
 Texture2D DepthHaze : register(t8);
+Texture2D DepthBuffer : register(t9);
+Texture2D DepthMips : register(t10);
 #if USE_VOLUME_LUT
 Texture3D ColorGradingLUT : register(t7);
 #else
@@ -496,6 +503,27 @@ float4 PS_BloomDualFilterUpsample(Quad_VS2PS input) : SV_Target
     return float4(color, 1.0);
 }
 
+// Simple copy/downsample for depth haze (no threshold, full scene)
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthHazeSimpleCopy(Quad_VS2PS input) : SV_Target
+{
+    // Simple bilinear sample - no bright pass, no threshold
+    float3 color = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+    return float4(color, 1.0);
+}
+
+// Depth copy shader - handles depth buffer properly
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthCopy(Quad_VS2PS input) : SV_Target
+{
+    // Sample depth and convert to single channel
+    float depth = Input0.Sample(SamplerLinearClamp, input.TexCoord).r;
+
+    // Debug: Check if we're getting any depth values
+    // Output depth as red channel so we can see if it's being sampled
+    return float4(depth, depth, depth, 1.0);
+}
+
 // Depth Haze functions (duplicated from Bloom)
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthHazeBrightPass(Quad_VS2PS input) : SV_Target
@@ -558,33 +586,15 @@ float4 PS_DepthHazeBrightPass(Quad_VS2PS input) : SV_Target
     float finalLuma = max(dot(color, float3(0.2126, 0.7152, 0.0722)), 0.0001);
     color = color * (1.0 + finalLuma);
 
-    // Apply threshold with quadratic rolloff for smoother transition
+    // For depth haze, no threshold - use full scene with some basic tone mapping
     float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
-    float threshold = max(DepthHazeThreshold, 0.2);
-    float knee = threshold * DepthHazeThresholdKnee;
-    float softMax = threshold + knee;
 
-    float contribution = 0;
-    if (luminance > threshold)
+    // Apply simple tone mapping to prevent over-bright values
+    float3 clamped = color;
+    if (DepthHazeClamp > 0)
     {
-        if (luminance < softMax)
-        {
-            // Quadratic softening between threshold and (threshold + knee)
-            float x = (luminance - threshold) / knee;
-            contribution = x * x * 0.5;
-        }
-        else
-        {
-            // Full contribution above softMax
-            contribution = luminance - threshold;
-        }
+        clamped = color / (1.0 + color / DepthHazeClamp);
     }
-
-    float testc = DepthHazeClamp;
-    float3 clamped = (color * contribution);
-    clamped.r = min(clamped.r, testc);
-    clamped.g = min(clamped.g, testc);
-    clamped.b = min(clamped.b, testc);
 
     // Store threshold result in alpha for downsample chain
     return float4(clamped, luminance);
@@ -710,8 +720,32 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     BRANCH
     if (width1 > 0)
     {
+        // ===== THE DEPTH-GUIDED "DANCE" =====
+
+        // Sample depth at current resolution (Input2) and blurriest depth mip (Input3)
+        float currentDepth = Input2.Sample(SamplerLinearClamp, input.TexCoord).r;
+        float blurredDepth = Input3.Sample(SamplerLinearClamp, input.TexCoord).r;
+
+        // Calculate depth coherence - how similar is current depth to the blurred depth?
+        float depthDifference = abs(currentDepth - blurredDepth);
+        // Scale the difference - adjust this factor based on your depth range
+        float depthCoherence = saturate(1.0 - depthDifference * 0.001); // Needs tuning
+
+        // Depth coherence drives how much of this layer we add
+        // High coherence (smooth depth) = add more of this blurred layer
+        // Low coherence (depth edges) = add less, preserve sharpness
+
         float3 previousMip = Input1.Sample(SamplerLinearClamp, input.TexCoord).rgb;
-        color += previousMip;
+
+        // Modulate the contribution by depth coherence
+        float layerContribution = 0.5 + 0.5 * depthCoherence;
+        color += previousMip * layerContribution;
+
+        // Normalize to prevent over-brightening (divide by effective number of layers)
+        color /= (1.0 + layerContribution);
+
+        // DEBUG: Visualize depth coherence (uncomment to see the effect)
+        // color.rgb = lerp(color.rgb, float3(depthCoherence, 0.5, 1.0 - depthCoherence), 0.2);
     }
 
     return float4(color, 1.0);
@@ -903,15 +937,83 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 		color.rgb += lensFlares;
 	}
 
-    // Depth Haze
+    // DEBUG: Atmospheric Scattering Mip Chain Visualization
+    float2 screenPos = input.TexCoord;
+    float stripWidth = 0.25; // Width of each side strip (25% of screen)
+    float mipCount = DepthHazeMipCount;
+    float mipHeight = 1.0 / mipCount; // Height per mip level
+
+    // Left side: Show atmospheric scattering color mips
+    if (screenPos.x < stripWidth)
+    {
+        // Determine which mip level we're in based on Y position
+        int mipLevel = (int)(screenPos.y / mipHeight);
+        mipLevel = min(mipLevel, (int)mipCount - 1);
+
+        // Remap UV to 0-1 within the mip strip, scaled to 25% of original resolution
+        float2 mipUV = float2((screenPos.x / stripWidth) * 0.25, (fmod(screenPos.y, mipHeight) / mipHeight) * 0.25);
+
+        // Sample the color mip level from the atmospheric scattering chain
+        float3 mipSample = DepthHaze.SampleLevel(SamplerLinearClamp, mipUV, (float)mipLevel).rgb;
+
+        color.rgb = mipSample;
+        return color;
+    }
+
+    // Right side: Show depth mips
+    if (screenPos.x > (1.0 - stripWidth))
+    {
+        // Determine which mip level we're in based on Y position
+        int mipLevel = (int)(screenPos.y / mipHeight);
+        mipLevel = min(mipLevel, (int)mipCount - 1);
+
+        // Remap UV to the right strip, scaled to 25% of original resolution
+        float2 mipUV = float2(((screenPos.x - (1.0 - stripWidth)) / stripWidth) * 0.25, (fmod(screenPos.y, mipHeight) / mipHeight) * 0.25);
+
+        // Sample the depth mip level
+        float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, mipUV, (float)mipLevel).r;
+
+        // Multiple depth visualization approaches for debugging
+        float depthVisualized = 0.0;
+
+        // Try different depth scaling approaches
+        if (depthValue > 0.0001) {
+            // Approach 1: Direct value (if already 0-1)
+            depthVisualized = saturate(depthValue);
+
+            // Approach 2: If very small values, scale up
+            if (depthVisualized < 0.01) {
+                depthVisualized = saturate(depthValue * 1000.0);
+            }
+
+            // Approach 3: If very large values (world units), scale down
+            if (depthValue > 10.0) {
+                depthVisualized = saturate(depthValue / 10000.0); // Assuming up to 100m
+            }
+        }
+
+        color.rgb = float3(depthVisualized, depthVisualized, depthVisualized);
+        return color;
+    }
+
+    // Depth Haze (depth-based atmospheric perspective)
     BRANCH
     if (DepthHazeIntensity > 0)
     {
-        // Sample the final depth haze result
-        float3 depthHaze = DepthHaze.Sample(SamplerLinearClamp, input.TexCoord).rgb;
-        depthHaze = depthHaze * DepthHazeIntensity;
-        lensLight += max(0, depthHaze * 3.0f + (-1.0f * 3.0f));
-        color.rgb += depthHaze;
+        // Sample the current pixel's depth
+        float pixelDepth = DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord).r;
+
+        // Calculate depth-based haze factor
+        float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
+        float normalizedDepth = saturate((pixelDepth - DepthHazeNearDistance) / depthRange);
+        float hazeFactor = pow(normalizedDepth, DepthHazePower) * DepthHazeIntensity;
+
+        // Sample the haze color from the blurred texture
+        float3 hazeColor = DepthHaze.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+
+        // Blend based on depth - distant objects get more haze
+        // Use replacement blending (not additive like bloom)
+        color.rgb = lerp(color.rgb, hazeColor, hazeFactor);
     }
 
     // Bloom

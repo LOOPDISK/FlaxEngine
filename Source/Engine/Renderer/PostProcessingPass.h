@@ -15,6 +15,8 @@ private:
     GPUPipelineState* _psDepthHazeBrightPass = nullptr;
     GPUPipelineState* _psDepthHazeDownsample = nullptr;
     GPUPipelineState* _psDepthHazeDualFilterUpsample = nullptr;
+    GPUPipelineState* _psDepthHazeSimpleCopy = nullptr;
+    GPUPipelineState* _psDepthCopy = nullptr;
     GPUPipelineState* _psBloomBrightPass = nullptr;
     GPUPipelineState* _psBloomDownsample = nullptr;
     GPUPipelineState* _psBloomDualFilterUpsample = nullptr;
@@ -43,6 +45,8 @@ private:
         _psDepthHazeBrightPass->ReleaseGPU();
         _psDepthHazeDownsample->ReleaseGPU();
         _psDepthHazeDualFilterUpsample->ReleaseGPU();
+        _psDepthHazeSimpleCopy->ReleaseGPU();
+        _psDepthCopy->ReleaseGPU();
         _psBloomBrightPass->ReleaseGPU();
         _psBloomDownsample->ReleaseGPU();
         _psBloomDualFilterUpsample->ReleaseGPU();
