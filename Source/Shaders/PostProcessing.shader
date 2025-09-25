@@ -495,6 +495,7 @@ float4 PS_BloomDualFilterUpsample(Quad_VS2PS input) : SV_Target
     float mipIntensity = lerp(BloomBaseMix, BloomHighMix, mipFade);
     color *= mipIntensity;
 
+
     BRANCH
     if (width1 > 0)
     {
@@ -888,188 +889,79 @@ META_PERMUTATION_1(USE_VOLUME_LUT=1)
 META_PERMUTATION_1(USE_VOLUME_LUT=0)
 float4 PS_Composite(Quad_VS2PS input) : SV_Target
 {
-	float2 uv = input.TexCoord;
-	float3 lensLight = 0;
-	float4 color;
+    float2 screenPos = input.TexCoord;
+    float stripWidth = 0.25;
+    float mipCount = DepthHazeMipCount;
+    float mipHeight = 1.0 / mipCount;
 
-	// Chromatic Abberation
-	if (ChromaticDistortion > 0)
-	{
-		const float MAX_DIST_PX = 24.0;
-		float max_distort_px = MAX_DIST_PX * ChromaticDistortion;
-		float2 max_distort = InvInputSize * max_distort_px;
-		float2 min_distort = 0.5 * max_distort;
-
-		float2 oversiz = distort(float2(1.0, 1.0), 1.0, min_distort, max_distort);
-		uv = remap(uv, 1.0 - oversiz, oversiz);
-
-		int iterations = (int)lerp(3, 10, ChromaticDistortion);
-		float stepsiz = 1.0 / (float(iterations) - 1.0);
-		float rnd = nrand(uv + Time);
-		float t = rnd * stepsiz;
-
-		float4 sumcol = 0;
-		float4 sumw = 0;
-		for (int i = 0; i < iterations; i++)
-		{
-			float4 w = float4(spectrum_offset(t), 1);
-			sumw += w;
-			float2 uvd = distort(uv, t, min_distort, max_distort);
-			sumcol += Input0.Sample(SamplerLinearClamp, uvd) * w;
-			t += stepsiz;
-		}
-		sumcol /= sumw;
-		color = sumcol + (rnd / 255.0);
-	}
-	else
-	{
-		color = Input0.Sample(SamplerLinearClamp, uv);
-	}
-
-	// Lens Flares
-	BRANCH
-	if (LensFlareIntensity > 0)
-	{
-		// Get lens flare color
-		float3 lensFlares = Input3.Sample(SamplerLinearClamp, uv).rgb * LensFlareIntensity;
-
-		// Get lens star color and mix it with lens flares
-		float2 lensStarTexcoord = uv - 0.5;
-		lensStarTexcoord = mul(lensStarTexcoord, (float2x2)LensFlareStarMat).xy;
-		lensStarTexcoord += 0.5;
-		float3 lensStar = LensStar.Sample(SamplerLinearClamp, lensStarTexcoord).rgb;
-		lensFlares *= lensStar * 2 + 0.5;
-
-		// Accumulate final lens flares lght
-		lensLight += lensFlares * 1.5f;
-		color.rgb += lensFlares;
-	}
-
-    // DEBUG: Atmospheric Scattering Mip Chain Visualization (ALWAYS SHOW FOR DEBUGGING)
-    if (true) // TEMP: Force debug to always show
+    // Left side: Color Mips (full texture squashed)
+    if (screenPos.x < stripWidth)
     {
-        float2 screenPos = input.TexCoord;
-        float stripWidth = 0.25; // Width of each side strip (25% of screen)
-        float mipCount = DepthHazeMipCount;
-        float mipHeight = 1.0 / mipCount; // Height per mip level
-
-        // Left side: Show atmospheric scattering color mips
-        if (screenPos.x < stripWidth)
-    {
-        // Determine which mip level we're in based on Y position
         int mipLevel = (int)(screenPos.y / mipHeight);
         mipLevel = min(mipLevel, (int)mipCount - 1);
-
-        // Remap UV to 0-1 within the mip strip, scaled to 25% of original resolution
-        float2 mipUV = float2((screenPos.x / stripWidth) * 0.25, (fmod(screenPos.y, mipHeight) / mipHeight) * 0.25);
-
-        // Sample the color mip level from the atmospheric scattering chain
+        float2 mipUV = float2(screenPos.x / stripWidth, fmod(screenPos.y, mipHeight) / mipHeight);
         float3 mipSample = DepthHaze.SampleLevel(SamplerLinearClamp, mipUV, (float)mipLevel).rgb;
-
-        color.rgb = mipSample;
-        return color;
+        return float4(mipSample, 1.0);
     }
 
-    // Right side: Show depth mips
+    // Right side: Depth Mips (full texture squashed)
     if (screenPos.x > (1.0 - stripWidth))
     {
-        // Determine which mip level we're in based on Y position
         int mipLevel = (int)(screenPos.y / mipHeight);
         mipLevel = min(mipLevel, (int)mipCount - 1);
-
-        // Remap UV to the right strip, scaled to 25% of original resolution
-        float2 mipUV = float2(((screenPos.x - (1.0 - stripWidth)) / stripWidth) * 0.25, (fmod(screenPos.y, mipHeight) / mipHeight) * 0.25);
-
-        // Sample the depth mip level
+        float2 mipUV = float2((screenPos.x - (1.0 - stripWidth)) / stripWidth, fmod(screenPos.y, mipHeight) / mipHeight);
         float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, mipUV, (float)mipLevel).r;
-
-        // Linearize depth
         float linearDepth = LinearizeZ(depthValue, ViewInfo);
-
-        // Normalize depth using near and far distances
         float depthVisualized = saturate((linearDepth - DepthHazeNearDistance) / (DepthHazeFarDistance - DepthHazeNearDistance));
+        return float4(depthVisualized, depthVisualized, depthVisualized, 1.0);
+    }
 
-        color.rgb = float3(depthVisualized, depthVisualized, depthVisualized);
-        return color;
+    // Center: Focal Plane Mask Visualization
+    // {
+        // 1. Define alternating colors for visualization
+        float3 colors[8];
+        colors[0] = float3(1, 0, 0); // Red
+        colors[1] = float3(0, 1, 0); // Green
+        colors[2] = float3(0, 0, 1); // Blue
+        colors[3] = float3(1, 1, 0); // Yellow
+        colors[4] = float3(0, 1, 1); // Cyan
+        colors[5] = float3(1, 0, 1); // Magenta
+        colors[6] = float3(1, 0.5, 0); // Orange
+        colors[7] = float3(0.5, 0.2, 1); // Purple
+
+        // 2. Define depth area boundaries
+        int numAreas = (int)DepthHazeMipCount;
+        float sliceWidth = (DepthHazeFarDistance - DepthHazeNearDistance) / numAreas;
+        float transitionWidth = sliceWidth * 0.5; // Transition width is half a slice
+
+        float3 finalColor = float3(0, 0, 0);
+        float totalMask = 0;
+
+        // 3. Calculate and blend masks
+        for (int i = 0; i < numAreas; i++)
+        {
+            // A. Get the blurred depth from the CORRECT mip for this area
+            float blurredDepthValue = DepthMips.SampleLevel(SamplerLinearClamp, screenPos, i).r;
+            float linearDepth = LinearizeZ(blurredDepthValue, ViewInfo);
+
+            // B. Define the boundaries for this specific area
+            float areaStart = DepthHazeNearDistance + i * sliceWidth;
+            float areaEnd = areaStart + sliceWidth;
+
+            // C. Calculate the mask for this area (a smooth "box" filter)
+            float mask = smoothstep(areaStart - transitionWidth, areaStart + transitionWidth, linearDepth) - smoothstep(areaEnd - transitionWidth, areaEnd + transitionWidth, linearDepth);
+            
+            // D. Add this area's color to the final output, weighted by its mask
+            finalColor += mask * colors[i % 8];
+            totalMask += mask;
         }
-    }
 
-    // Depth Haze (depth-based atmospheric perspective)
-    BRANCH
-    if (DepthHazeIntensity > 0)
-    {
-        // Sample the current pixel's depth
-        float pixelDepth = DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord).r;
+        // (Optional but good practice) Normalize the color in case masks overlap/underlap slightly
+        if (totalMask > 0)
+        {
+            finalColor /= totalMask;
+        }
 
-        // Calculate depth-based haze factor
-        float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
-        float normalizedDepth = saturate((pixelDepth - DepthHazeNearDistance) / depthRange);
-        float hazeFactor = pow(normalizedDepth, DepthHazePower) * DepthHazeIntensity;
-
-        // Sample the haze color from the blurred texture
-        float3 hazeColor = DepthHaze.Sample(SamplerLinearClamp, input.TexCoord).rgb;
-
-        // Blend based on depth - distant objects get more haze
-        // Use replacement blending (not additive like bloom)
-        color.rgb = lerp(color.rgb, hazeColor, hazeFactor);
-    }
-
-    // Bloom
-    BRANCH
-    if (BloomIntensity > 0)
-    {
-        // Sample the final bloom result
-        float3 bloom = Input2.Sample(SamplerLinearClamp, input.TexCoord).rgb;
-        bloom = bloom * BloomIntensity;
-        lensLight += max(0, bloom * 3.0f + (-1.0f * 3.0f));
-        color.rgb += bloom;
-    }
-
-	// Lens Dirt
-	float3 lensDirt = LensDirt.SampleLevel(SamplerLinearClamp, uv, 0).rgb;
-	color.rgb += lensDirt * (lensLight * LensDirtIntensity);
-
-	// Eye Adaptation post exposure
-	color.rgb *= PostExposure;
-
-	// Color Grading and Tone Mapping
-#if !NO_GRADING_LUT
-	color.rgb = ColorLookupTable(color.rgb);
-#endif
-
-	// Film Grain
-	BRANCH
-	if (GrainAmount > 0)
-	{
-		// Calculate noise
-		float2 rotCoordsR = coordRot(uv, GrainTime);
-		float noise = pnoise2D(rotCoordsR * (InputSize / GrainParticleSize), GrainTime);
-
-		// Noisiness response curve based on scene luminance
-		float luminance = Luminance(saturate(color.rgb));
-		luminance += smoothstep(0.2, 0.0, luminance);
-
-		// Add noise to the final color
-		noise = lerp(noise, 0, min(pow(luminance, 4.0), 100));
-		color.rgb += noise * GrainAmount;
-	}
-
-	// Vignette
-	BRANCH
-	if (VignetteIntensity > 0)
-	{
-		float2 uvCircle = uv * (1 - uv);
-		float uvCircleScale = uvCircle.x * uvCircle.y * 16.0f;
-		float mask = lerp(1, pow(uvCircleScale, VignetteShapeFactor), VignetteIntensity);
-		color.rgb = lerp(VignetteColor, color.rgb, mask);
-	}
-
-	// Screen fade
-	color.rgb = lerp(color.rgb, ScreenFadeColor.rgb, ScreenFadeColor.a);
-
-	// Saturate color since it will be rendered to the screen
-	color.rgb = saturate(color.rgb);
-
-	// Return final pixel color (preserve input alpha)
-	return color;
+        return float4(finalColor, 1.0);
+    // }
 }
