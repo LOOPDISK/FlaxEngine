@@ -73,6 +73,7 @@ GPU_CB_STRUCT(Data{
     Color ScreenFadeColor;
 
     Matrix LensFlareStarMat;
+    Float4 ViewInfo;
     });
 
 GPU_CB_STRUCT(GaussianBlurData{
@@ -477,6 +478,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     data.InputSize = Float2(static_cast<float>(w1), static_cast<float>(h1));
     data.InvInputSize = Float2(1.0f / static_cast<float>(w1), 1.0f / static_cast<float>(h1));
     data.InputAspect = static_cast<float>(w1) / h1;
+    data.ViewInfo = view.ViewInfo;
     context->UpdateCB(cb0, &data);
     context->BindCB(0, cb0);
 

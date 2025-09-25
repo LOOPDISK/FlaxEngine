@@ -95,6 +95,8 @@ float4 ScreenFadeColor;
 
 float4x4 LensFlareStarMat;
 
+float4 ViewInfo;
+
 META_CB_END
 
 META_CB_BEGIN(1, GaussianBlurData)
@@ -872,6 +874,12 @@ float nrand(float2 n)
 	return frac(sin(dot(n.xy, float2(12.9898, 78.233)))* 43758.5453);
 }
 
+// Linearize raw device depth
+float LinearizeZ(float depth, float4 viewInfo)
+{
+    return viewInfo.w / (depth - viewInfo.z);
+}
+
 // Applies exposure, color grading and tone mapping to the input.
 // Combines it with the results of the bloom pass and other postFx.
 META_PS(true, FEATURE_LEVEL_ES2)
@@ -975,24 +983,11 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
         // Sample the depth mip level
         float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, mipUV, (float)mipLevel).r;
 
-        // Multiple depth visualization approaches for debugging
-        float depthVisualized = 0.0;
+        // Linearize depth
+        float linearDepth = LinearizeZ(depthValue, ViewInfo);
 
-        // Try different depth scaling approaches
-        if (depthValue > 0.0001) {
-            // Approach 1: Direct value (if already 0-1)
-            depthVisualized = saturate(depthValue);
-
-            // Approach 2: If very small values, scale up
-            if (depthVisualized < 0.01) {
-                depthVisualized = saturate(depthValue * 1000.0);
-            }
-
-            // Approach 3: If very large values (world units), scale down
-            if (depthValue > 10.0) {
-                depthVisualized = saturate(depthValue / 10000.0); // Assuming up to 100m
-            }
-        }
+        // Normalize depth using near and far distances
+        float depthVisualized = saturate((linearDepth - DepthHazeNearDistance) / (DepthHazeFarDistance - DepthHazeNearDistance));
 
         color.rgb = float3(depthVisualized, depthVisualized, depthVisualized);
         return color;
