@@ -96,6 +96,8 @@ bool PostProcessingPass::Init()
     _psDepthHazeDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeSimpleCopy = GPUDevice::Instance->CreatePipelineState();
     _psDepthCopy = GPUDevice::Instance->CreatePipelineState();
+    _psDepthFrequencySeparation = GPUDevice::Instance->CreatePipelineState();
+    _psDepthHazeBilateralDownsample = GPUDevice::Instance->CreatePipelineState();
     _psBloomBrightPass = GPUDevice::Instance->CreatePipelineState();
     _psBloomDownsample = GPUDevice::Instance->CreatePipelineState();
     _psBloomDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
@@ -164,6 +166,18 @@ bool PostProcessingPass::setupResources()
     {
         psDesc.PS = shader->GetPS("PS_DepthCopy");
         if (_psDepthCopy->Init(psDesc))
+            return true;
+    }
+    if (!_psDepthFrequencySeparation->IsValid())
+    {
+        psDesc.PS = shader->GetPS("PS_DepthFrequencySeparation");
+        if (_psDepthFrequencySeparation->Init(psDesc))
+            return true;
+    }
+    if (!_psDepthHazeBilateralDownsample->IsValid())
+    {
+        psDesc.PS = shader->GetPS("PS_DepthHazeBilateralDownsample");
+        if (_psDepthHazeBilateralDownsample->Init(psDesc))
             return true;
     }
     if (!_psBloomBrightPass->IsValid())
@@ -280,6 +294,8 @@ void PostProcessingPass::Dispose()
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDualFilterUpsample);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeSimpleCopy);
     SAFE_DELETE_GPU_RESOURCE(_psDepthCopy);
+    SAFE_DELETE_GPU_RESOURCE(_psDepthFrequencySeparation);
+    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeBilateralDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psBloomBrightPass);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDualFilterUpsample);
@@ -515,33 +531,34 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         context->DrawFullscreenTriangle();
         context->ResetRenderTarget();
 
-        // Generate depth mip chain - start with depth buffer copy/downsample
-        context->SetRenderTarget(depthMipBuffer->View(0, 0));
-        context->SetViewportAndScissors((float)w2, (float)h2);
-        context->BindSR(0, depthBuffer->View());
-        context->SetState(_psDepthCopy); // Use proper depth copy shader
-        context->DrawFullscreenTriangle();
-        context->ResetRenderTarget();
+        // Generate frequency-separated depth mip chain
+        // Each mip samples from full-resolution depth with different high/low pass filtering
+        for (int32 mip = 0; mip < bloomMipCount; mip++)
+        {
+            const int32 mipWidth = w2 >> mip;
+            const int32 mipHeight = h2 >> mip;
 
-        // Progressive downsamples for BOTH chains
+            context->SetRenderTarget(depthMipBuffer->View(0, mip));
+            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
+            context->BindSR(0, depthBuffer->View()); // Always sample from full resolution depth
+            // TODO: Pass mip level as constant to control filtering strength
+            context->SetState(_psDepthFrequencySeparation); // New shader for frequency-separated depth
+            context->DrawFullscreenTriangle();
+            context->ResetRenderTarget();
+        }
+
+        // Progressive downsamples for color chain only
         for (int32 mip = 1; mip < bloomMipCount; mip++)
         {
             const int32 mipWidth = w2 >> mip;
             const int32 mipHeight = h2 >> mip;
 
-            // Downsample color chain
+            // Downsample color chain with bilateral filtering
             context->SetRenderTarget(scatteringColorBuffer->View(0, mip));
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
-            context->BindSR(0, scatteringColorBuffer->View(0, mip - 1));
-            context->SetState(_psDepthHazeDownsample);
-            context->DrawFullscreenTriangle();
-            context->ResetRenderTarget();
-
-            // Downsample depth chain
-            context->SetRenderTarget(depthMipBuffer->View(0, mip));
-            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
-            context->BindSR(0, depthMipBuffer->View(0, mip - 1));
-            context->SetState(_psDepthHazeDownsample);
+            context->BindSR(0, scatteringColorBuffer->View(0, mip - 1)); // Previous color mip
+            context->BindSR(1, depthBuffer->View()); // Full resolution depth for bilateral comparison
+            context->SetState(_psDepthHazeBilateralDownsample);
             context->DrawFullscreenTriangle();
             context->ResetRenderTarget();
         }

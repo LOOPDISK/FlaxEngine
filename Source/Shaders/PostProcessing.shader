@@ -533,6 +533,142 @@ float4 PS_DepthCopy(Quad_VS2PS input) : SV_Target
     return float4(depth, depth, depth, 1.0);
 }
 
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
+{
+    // Depth-aware bilateral filtering to prevent cross-depth contamination
+    // Uses depth similarity to weight samples, preventing color bleeding across depth boundaries
+
+    uint width, height;
+    Input0.GetDimensions(width, height);
+    float2 texelSize = 1.0 / float2(width, height);
+
+    // Calculate mip level to adjust bilateral sensitivity
+    float referenceWidth = 1920.0;
+    float mipLevel = log2(max(1.0, referenceWidth / (float)width));
+
+    // Depth similarity threshold - more permissive at higher mips (distant objects)
+    float depthSimilarityThreshold = 0.01 * (1.0 + mipLevel * 0.5);
+
+    float color = 0.0;
+    float totalWeight = 0.0;
+
+    // Center sample - reference depth for bilateral comparison
+    float centerDepth = Input0.Sample(SamplerLinearClamp, input.TexCoord).r;
+
+    // Bilateral filter using 3x3 kernel
+    UNROLL
+    for (int y = -1; y <= 1; y++)
+    {
+        UNROLL
+        for (int x = -1; x <= 1; x++)
+        {
+            float2 offset = float2(x, y) * texelSize;
+            float sampleDepth = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).r;
+
+            // Spatial weight (distance from center)
+            float spatialWeight = 1.0;
+            if (x == 0 && y == 0)
+                spatialWeight = 4.0; // Center
+            else if (x == 0 || y == 0)
+                spatialWeight = 2.0; // Cross
+            else
+                spatialWeight = 1.0; // Corners
+
+            // Bilateral weight (depth similarity)
+            float depthDiff = abs(centerDepth - sampleDepth);
+            float bilateralWeight = exp(-depthDiff / depthSimilarityThreshold);
+
+            // Combined weight
+            float finalWeight = spatialWeight * bilateralWeight;
+
+            color += sampleDepth * finalWeight;
+            totalWeight += finalWeight;
+        }
+    }
+
+    // Normalize
+    if (totalWeight > 0.0)
+        color /= totalWeight;
+    else
+        color = centerDepth; // Fallback
+
+    return color.xxxx;
+}
+
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthHazeBilateralDownsample(Quad_VS2PS input) : SV_Target
+{
+    // Bilateral color downsampling using depth information to prevent cross-contamination
+    // Input0: Previous color mip level
+    // Input1: Full resolution depth buffer
+
+    uint colorWidth, colorHeight, depthWidth, depthHeight;
+    Input0.GetDimensions(colorWidth, colorHeight);
+    Input1.GetDimensions(depthWidth, depthHeight);
+
+    float2 colorTexelSize = 1.0 / float2(colorWidth, colorHeight);
+    float2 depthTexelSize = 1.0 / float2(depthWidth, depthHeight);
+
+    // Calculate scale factor between color mip and full-res depth
+    float2 depthScale = float2(depthWidth, depthHeight) / float2(colorWidth, colorHeight);
+
+    // Sample reference depth at current pixel location in full-res depth buffer
+    float2 depthUV = input.TexCoord;
+    float centerDepth = Input1.Sample(SamplerLinearClamp, depthUV).r;
+
+    // Depth similarity threshold - tighter for color to prevent bleeding
+    float depthSimilarityThreshold = 0.005; // Stricter than depth filtering
+
+    float3 color = float3(0, 0, 0);
+    float totalWeight = 0.0;
+
+    // 3x3 bilateral filter
+    UNROLL
+    for (int y = -1; y <= 1; y++)
+    {
+        UNROLL
+        for (int x = -1; x <= 1; x++)
+        {
+            float2 colorOffset = float2(x, y) * colorTexelSize;
+            float2 depthOffset = float2(x, y) * colorTexelSize * depthScale;
+
+            // Sample color from previous mip
+            float3 colorSample = Input0.Sample(SamplerLinearClamp, input.TexCoord + colorOffset).rgb;
+
+            // Sample corresponding depth from full-res buffer
+            float depthSample = Input1.Sample(SamplerLinearClamp, depthUV + depthOffset).r;
+
+            // Spatial weight
+            float spatialWeight = 1.0;
+            if (x == 0 && y == 0)
+                spatialWeight = 4.0; // Center
+            else if (x == 0 || y == 0)
+                spatialWeight = 2.0; // Cross
+            else
+                spatialWeight = 1.0; // Corners
+
+            // Bilateral weight (depth similarity)
+            float depthDiff = abs(centerDepth - depthSample);
+            float bilateralWeight = exp(-depthDiff / depthSimilarityThreshold);
+
+            // Combined weight
+            float finalWeight = spatialWeight * bilateralWeight;
+
+            color += colorSample * finalWeight;
+            totalWeight += finalWeight;
+        }
+    }
+
+    // Normalize
+    if (totalWeight > 0.0)
+        color /= totalWeight;
+    else
+        color = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb; // Fallback
+
+    return float4(color, 1.0);
+}
+
 // Depth Haze functions (duplicated from Bloom)
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthHazeBrightPass(Quad_VS2PS input) : SV_Target
@@ -1018,17 +1154,9 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
         // Apply power curve for artistic control
         float targetMipFloat = pow(normalizedDepth, DepthHazePower) * (DepthHazeMipCount - 1);
 
-        // Get adjacent mip levels for smooth interpolation
-        int lowMip = (int)floor(targetMipFloat);
-        int highMip = min(lowMip + 1, (int)DepthHazeMipCount - 1);
-        float mipBlend = frac(targetMipFloat);
-
-        // Sample color mips for smooth atmospheric scattering
-        float3 lowMipColor = DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, lowMip).rgb;
-        float3 highMipColor = DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, highMip).rgb;
-
-        // Interpolate between mip levels
-        float3 scatteredColor = lerp(lowMipColor, highMipColor, mipBlend);
+        // Use hardware trilinear filtering for perfectly smooth mip interpolation
+        // This eliminates manual interpolation artifacts and leverages GPU filtering
+        float3 scatteredColor = DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, targetMipFloat).rgb;
 
         // Apply mip intensity variation
         float mipFade = targetMipFloat / max(DepthHazeMipCount - 1, 1.0);
@@ -1059,6 +1187,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
         float3 lensFlareContribution = Input3.Sample(SamplerLinearClamp, input.TexCoord).rgb;
         sceneColor += lensFlareContribution * LensFlareIntensity;
     }
+
 
 #if !NO_GRADING_LUT
     // Apply color grading and tone mapping

@@ -49,8 +49,7 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     float rayLength = cameraToPosLen;
     float rayDirectionY = cameraToPos.y;
 
-    // Apply start distance offset
-    skipDistance = max(skipDistance, exponentialHeightFog.StartDistance);
+    // Apply volumetric fog skip distance (hard cutoff for performance only)
     if (skipDistance > 0)
     {
         float excludeIntersectionTime = skipDistance * cameraToPosLenInv;
@@ -69,6 +68,24 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     float exponentialHeightLineIntegralCalc = rayOriginTerms * (abs(falloff) > 0.01f ? lineIntegral : lineIntegralTaylor);
     float exponentialHeightLineIntegral = exponentialHeightLineIntegralCalc * rayLength;
 
+    // Apply distance-based fog density ramping (core physics integration)
+    float startDist = max(exponentialHeightFog.StartDistance, 0.1f);
+    if (cameraToPosLen <= startDist)
+    {
+        // Ray is entirely within ramp-up zone: average density = (distance/startDist) * 0.5
+        float avgDensityFactor = (cameraToPosLen / startDist) * 0.5f;
+        exponentialHeightLineIntegral *= avgDensityFactor;
+    }
+    else
+    {
+        // Ray extends beyond ramp zone: weighted average of ramp and full density regions
+        float rampZoneContribution = startDist * 0.5f; // ramp zone average = 0.5
+        float fullZoneContribution = cameraToPosLen - startDist; // full density = 1.0
+        float totalContribution = rampZoneContribution + fullZoneContribution;
+        float avgDensityFactor = totalContribution / cameraToPosLen;
+        exponentialHeightLineIntegral *= avgDensityFactor;
+    }
+
     // Calculate the light that went through the fog using gradual buildup
     float buildupScale = 0.1;      // TWEAK: Lower = more gradual buildup, Higher = faster buildup
     float buildupPower = 0.2;      // TWEAK: Higher = more gradual start (try 3.0-6.0)
@@ -84,7 +101,13 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     BRANCH
     if (exponentialHeightFog.EnvironmentInfluence > 0.0f)
     {
-        float3 environmentColor = EnvironmentTexture.SampleLevel(EnvironmentSampler, cameraToReceiverNorm, exponentialHeightFog.EnvironmentMipLevel).rgb;
+        // Calculate height-based sampling for stable fog color gradient
+        float fogHeightNormalized = saturate((posWS.y - exponentialHeightFog.FogHeight) / max(1.0f, exponentialHeightFog.FogHeight * 0.5f));
+
+        // Create height-based sample direction - lerp from down (-Y) to up (+Y) based on height
+        float3 heightBasedDirection = lerp(float3(0, -1, 0), float3(0, 1, 0), fogHeightNormalized);
+
+        float3 environmentColor = EnvironmentTexture.SampleLevel(EnvironmentSampler, heightBasedDirection, exponentialHeightFog.EnvironmentMipLevel).rgb;
         inscatteringColor = lerp(inscatteringColor, environmentColor * inscatteringColor, exponentialHeightFog.EnvironmentInfluence);
     }
     
