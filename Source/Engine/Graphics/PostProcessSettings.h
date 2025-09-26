@@ -598,7 +598,7 @@ API_STRUCT() struct FLAXENGINE_API DepthHazeSettings : ISerializable
     /// <summary>
     /// Distance where atmospheric scattering reaches maximum effect (in world units/cm).
     /// </summary>
-    API_FIELD(Attributes="Limit(0, 100000.0f, 10.0f), EditorOrder(3), PostProcessSetting((int)DepthHazeSettingsOverride.FarDistance)")
+    API_FIELD(Attributes="Limit(0, 1000000.0f, 10.0f), EditorOrder(3), PostProcessSetting((int)DepthHazeSettingsOverride.FarDistance)")
     float FarDistance = 5000.0f;
 
     /// <summary>
