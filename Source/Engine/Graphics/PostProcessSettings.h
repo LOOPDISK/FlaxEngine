@@ -557,9 +557,14 @@ API_ENUM(Attributes="Flags") enum class DepthHazeSettingsOverride : int32
     HighMix = 1 << 6,
 
     /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.MaxMipLevel"/> property.
+    /// </summary>
+    MaxMipLevel = 1 << 7,
+
+    /// <summary>
     /// All properties.
     /// </summary>
-    All = Enabled | Intensity | NearDistance | FarDistance | Power | BaseMix | HighMix,
+    All = Enabled | Intensity | NearDistance | FarDistance | Power | BaseMix | HighMix | MaxMipLevel,
 };
 
 /// <summary>
@@ -618,6 +623,12 @@ API_STRUCT() struct FLAXENGINE_API DepthHazeSettings : ISerializable
     /// </summary>
     API_FIELD(Attributes="Limit(0, 1.0f, 0.01f), EditorOrder(6), PostProcessSetting((int)DepthHazeSettingsOverride.HighMix)")
     float HighMix = 1.0f;
+
+    /// <summary>
+    /// Maximum mip level to use for depth haze blur (limits blur ceiling). Lower values prevent extreme blur.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 8, 0.1f), EditorOrder(7), PostProcessSetting((int)DepthHazeSettingsOverride.MaxMipLevel)")
+    float MaxMipLevel = 6.0f;
 
 public:
     /// <summary>

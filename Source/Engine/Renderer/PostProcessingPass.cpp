@@ -337,21 +337,6 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
 
     PostProcessSettings& settings = renderContext.List->Settings;
 
-    // DEBUG: Log Graphics::PostProcessSettings.DepthHaze.Intensity
-    LOG(Info, "DepthHaze DEBUG - Graphics::PostProcessSettings.DepthHaze.Intensity: {0}", Graphics::PostProcessSettings.DepthHaze.Intensity);
-
-    // DEBUG: Log DepthHaze settings state
-    LOG(Info, "DepthHaze DEBUG - ViewFlags::DepthHaze: {0}, settings.DepthHaze.Enabled: {1}, settings.DepthHaze.Intensity: {2}",
-        EnumHasAnyFlags(view.Flags, ViewFlags::DepthHaze), settings.DepthHaze.Enabled, settings.DepthHaze.Intensity);
-
-    // DEBUG: Log raw view flags and compare to defaults
-    LOG(Info, "DepthHaze DEBUG - Raw view.Flags: {0:x}, DefaultGame: {1:x}, DefaultEditor: {2:x}",
-        (int32)view.Flags, (int32)ViewFlags::DefaultGame, (int32)ViewFlags::DefaultEditor);
-
-    // DEBUG: Show specific DepthHaze bit
-    LOG(Info, "DepthHaze DEBUG - ViewFlags::DepthHaze bit value: {0:x}, has bit: {1}",
-        (int32)ViewFlags::DepthHaze, (view.Flags & ViewFlags::DepthHaze) != ViewFlags::None);
-
     //// TEMPORARY FIX: Force enable DepthHaze ViewFlag if missing
     //if ((view.Flags & ViewFlags::DepthHaze) == ViewFlags::None)
     //{
@@ -363,7 +348,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     bool useBloom = EnumHasAnyFlags(view.Flags, ViewFlags::Bloom) && settings.Bloom.Enabled && settings.Bloom.Intensity > 0.0f;
 
     // DEBUG: Log final useDepthHaze result
-    LOG(Info, "DepthHaze DEBUG - Final useDepthHaze: {0}, useBloom: {1}", useDepthHaze, useBloom);
+
     bool useToneMapping = EnumHasAnyFlags(view.Flags, ViewFlags::ToneMapping) && settings.ToneMapping.Mode != ToneMappingMode::None;
     bool useCameraArtifacts = EnumHasAnyFlags(view.Flags, ViewFlags::CameraArtifacts) && (settings.CameraArtifacts.VignetteIntensity > 0.0f || settings.CameraArtifacts.GrainAmount > 0.0f || settings.CameraArtifacts.ChromaticDistortion > 0.0f || settings.CameraArtifacts.ScreenFadeColor.A > 0.0f);
     bool useLensFlares = EnumHasAnyFlags(view.Flags, ViewFlags::LensFlares) && settings.LensFlares.Intensity > 0.0f && useBloom;

@@ -55,7 +55,7 @@ float DepthHazeLayer;
 float DepthHazeNearDistance;
 float DepthHazeFarDistance;
 float DepthHazePower;
-float DepthHazeMipBlend;
+float DepthHazeMaxMipLevel;
 
 float BloomIntensity;
 float BloomClamp;
@@ -1042,6 +1042,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
                       (screenPos.x > (debugCenterX - debugWidth * 0.5)) &&
                       (screenPos.x < (debugCenterX + debugWidth * 0.5));
 
+    /*
     if (inDebugArea)
     {
         // Map screen position to debug area local coordinates
@@ -1075,6 +1076,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
             return float4(depthVisualized, depthVisualized, depthVisualized, 1.0);
         }
     }
+    */
 
     // Focal Plane Mask Visualization (commented out - use for advanced debugging)
     /*
@@ -1154,9 +1156,27 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
         // Apply power curve for artistic control
         float targetMipFloat = pow(normalizedDepth, DepthHazePower) * (DepthHazeMipCount - 1);
 
-        // Use hardware trilinear filtering for perfectly smooth mip interpolation
-        // This eliminates manual interpolation artifacts and leverages GPU filtering
-        float3 scatteredColor = DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, targetMipFloat).rgb;
+        // Apply max mip level limit to prevent excessive blur
+        float effectiveMaxMip = min(DepthHazeMaxMipLevel, DepthHazeMipCount - 1);
+        targetMipFloat = min(targetMipFloat, effectiveMaxMip);
+
+        // Wavelength-dependent chromatic dispersion for Mie scattering
+        // Red light scatters less (sharper), blue light scatters more (blurrier)
+        float chromaticDispersion = 0.4; // Strength of chromatic effect
+        float redMipOffset = -chromaticDispersion; // Red stays sharper
+        float greenMipOffset = 0.0; // Green is baseline
+        float blueMipOffset = chromaticDispersion; // Blue gets blurrier
+
+        // Sample each channel at different mip levels for wavelength-dependent scattering
+        float redMipLevel = clamp(targetMipFloat + redMipOffset, 0.0, effectiveMaxMip);
+        float greenMipLevel = clamp(targetMipFloat + greenMipOffset, 0.0, effectiveMaxMip);
+        float blueMipLevel = clamp(targetMipFloat + blueMipOffset, 0.0, effectiveMaxMip);
+
+        float3 scatteredColor = float3(
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, redMipLevel).r,
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, greenMipLevel).g,
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, blueMipLevel).b
+        );
 
         // Apply mip intensity variation
         float mipFade = targetMipFloat / max(DepthHazeMipCount - 1, 1.0);
