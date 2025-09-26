@@ -342,7 +342,13 @@ VertexOutput VS(ModelInput input)
 	output.Geometry.PrevWorldPosition = mul(float4(input.Position.xyz, 1), object.PrevWorldMatrix).xyz;
 
 	// Compute clip space position
+#if USE_WEAPON_FOV_OVERRIDE
+	// Apply weapon FOV override if enabled
+	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
+	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
+#else
 	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
+#endif
 
 	// Pass vertex attributes
 	output.Geometry.TexCoords01 = float4(input.TexCoord0, input.TexCoord1);
@@ -378,7 +384,13 @@ VertexOutput VS(ModelInput input)
 #if USE_POSITION_OFFSET
 	output.Geometry.WorldPosition += material.PositionOffset;
 	output.Geometry.PrevWorldPosition += material.PositionOffset;
+#if USE_WEAPON_FOV_OVERRIDE
+	// Apply weapon FOV override if enabled
+	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
+	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
+#else
 	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
+#endif
 #endif
 
 	// Get tessalation multiplier (per vertex)
@@ -412,7 +424,13 @@ float4 VS_Depth(ModelInput_PosOnly input) : SV_Position
 
 	// Transform vertex position into the screen
 	float3 worldPosition = mul(float4(input.Position.xyz, 1), object.WorldMatrix).xyz;
+#if USE_WEAPON_FOV_OVERRIDE
+	// Apply weapon FOV override if enabled
+	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
+	float4 position = ApplyWeaponFOVOverride(worldPosition, aspect);
+#else
 	float4 position = mul(float4(worldPosition, 1), ViewProjectionMatrix);
+#endif
 	return position;
 }
 
@@ -518,7 +536,13 @@ VertexOutput VS_Skinned(ModelInput_Skinned input)
 #endif
 
 	// Compute clip space position
+#if USE_WEAPON_FOV_OVERRIDE
+	// Apply weapon FOV override if enabled
+	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
+	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
+#else
 	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
+#endif
 
 	// Pass vertex attributes
 	output.Geometry.TexCoords01 = float4(input.TexCoord0, input.TexCoord1);
@@ -549,7 +573,13 @@ VertexOutput VS_Skinned(ModelInput_Skinned input)
 #if USE_POSITION_OFFSET
 	output.Geometry.WorldPosition += material.PositionOffset;
 	output.Geometry.PrevWorldPosition += material.PositionOffset;
+#if USE_WEAPON_FOV_OVERRIDE
+	// Apply weapon FOV override if enabled
+	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
+	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
+#else
 	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
+#endif
 #endif
 
 	// Get tessalation multiplier (per vertex)

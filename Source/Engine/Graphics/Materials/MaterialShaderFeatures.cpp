@@ -283,4 +283,9 @@ void MotionVectorsFeature::Generate(GeneratorData& data)
     data.Template = TEXT("Features/MotionVectors.hlsl");
 }
 
+void WeaponFOVOverrideFeature::Generate(GeneratorData& data)
+{
+    data.Template = TEXT("Features/WeaponFOVOverride.hlsl");
+}
+
 #endif

@@ -74,6 +74,9 @@ namespace FlaxEditor.Windows.Assets
             [EditorOrder(130), DefaultValue(true), VisibleIf(nameof(IsStandard)), EditorDisplay("Rendering"), Tooltip("Enable writing to the depth buffer during material rendering.")]
             public bool DepthWrite;
 
+            [EditorOrder(140), DefaultValue(false), VisibleIf(nameof(IsStandard)), EditorDisplay("Rendering"), Tooltip("Enable weapon FOV override for FPS weapon rendering with custom projection matrix.")]
+            public bool WeaponFOVOverride;
+
             // Transparency
 
             [EditorOrder(200), DefaultValue(MaterialTransparentLightingMode.Surface), VisibleIf(nameof(IsForward)), EditorDisplay("Transparency"), Tooltip("Transparent material lighting mode.")]
@@ -162,6 +165,7 @@ namespace FlaxEditor.Windows.Assets
                 CullMode = info.CullMode;
                 DepthTest = (info.FeaturesFlags & MaterialFeaturesFlags.DisableDepthTest) == 0;
                 DepthWrite = (info.FeaturesFlags & MaterialFeaturesFlags.DisableDepthWrite) == 0;
+                WeaponFOVOverride = (info.FeaturesFlags & MaterialFeaturesFlags.WeaponFOVOverride) != 0;
                 EnableReflections = (info.FeaturesFlags & MaterialFeaturesFlags.DisableReflections) == 0;
                 EnableScreenSpaceReflections = (info.FeaturesFlags & MaterialFeaturesFlags.ScreenSpaceReflections) != 0;
                 EnableFog = (info.FeaturesFlags & MaterialFeaturesFlags.DisableFog) == 0;
@@ -199,6 +203,8 @@ namespace FlaxEditor.Windows.Assets
                     info.FeaturesFlags |= MaterialFeaturesFlags.DisableDepthTest;
                 if (!DepthWrite)
                     info.FeaturesFlags |= MaterialFeaturesFlags.DisableDepthWrite;
+                if (WeaponFOVOverride)
+                    info.FeaturesFlags |= MaterialFeaturesFlags.WeaponFOVOverride;
                 if (!EnableReflections)
                     info.FeaturesFlags |= MaterialFeaturesFlags.DisableReflections;
                 if (EnableScreenSpaceReflections)

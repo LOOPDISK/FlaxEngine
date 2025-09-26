@@ -281,6 +281,11 @@ API_ENUM(Attributes="Flags") enum class MaterialFeaturesFlags : uint32
     /// The flag used to enable sampling Global Illumination in material (eg. light probes or volumetric lightmap). The Forward Pass materials option.
     /// </summary>
     GlobalIllumination = 1 << 11,
+
+    /// <summary>
+    /// The flag used to enable weapon FOV override in vertex shader projection. Applies custom projection matrix to weapon objects.
+    /// </summary>
+    WeaponFOVOverride = 1 << 12,
 };
 
 DECLARE_ENUM_OPERATORS(MaterialFeaturesFlags);
