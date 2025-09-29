@@ -30,6 +30,11 @@ GPU_CB_STRUCT(Data{
     float DepthHazePower;        // Power curve for depth falloff
     float DepthHazeMaxMipLevel;  // Maximum mip level for depth haze blur
 
+    float DepthHazeChromaticDispersion; // Chromatic dispersion strength
+    float DepthHazePadding1;
+    float DepthHazePadding2;
+    float DepthHazePadding3;
+
     float BloomIntensity; // Overall bloom strength multiplier
     float BloomClamp; // Maximum brightness limit for bloom
     float BloomThreshold; // Luminance threshold where bloom begins
@@ -419,6 +424,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.DepthHazeFarDistance = settings.DepthHaze.FarDistance;
         data.DepthHazePower = settings.DepthHaze.Power;
         data.DepthHazeMaxMipLevel = settings.DepthHaze.MaxMipLevel;
+        data.DepthHazeChromaticDispersion = settings.DepthHaze.ChromaticDispersion;
     }
     else
     {
@@ -426,6 +432,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.DepthHazeNearDistance = 0;
         data.DepthHazeFarDistance = 0;
         data.DepthHazeMaxMipLevel = 0;
+        data.DepthHazeChromaticDispersion = 0;
     }
     if (useBloom)
     {

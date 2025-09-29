@@ -562,9 +562,14 @@ API_ENUM(Attributes="Flags") enum class DepthHazeSettingsOverride : int32
     MaxMipLevel = 1 << 7,
 
     /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.ChromaticDispersion"/> property.
+    /// </summary>
+    ChromaticDispersion = 1 << 8,
+
+    /// <summary>
     /// All properties.
     /// </summary>
-    All = Enabled | Intensity | NearDistance | FarDistance | Power | BaseMix | HighMix | MaxMipLevel,
+    All = Enabled | Intensity | NearDistance | FarDistance | Power | BaseMix | HighMix | MaxMipLevel | ChromaticDispersion,
 };
 
 /// <summary>
@@ -629,6 +634,12 @@ API_STRUCT() struct FLAXENGINE_API DepthHazeSettings : ISerializable
     /// </summary>
     API_FIELD(Attributes="Limit(0, 8, 0.1f), EditorOrder(7), PostProcessSetting((int)DepthHazeSettingsOverride.MaxMipLevel)")
     float MaxMipLevel = 6.0f;
+
+    /// <summary>
+    /// Chromatic dispersion strength for wavelength-dependent scattering. Higher values create more color separation (red sharper, blue blurrier).
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 2.0f, 0.01f), EditorOrder(8), PostProcessSetting((int)DepthHazeSettingsOverride.ChromaticDispersion)")
+    float ChromaticDispersion = 0.4f;
 
 public:
     /// <summary>

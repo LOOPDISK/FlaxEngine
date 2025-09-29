@@ -57,6 +57,11 @@ float DepthHazeFarDistance;
 float DepthHazePower;
 float DepthHazeMaxMipLevel;
 
+float DepthHazeChromaticDispersion;
+float DepthHazePadding1;
+float DepthHazePadding2;
+float DepthHazePadding3;
+
 float BloomIntensity;
 float BloomClamp;
 float BloomThreshold;
@@ -1214,10 +1219,9 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 
         // Wavelength-dependent chromatic dispersion for Mie scattering
         // Red light scatters less (sharper), blue light scatters more (blurrier)
-        float chromaticDispersion = 0.4; // Strength of chromatic effect
-        float redMipOffset = -chromaticDispersion; // Red stays sharper
+        float redMipOffset = -DepthHazeChromaticDispersion; // Red stays sharper
         float greenMipOffset = 0.0; // Green is baseline
-        float blueMipOffset = chromaticDispersion; // Blue gets blurrier
+        float blueMipOffset = DepthHazeChromaticDispersion; // Blue gets blurrier
 
         // Sample each channel at different mip levels for wavelength-dependent scattering
         float redMipLevel = clamp(targetMipFloat + redMipOffset, 0.0, effectiveMaxMip);
