@@ -4,7 +4,8 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(grep:*)",
-      "WebFetch(domain:therealmjp.github.io)"
+      "WebFetch(domain:therealmjp.github.io)",
+      "WebFetch(domain:community.arm.com)"
     ],
     "deny": []
   }

@@ -512,12 +512,52 @@ float4 PS_BloomDualFilterUpsample(Quad_VS2PS input) : SV_Target
     return float4(color, 1.0);
 }
 
-// Simple copy/downsample for depth haze (no threshold, full scene)
+// Improved initial downsample for depth haze with proper anti-aliasing
 META_PS(true, FEATURE_LEVEL_ES2)
-float4 PS_DepthHazeSimpleCopy(Quad_VS2PS input) : SV_Target
+float4 PS_DepthHazeImprovedCopy(Quad_VS2PS input) : SV_Target
 {
-    // Simple bilinear sample - no bright pass, no threshold
-    float3 color = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+    // Get dimensions for precise texel calculations
+    uint width, height;
+    Input0.GetDimensions(width, height);
+    float2 texelSize = 1.0 / float2(width, height);
+
+    // Use 13-tap sample pattern for anti-aliased downsampling
+    float3 color = 0;
+    float totalWeight = 0;
+
+    // Center sample with high weight for energy preservation
+    float3 center = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+    float centerWeight = 4.0;
+    color += center * centerWeight;
+    totalWeight += centerWeight;
+
+    // Inner ring - fixed offset at 1.0 texel distance
+    UNROLL
+    for (int i = 0; i < 4; i++)
+    {
+        float angle = i * (PI / 2.0);
+        float2 offset = float2(cos(angle), sin(angle)) * texelSize;
+        float3 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).rgb;
+
+        float weight = 2.0;
+        color += sampleColor * weight;
+        totalWeight += weight;
+    }
+
+    // Outer ring - fixed offset at 1.4142 texel distance (diagonal)
+    UNROLL
+    for (int j = 0; j < 8; j++)
+    {
+        float angle = j * (PI / 4.0);
+        float2 offset = float2(cos(angle), sin(angle)) * texelSize * 1.4142;
+        float3 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).rgb;
+
+        float weight = 1.0;
+        color += sampleColor * weight;
+        totalWeight += weight;
+    }
+
+    color /= totalWeight;
     return float4(color, 1.0);
 }
 
@@ -597,9 +637,9 @@ float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
 }
 
 META_PS(true, FEATURE_LEVEL_ES2)
-float4 PS_DepthHazeBilateralDownsample(Quad_VS2PS input) : SV_Target
+float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
 {
-    // Bilateral color downsampling using depth information to prevent cross-contamination
+    // Adaptive bilateral color downsampling - less aggressive on first few mips
     // Input0: Previous color mip level
     // Input1: Full resolution depth buffer
 
@@ -613,17 +653,26 @@ float4 PS_DepthHazeBilateralDownsample(Quad_VS2PS input) : SV_Target
     // Calculate scale factor between color mip and full-res depth
     float2 depthScale = float2(depthWidth, depthHeight) / float2(colorWidth, colorHeight);
 
+    // Calculate mip level to adjust bilateral sensitivity
+    float referenceWidth = 1920.0;
+    float mipLevel = log2(max(1.0, referenceWidth / (float)colorWidth));
+
     // Sample reference depth at current pixel location in full-res depth buffer
     float2 depthUV = input.TexCoord;
     float centerDepth = Input1.Sample(SamplerLinearClamp, depthUV).r;
 
-    // Depth similarity threshold - tighter for color to prevent bleeding
-    float depthSimilarityThreshold = 0.005; // Stricter than depth filtering
+    // Adaptive depth similarity threshold - more permissive for first few mips
+    // This allows more natural blurring on closer objects
+    float baseSimilarityThreshold = 0.005;
+    float adaptiveThreshold = baseSimilarityThreshold * (1.0 + mipLevel * 0.8);
+
+    // For very first mips (0-2), reduce bilateral weight to allow more natural blur
+    float bilateralStrength = saturate(mipLevel / 3.0); // Gradual ramp-up from 0 to 1
 
     float3 color = float3(0, 0, 0);
     float totalWeight = 0.0;
 
-    // 3x3 bilateral filter
+    // Enhanced 3x3 bilateral filter with adaptive weights
     UNROLL
     for (int y = -1; y <= 1; y++)
     {
@@ -639,21 +688,24 @@ float4 PS_DepthHazeBilateralDownsample(Quad_VS2PS input) : SV_Target
             // Sample corresponding depth from full-res buffer
             float depthSample = Input1.Sample(SamplerLinearClamp, depthUV + depthOffset).r;
 
-            // Spatial weight
+            // Enhanced spatial weight for better anti-aliasing
             float spatialWeight = 1.0;
             if (x == 0 && y == 0)
                 spatialWeight = 4.0; // Center
             else if (x == 0 || y == 0)
-                spatialWeight = 2.0; // Cross
+                spatialWeight = 2.5; // Cross - slightly higher for smoother transitions
             else
-                spatialWeight = 1.0; // Corners
+                spatialWeight = 1.2; // Corners - slightly higher for anti-aliasing
 
-            // Bilateral weight (depth similarity)
+            // Adaptive bilateral weight
             float depthDiff = abs(centerDepth - depthSample);
-            float bilateralWeight = exp(-depthDiff / depthSimilarityThreshold);
+            float bilateralWeight = exp(-depthDiff / adaptiveThreshold);
+
+            // Blend between pure spatial and bilateral based on mip level
+            float finalBilateralWeight = lerp(1.0, bilateralWeight, bilateralStrength);
 
             // Combined weight
-            float finalWeight = spatialWeight * bilateralWeight;
+            float finalWeight = spatialWeight * finalBilateralWeight;
 
             color += colorSample * finalWeight;
             totalWeight += finalWeight;

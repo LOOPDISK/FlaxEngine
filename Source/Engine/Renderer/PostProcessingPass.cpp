@@ -94,10 +94,10 @@ bool PostProcessingPass::Init()
     _psDepthHazeBrightPass = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeDownsample = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
-    _psDepthHazeSimpleCopy = GPUDevice::Instance->CreatePipelineState();
+    _psDepthHazeImprovedCopy = GPUDevice::Instance->CreatePipelineState();
     _psDepthCopy = GPUDevice::Instance->CreatePipelineState();
     _psDepthFrequencySeparation = GPUDevice::Instance->CreatePipelineState();
-    _psDepthHazeBilateralDownsample = GPUDevice::Instance->CreatePipelineState();
+    _psDepthHazeAdaptiveBilateralDownsample = GPUDevice::Instance->CreatePipelineState();
     _psBloomBrightPass = GPUDevice::Instance->CreatePipelineState();
     _psBloomDownsample = GPUDevice::Instance->CreatePipelineState();
     _psBloomDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
@@ -156,10 +156,10 @@ bool PostProcessingPass::setupResources()
         if (_psDepthHazeDualFilterUpsample->Init(psDesc))
             return true;
     }
-    if (!_psDepthHazeSimpleCopy->IsValid())
+    if (!_psDepthHazeImprovedCopy->IsValid())
     {
-        psDesc.PS = shader->GetPS("PS_DepthHazeSimpleCopy");
-        if (_psDepthHazeSimpleCopy->Init(psDesc))
+        psDesc.PS = shader->GetPS("PS_DepthHazeImprovedCopy");
+        if (_psDepthHazeImprovedCopy->Init(psDesc))
             return true;
     }
     if (!_psDepthCopy->IsValid())
@@ -174,10 +174,10 @@ bool PostProcessingPass::setupResources()
         if (_psDepthFrequencySeparation->Init(psDesc))
             return true;
     }
-    if (!_psDepthHazeBilateralDownsample->IsValid())
+    if (!_psDepthHazeAdaptiveBilateralDownsample->IsValid())
     {
-        psDesc.PS = shader->GetPS("PS_DepthHazeBilateralDownsample");
-        if (_psDepthHazeBilateralDownsample->Init(psDesc))
+        psDesc.PS = shader->GetPS("PS_DepthHazeAdaptiveBilateralDownsample");
+        if (_psDepthHazeAdaptiveBilateralDownsample->Init(psDesc))
             return true;
     }
     if (!_psBloomBrightPass->IsValid())
@@ -292,10 +292,10 @@ void PostProcessingPass::Dispose()
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeBrightPass);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDualFilterUpsample);
-    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeSimpleCopy);
+    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeImprovedCopy);
     SAFE_DELETE_GPU_RESOURCE(_psDepthCopy);
     SAFE_DELETE_GPU_RESOURCE(_psDepthFrequencySeparation);
-    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeBilateralDownsample);
+    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeAdaptiveBilateralDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psBloomBrightPass);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDualFilterUpsample);
@@ -513,7 +513,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         context->SetRenderTarget(scatteringColorBuffer->View(0, 0));
         context->SetViewportAndScissors((float)w2, (float)h2);
         context->BindSR(0, input->View());
-        context->SetState(_psDepthHazeSimpleCopy); // Simple copy, no processing
+        context->SetState(_psDepthHazeImprovedCopy); // Improved anti-aliased copy
         context->DrawFullscreenTriangle();
         context->ResetRenderTarget();
 
@@ -544,7 +544,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
             context->BindSR(0, scatteringColorBuffer->View(0, mip - 1)); // Previous color mip
             context->BindSR(1, depthBuffer->View()); // Full resolution depth for bilateral comparison
-            context->SetState(_psDepthHazeBilateralDownsample);
+            context->SetState(_psDepthHazeAdaptiveBilateralDownsample);
             context->DrawFullscreenTriangle();
             context->ResetRenderTarget();
         }
