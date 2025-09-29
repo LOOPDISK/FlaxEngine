@@ -59,6 +59,7 @@ void DepthHazeSettings::BlendWith(DepthHazeSettings& other, float weight)
     BLEND_FLOAT(Power);
     BLEND_FLOAT(BaseMix);
     BLEND_FLOAT(HighMix);
+    BLEND_FLOAT(MaxMipLevel);
 }
 
 void ToneMappingSettings::BlendWith(ToneMappingSettings& other, float weight)

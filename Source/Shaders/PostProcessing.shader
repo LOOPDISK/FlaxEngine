@@ -1192,6 +1192,16 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 
         // Apply uniform atmospheric scattering across the entire object
         sceneColor = lerp(sceneColor, scatteredColor, finalMask);
+
+        // DEBUG: Show MaxMipLevel value being received (uncomment to debug)
+        /*
+        if (screenPos.x < 0.15 && screenPos.y < 0.1)
+        {
+            // Show the raw DepthHazeMaxMipLevel value as red intensity (0-8 range)
+            float maxMipVis = DepthHazeMaxMipLevel / 8.0;
+            sceneColor = float3(maxMipVis, 0, 0);
+        }
+        */
     }
 
     // Add bloom effect (Input2)

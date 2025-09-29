@@ -28,7 +28,7 @@ GPU_CB_STRUCT(Data{
     float DepthHazeNearDistance; // Distance where fog starts
     float DepthHazeFarDistance;  // Distance where fog is maximum
     float DepthHazePower;        // Power curve for depth falloff
-    float DepthHazeMipBlend;     // How much to blend between depth mips
+    float DepthHazeMaxMipLevel;  // Maximum mip level for depth haze blur
 
     float BloomIntensity; // Overall bloom strength multiplier
     float BloomClamp; // Maximum brightness limit for bloom
@@ -418,13 +418,14 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.DepthHazeNearDistance = settings.DepthHaze.NearDistance;
         data.DepthHazeFarDistance = settings.DepthHaze.FarDistance;
         data.DepthHazePower = settings.DepthHaze.Power;
-        data.DepthHazeMipBlend = 0.5f;         // Could be another parameter later
+        data.DepthHazeMaxMipLevel = settings.DepthHaze.MaxMipLevel;
     }
     else
     {
         data.DepthHazeIntensity = 0;
         data.DepthHazeNearDistance = 0;
         data.DepthHazeFarDistance = 0;
+        data.DepthHazeMaxMipLevel = 0;
     }
     if (useBloom)
     {
