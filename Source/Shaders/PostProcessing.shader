@@ -671,13 +671,46 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
     float baseSimilarityThreshold = 0.005;
     float adaptiveThreshold = baseSimilarityThreshold * (1.0 + mipLevel * 0.8);
 
-    // For very first mips (0-2), reduce bilateral weight to allow more natural blur
+    // Adaptive bilateral strength: less aggressive at first mips, but also preserve atmospheric colors at high mips
+    // Problem: At highest mips, too much bilateral filtering was washing out atmospheric colors
     float bilateralStrength = saturate(mipLevel / 3.0); // Gradual ramp-up from 0 to 1
+
+    // GIGABRAIN FIX: At very high mip levels, reduce bilateral strength to preserve atmospheric scattering
+    if (mipLevel > 4.0) // At highest blur levels
+    {
+        float highMipFactor = saturate((mipLevel - 4.0) / 2.0); // Factor from 0 to 1 for mips 4-6
+        bilateralStrength = lerp(bilateralStrength, 0.3, highMipFactor); // Reduce to 30% at highest mips
+    }
 
     float3 color = float3(0, 0, 0);
     float totalWeight = 0.0;
 
-    // Enhanced 3x3 bilateral filter with adaptive weights
+    // First pass: Detect depth discontinuities in neighborhood
+    float minDepth = centerDepth;
+    float maxDepth = centerDepth;
+
+    UNROLL
+    for (int y = -1; y <= 1; y++)
+    {
+        UNROLL
+        for (int x = -1; x <= 1; x++)
+        {
+            float2 depthOffset = float2(x, y) * colorTexelSize * depthScale;
+            float depthSample = Input1.Sample(SamplerLinearClamp, depthUV + depthOffset).r;
+            minDepth = min(minDepth, depthSample);
+            maxDepth = max(maxDepth, depthSample);
+        }
+    }
+
+    // Calculate depth variation in neighborhood
+    float depthVariation = abs(maxDepth - minDepth);
+    float edgeStrength = saturate(depthVariation / adaptiveThreshold);
+
+    // Adaptive bilateral threshold based on edge strength
+    // Near edges, dramatically increase threshold to include more samples
+    float dynamicThreshold = adaptiveThreshold * (1.0 + edgeStrength * 10.0);
+
+    // Second pass: Filtering with dynamic threshold
     UNROLL
     for (int y = -1; y <= 1; y++)
     {
@@ -702,15 +735,47 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
             else
                 spatialWeight = 1.2; // Corners - slightly higher for anti-aliasing
 
-            // Adaptive bilateral weight
+            // Progressive bilateral weight with dynamic threshold
             float depthDiff = abs(centerDepth - depthSample);
-            float bilateralWeight = exp(-depthDiff / adaptiveThreshold);
+            float bilateralWeight = exp(-depthDiff / dynamicThreshold);
+
+            // GIGABRAIN SOLUTION: Asymmetric atmospheric wrapping
+            // Allow atmospheric scattering to wrap around foreground objects naturally
+            // while preventing bright foreground bleeding into dark backgrounds
+
+            float atmosphericWeight = 1.0;
+
+            if (edgeStrength > 0.2) // We're at an object boundary
+            {
+                float depthRatio = depthSample / max(centerDepth, 0.001);
+
+                if (depthRatio > 1.3) // Sample is significantly further (background)
+                {
+                    // BACKGROUND → FOREGROUND: Allow atmospheric scattering to wrap around
+                    // This creates natural atmospheric perspective around object edges
+                    atmosphericWeight = 2.0; // Strong atmospheric contribution
+
+                    // Reduce bilateral strictness for atmospheric wrapping
+                    bilateralWeight = max(bilateralWeight, 0.3);
+                }
+                else if (depthRatio < 0.7) // Sample is significantly closer (foreground)
+                {
+                    // FOREGROUND → BACKGROUND: Prevent bright object bleeding
+                    // Maintain strict bilateral filtering to prevent contamination
+                    atmosphericWeight = 0.5; // Reduced foreground bleeding
+
+                    // Keep bilateral weight strict
+                    // bilateralWeight unchanged
+                }
+
+                // For same-depth samples, use normal weighting
+            }
 
             // Blend between pure spatial and bilateral based on mip level
             float finalBilateralWeight = lerp(1.0, bilateralWeight, bilateralStrength);
 
-            // Combined weight
-            float finalWeight = spatialWeight * finalBilateralWeight;
+            // Combined weight with atmospheric wrapping
+            float finalWeight = spatialWeight * finalBilateralWeight * atmosphericWeight;
 
             color += colorSample * finalWeight;
             totalWeight += finalWeight;
@@ -1197,17 +1262,33 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     // Add depth haze effect with uniform atmospheric scattering per depth
     if (DepthHazeIntensity > 0.0)
     {
-        // Use mipped depth for smooth depth determination (avoids hard geometric edges)
-        // Sample a moderately blurred depth to smooth out sharp geometric transitions
-        int smoothingMip = min(2, (int)DepthHazeMipCount - 1); // Use mip 2 for depth smoothing
-        float blurredDepthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, smoothingMip).r;
-        float pixelDepth = LinearizeZ(blurredDepthValue, ViewInfo);
+        // Use full-res depth for closest objects, blurred depth for distant atmospheric effects
+        float fullResDepthValue = DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord).r;
+        float fullResPixelDepth = LinearizeZ(fullResDepthValue, ViewInfo);
+
+        // Use progressively more blurred depth for distant objects to create smooth atmospheric transitions
+        // Close objects: use full-res depth for sharp boundaries
+        // Distant objects: use blurred depth for smooth atmospheric blending
+        float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
+        float distanceRatio = saturate((fullResPixelDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
+
+        // Choose depth smoothing level based on distance
+        // Near objects (0-30% of range): Use full-res depth
+        // Mid objects (30-70% of range): Gradually blend to mip 1
+        // Far objects (70%+ of range): Use mip 2 for smooth atmospheric transitions
+        float depthSmoothingFactor = smoothstep(0.3, 0.7, distanceRatio);
+        int depthMipLevel = (int)(depthSmoothingFactor * 2.0); // 0, 1, or 2
+
+        float blurredDepthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, depthMipLevel).r;
+        float blurredPixelDepth = LinearizeZ(blurredDepthValue, ViewInfo);
+
+        // Blend between full-res and blurred depth based on distance
+        float pixelDepth = lerp(fullResPixelDepth, blurredPixelDepth, depthSmoothingFactor);
 
         // Clamp depth to atmospheric range to avoid artifacts beyond far distance
         pixelDepth = clamp(pixelDepth, DepthHazeNearDistance, DepthHazeFarDistance);
 
         // Map depth to continuous mip level (no discrete zones)
-        float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
         float normalizedDepth = saturate((pixelDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
 
         // Apply power curve for artistic control
@@ -1234,20 +1315,92 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
             DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, blueMipLevel).b
         );
 
-        // Apply mip intensity variation
+        // Apply mip intensity variation with atmospheric preservation
         float mipFade = targetMipFloat / max(DepthHazeMipCount - 1, 1.0);
         float mipIntensity = lerp(DepthHazeBaseMix, DepthHazeHighMix, mipFade);
+
+        // GIGABRAIN FIX: Boost atmospheric scattering intensity at highest mip levels
+        // This preserves the atmospheric color effect that was getting washed out
+        if (targetMipFloat > 4.0)
+        {
+            float highMipBoost = saturate((targetMipFloat - 4.0) / 2.0); // 0 to 1 for mips 4-6
+            mipIntensity *= lerp(1.0, 1.5, highMipBoost); // Up to 50% boost at highest mips
+        }
+
         scatteredColor *= mipIntensity;
 
         // Create smooth scattering mask based on distance only
         float scatteringMask = smoothstep(DepthHazeNearDistance * 0.8, DepthHazeNearDistance * 1.2, pixelDepth);
 
-        // UNIFORM atmospheric scattering - same effect for entire object at this depth
-        // No edge-based masking - let the color mips handle edge softening naturally
-        float finalMask = scatteringMask * DepthHazeIntensity;
+        // GIGABRAIN ATMOSPHERIC WRAPPING: Sample neighboring atmospheric scattering
+        // This allows atmospheric effects to naturally wrap around object boundaries
+        uint width, height;
+        Input0.GetDimensions(width, height);
+        float2 texelSize = 1.0 / float2(width, height);
 
-        // Apply uniform atmospheric scattering across the entire object
-        sceneColor = lerp(sceneColor, scatteredColor, finalMask);
+        // Sample atmospheric scattering from neighboring pixels
+        float3 neighborhoodScattering = scatteredColor;
+        float neighborhoodWeight = 1.0;
+
+        // Check if we're near an object boundary (depth discontinuity)
+        float centerDepthFull = LinearizeZ(DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord).r, ViewInfo);
+        float maxDepthDiff = 0.0;
+
+        // Sample 4-connected neighbors to detect edges
+        UNROLL
+        for (int i = 0; i < 4; i++)
+        {
+            float2 offset = float2(0, 0);
+            if (i == 0) offset = float2(texelSize.x, 0);       // Right
+            else if (i == 1) offset = float2(-texelSize.x, 0); // Left
+            else if (i == 2) offset = float2(0, texelSize.y);  // Up
+            else offset = float2(0, -texelSize.y);             // Down
+
+            float neighborDepth = LinearizeZ(DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord + offset).r, ViewInfo);
+            maxDepthDiff = max(maxDepthDiff, abs(centerDepthFull - neighborDepth));
+
+            // If neighbor is significantly further (background), sample its atmospheric contribution
+            if (neighborDepth > centerDepthFull * 1.5)
+            {
+                float neighborNormalizedDepth = saturate((neighborDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
+                float neighborTargetMip = pow(neighborNormalizedDepth, DepthHazePower) * (DepthHazeMipCount - 1);
+                neighborTargetMip = min(neighborTargetMip, min(DepthHazeMaxMipLevel, DepthHazeMipCount - 1));
+
+                // Sample neighbor's atmospheric scattering
+                float3 neighborScattered = float3(
+                    DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord + offset, clamp(neighborTargetMip + redMipOffset, 0.0, DepthHazeMaxMipLevel)).r,
+                    DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord + offset, clamp(neighborTargetMip + greenMipOffset, 0.0, DepthHazeMaxMipLevel)).g,
+                    DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord + offset, clamp(neighborTargetMip + blueMipOffset, 0.0, DepthHazeMaxMipLevel)).b
+                );
+
+                // Blend in the background atmospheric effect with same high-mip boost
+                float neighborMipFade = neighborTargetMip / max(DepthHazeMipCount - 1, 1.0);
+                float neighborMipIntensity = lerp(DepthHazeBaseMix, DepthHazeHighMix, neighborMipFade);
+
+                // Apply same high-mip boost to neighborhood sampling
+                if (neighborTargetMip > 4.0)
+                {
+                    float neighborHighMipBoost = saturate((neighborTargetMip - 4.0) / 2.0);
+                    neighborMipIntensity *= lerp(1.0, 1.5, neighborHighMipBoost);
+                }
+
+                neighborScattered *= neighborMipIntensity;
+
+                neighborhoodScattering += neighborScattered * 0.3; // 30% contribution from background neighbors
+                neighborhoodWeight += 0.3;
+            }
+        }
+
+        // Normalize neighborhood atmospheric contribution
+        neighborhoodScattering /= neighborhoodWeight;
+
+        // Detect object boundaries and blend atmospheric wrapping
+        float edgeIntensity = saturate(maxDepthDiff / (depthRange * 0.1));
+        float3 finalScatteredColor = lerp(scatteredColor, neighborhoodScattering, edgeIntensity * 0.5);
+
+        // Apply atmospheric scattering with natural wrapping
+        float finalMask = scatteringMask * DepthHazeIntensity;
+        sceneColor = lerp(sceneColor, finalScatteredColor, finalMask);
 
         // DEBUG: Show MaxMipLevel value being received (uncomment to debug)
         /*
