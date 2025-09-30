@@ -1069,75 +1069,12 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
             DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, blueMipLevel).b
         );
 
-        // Mip intensity is constant at 1.0 for depth haze
-        float mipIntensity = 1.0;
-
-        scatteredColor *= mipIntensity;
-
         // Create smooth scattering mask based on distance only
         float scatteringMask = smoothstep(DepthHazeNearDistance * 0.8, DepthHazeNearDistance * 1.2, pixelDepth);
 
-        // GIGABRAIN ATMOSPHERIC WRAPPING: Sample neighboring atmospheric scattering
-        // This allows atmospheric effects to naturally wrap around object boundaries
-        uint width, height;
-        Input0.GetDimensions(width, height);
-        float2 texelSize = 1.0 / float2(width, height);
-
-        // Sample atmospheric scattering from neighboring pixels
-        float3 neighborhoodScattering = scatteredColor;
-        float neighborhoodWeight = 1.0;
-
-        // Check if we're near an object boundary (depth discontinuity)
-        float centerDepthFull = LinearizeZ(DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord).r, ViewInfo);
-        float maxDepthDiff = 0.0;
-
-        // Sample 4-connected neighbors to detect edges
-        UNROLL
-        for (int i = 0; i < 4; i++)
-        {
-            float2 offset = float2(0, 0);
-            if (i == 0) offset = float2(texelSize.x, 0);       // Right
-            else if (i == 1) offset = float2(-texelSize.x, 0); // Left
-            else if (i == 2) offset = float2(0, texelSize.y);  // Up
-            else offset = float2(0, -texelSize.y);             // Down
-
-            float neighborDepth = LinearizeZ(DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord + offset).r, ViewInfo);
-            maxDepthDiff = max(maxDepthDiff, abs(centerDepthFull - neighborDepth));
-
-            // If neighbor is significantly further (background), sample its atmospheric contribution
-            if (neighborDepth > centerDepthFull * 1.5)
-            {
-                float neighborNormalizedDepth = saturate((neighborDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
-                float neighborTargetMip = pow(neighborNormalizedDepth, DepthHazePower) * (DepthHazeMipCount - 1);
-                neighborTargetMip = min(neighborTargetMip, min(DepthHazeMaxMipLevel, DepthHazeMipCount - 1));
-
-                // Sample neighbor's atmospheric scattering
-                float3 neighborScattered = float3(
-                    DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord + offset, clamp(neighborTargetMip + redMipOffset, 0.0, DepthHazeMaxMipLevel)).r,
-                    DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord + offset, clamp(neighborTargetMip + greenMipOffset, 0.0, DepthHazeMaxMipLevel)).g,
-                    DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord + offset, clamp(neighborTargetMip + blueMipOffset, 0.0, DepthHazeMaxMipLevel)).b
-                );
-
-                // Neighbor mip intensity is constant at 1.0 for depth haze
-                float neighborMipIntensity = 1.0;
-
-                neighborScattered *= neighborMipIntensity;
-
-                neighborhoodScattering += neighborScattered * 0.3; // 30% contribution from background neighbors
-                neighborhoodWeight += 0.3;
-            }
-        }
-
-        // Normalize neighborhood atmospheric contribution
-        neighborhoodScattering /= neighborhoodWeight;
-
-        // Detect object boundaries and blend atmospheric wrapping
-        float edgeIntensity = saturate(maxDepthDiff / (depthRange * 0.1));
-        float3 finalScatteredColor = lerp(scatteredColor, neighborhoodScattering, edgeIntensity * 0.5);
-
-        // Apply atmospheric scattering with natural wrapping
+        // Apply atmospheric scattering
         float finalMask = scatteringMask * DepthHazeIntensity;
-        sceneColor = lerp(sceneColor, finalScatteredColor, finalMask);
+        sceneColor = lerp(sceneColor, scatteredColor, finalMask);
 
         // DEBUG: Show MaxMipLevel value being received (uncomment to debug)
         /*
