@@ -58,7 +58,7 @@ float DepthHazePower;
 float DepthHazeMaxMipLevel;
 
 float DepthHazeChromaticDispersion;
-float DepthHazePadding1;
+float CurrentMipLevel;
 float DepthHazePadding2;
 float DepthHazePadding3;
 
@@ -577,6 +577,7 @@ float4 PS_DepthCopy(Quad_VS2PS input) : SV_Target
     return float4(depth, depth, depth, 1.0);
 }
 
+//MZ: wait, i don't think we are actually doing any fequency separation?
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
 {
@@ -587,14 +588,10 @@ float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
     Input0.GetDimensions(width, height);
     float2 texelSize = 1.0 / float2(width, height);
 
-    // MZ: we should pass in the actual mip level, this method is really bad
-
-    // Calculate mip level to adjust bilateral sensitivity
-    float referenceWidth = 1920.0;
-    float mipLevel = log2(max(1.0, referenceWidth / (float)width));
+    
 
     // Depth similarity threshold - more permissive at higher mips (distant objects)
-    float depthSimilarityThreshold = 0.01 * (1.0 + mipLevel * 0.5);
+    float depthSimilarityThreshold = 0.01 * (1.0 + CurrentMipLevel * 0.5);
 
     float color = 0.0;
     float totalWeight = 0.0;
@@ -660,9 +657,7 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
     // Calculate scale factor between color mip and full-res depth
     float2 depthScale = float2(depthWidth, depthHeight) / float2(colorWidth, colorHeight);
 
-    // Calculate mip level to adjust bilateral sensitivity
-    float referenceWidth = 1920.0;
-    float mipLevel = log2(max(1.0, referenceWidth / (float)colorWidth));
+
 
     // Sample reference depth at current pixel location in full-res depth buffer
     float2 depthUV = input.TexCoord;
@@ -671,16 +666,16 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
     // Adaptive depth similarity threshold - more permissive for first few mips
     // This allows more natural blurring on closer objects
     float baseSimilarityThreshold = 0.005;
-    float adaptiveThreshold = baseSimilarityThreshold * (1.0 + mipLevel * 0.8);
+    float adaptiveThreshold = baseSimilarityThreshold * (1.0 + CurrentMipLevel * 0.8);
 
     // Adaptive bilateral strength: less aggressive at first mips, but also preserve atmospheric colors at high mips
     // Problem: At highest mips, too much bilateral filtering was washing out atmospheric colors
-    float bilateralStrength = saturate(mipLevel / 3.0); // Gradual ramp-up from 0 to 1
+    float bilateralStrength = saturate(CurrentMipLevel / 3.0); // Gradual ramp-up from 0 to 1
 
     // GIGABRAIN FIX: At very high mip levels, reduce bilateral strength to preserve atmospheric scattering
-    if (mipLevel > 4.0) // At highest blur levels
+    if (CurrentMipLevel > 4.0) // At highest blur levels
     {
-        float highMipFactor = saturate((mipLevel - 4.0) / 2.0); // Factor from 0 to 1 for mips 4-6
+        float highMipFactor = saturate((CurrentMipLevel - 4.0) / 2.0); // Factor from 0 to 1 for mips 4-6
         bilateralStrength = lerp(bilateralStrength, 0.3, highMipFactor); // Reduce to 30% at highest mips
     }
 
@@ -792,168 +787,6 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
 
     return float4(color, 1.0);
 }
-
-/*
-//MZ this isn't being used'
-META_PS(true, FEATURE_LEVEL_ES2)
-float4 PS_DepthHazeDownsample(Quad_VS2PS input) : SV_Target
-{
-    uint width, height;
-    Input0.GetDimensions(width, height);
-    float2 texelSize = 1.0 / float2(width, height);
-
-    // 9-tap tent filter with fixed weights
-    float3 color = 0;
-    float totalWeight = 0;
-
-    // Sample offsets (fixed)
-    const float2 offsets[9] =
-    {
-        float2( 0,  0),    // Center
-        float2(-1, -1),    // Corners
-        float2( 1, -1),
-        float2(-1,  1),
-        float2( 1,  1),
-        float2( 0, -1),    // Cross
-        float2(-1,  0),
-        float2( 1,  0),
-        float2( 0,  1)
-    };
-
-    // Sample weights (fixed)
-    const float weights[9] =
-    {
-        4.0,    // Center
-        1.0,    // Corners
-        1.0,
-        1.0,
-        1.0,
-        2.0,    // Cross
-        2.0,
-        2.0,
-        2.0
-    };
-
-    UNROLL
-    for (int i = 0; i < 9; i++)
-    {
-        float2 offset = offsets[i] * texelSize * 2.0; // Fixed scale factor for stability
-        float4 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset);
-        color += sampleColor.rgb * weights[i];
-        totalWeight += weights[i];
-    }
-
-    return float4(color / totalWeight, 1.0);
-}
-*/
-
-/*
-META_PS(true, FEATURE_LEVEL_ES2)
-float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
-{
-    float anisotropy = 1.0;
-    uint width, height;
-    Input0.GetDimensions(width, height);
-    float2 texelSize = 1.0 / float2(width, height);
-
-    // Maintain fixed scale through mip chain
-    float baseOffset = 1.0;
-    float offsetScale =  (1.0)  * baseOffset;
-    float3 color = 0;
-    float totalWeight = 0;
-
-    // Center
-    float4 center = Input0.Sample(SamplerLinearClamp, input.TexCoord);
-    float centerWeight = 4.0;
-    color += center.rgb * centerWeight;
-    totalWeight += centerWeight;
-
-    // Cross - fixed distance samples
-    float2 crossOffsets[4] = {
-        float2(offsetScale * anisotropy, 0),
-        float2(-offsetScale * anisotropy, 0),
-        float2(0, offsetScale),
-        float2(0, -offsetScale)
-    };
-
-    UNROLL
-    for (int i = 0; i < 4; i++)
-    {
-        float4 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + crossOffsets[i] * texelSize);
-        float weight = 2.0;
-        color += sampleColor.rgb * weight;
-        totalWeight += weight;
-    }
-
-    // Corners - fixed distance samples
-    float2 cornerOffsets[4] =
-    {
-        float2(offsetScale * anisotropy, offsetScale),
-        float2(-offsetScale * anisotropy, offsetScale),
-        float2(offsetScale * anisotropy, -offsetScale),
-        float2(-offsetScale * anisotropy, -offsetScale)
-    };
-
-    UNROLL
-    for (int j = 0; j < 4; j++)
-    {
-        float4 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + cornerOffsets[j] * texelSize);
-        float weight = 1.0;
-        color += sampleColor.rgb * weight;
-        totalWeight += weight;
-    }
-
-    color /= totalWeight;
-
-    uint width1, height1;
-    Input1.GetDimensions(width1, height1);
-
-    // Calculate mip fade factor (0 = smallest mip, 1 = largest mip)
-    float mipFade = DepthHazeLayer / (DepthHazeMipCount - 1);
-
-    float mipIntensity = lerp(DepthHazeBaseMix, DepthHazeHighMix, mipFade);
-    color *= mipIntensity;
-
-    BRANCH
-    if (width1 > 0)
-    {
-        // ===== THE DEPTH-GUIDED "DANCE" =====
-        // Input0: Current color mip level (scatteringColorBuffer mip)
-        // Input1: Previous upscale result (depthHazeResult from higher mip)
-        // Input2: Raw depth buffer (full resolution)
-        // Input3: Current depth mip level (depthMipBuffer mip)
-
-        // Sample current high-resolution depth and corresponding blurred depth level
-        float currentDepth = Input2.Sample(SamplerLinearClamp, input.TexCoord).r;
-        float blurredDepth = Input3.Sample(SamplerLinearClamp, input.TexCoord).r;
-
-        // Linearize depths for better comparison
-        float linearCurrentDepth = LinearizeZ(currentDepth, ViewInfo);
-        float linearBlurredDepth = LinearizeZ(blurredDepth, ViewInfo);
-
-        // Calculate depth coherence within the atmospheric scattering range
-        float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
-        float depthDifference = abs(linearCurrentDepth - linearBlurredDepth) / max(depthRange, 1.0);
-        float depthCoherence = saturate(1.0 - depthDifference * DepthHazePower);
-
-        // Get previous upscale layer result
-        float3 previousMip = Input1.Sample(SamplerLinearClamp, input.TexCoord).rgb;
-
-        // Calculate atmospheric scattering contribution based on depth
-        float scatteringFactor = saturate((linearCurrentDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
-        scatteringFactor = pow(scatteringFactor, DepthHazePower);
-
-        // Blend based on both depth coherence and scattering distance
-        float layerContribution = scatteringFactor * depthCoherence;
-        color = lerp(color, color + previousMip * layerContribution, DepthHazeIntensity);
-
-        // DEBUG: Visualize depth coherence (uncomment to see the effect)
-        // color.rgb = lerp(color.rgb, float3(depthCoherence, scatteringFactor, layerContribution), 0.3);
-    }
-
-    return float4(color, 1.0);
-}
-*/
 
 // Horizontal gaussian blur
 META_PS(true, FEATURE_LEVEL_ES2)

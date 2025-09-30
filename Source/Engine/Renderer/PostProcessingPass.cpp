@@ -31,7 +31,7 @@ GPU_CB_STRUCT(Data{
     float DepthHazeMaxMipLevel;  // Maximum mip level for depth haze blur
 
     float DepthHazeChromaticDispersion; // Chromatic dispersion strength
-    float DepthHazePadding1;
+    float CurrentMipLevel;
     float DepthHazePadding2;
     float DepthHazePadding3;
 
@@ -523,10 +523,13 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
             const int32 mipWidth = w2 >> mip;
             const int32 mipHeight = h2 >> mip;
 
+            // Set current mip for shader
+            data.CurrentMipLevel = static_cast<float>(mip);
+            context->UpdateCB(cb0, &data);
+
             context->SetRenderTarget(depthMipBuffer->View(0, mip));
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
             context->BindSR(0, depthBuffer->View()); // Always sample from full resolution depth
-            // TODO: Pass mip level as constant to control filtering strength
             context->SetState(_psDepthFrequencySeparation); // New shader for frequency-separated depth
             context->DrawFullscreenTriangle();
             context->ResetRenderTarget();
@@ -537,6 +540,10 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         {
             const int32 mipWidth = w2 >> mip;
             const int32 mipHeight = h2 >> mip;
+
+            // Set current mip for shader
+            data.CurrentMipLevel = static_cast<float>(mip);
+            context->UpdateCB(cb0, &data);
 
             // Downsample color chain with bilateral filtering
             context->SetRenderTarget(scatteringColorBuffer->View(0, mip));
