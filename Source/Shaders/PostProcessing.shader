@@ -47,8 +47,8 @@ float DepthHazeClamp;
 float DepthHazeThreshold;
 float DepthHazeThresholdKnee;
 
-float DepthHazeBaseMix;
-float DepthHazeHighMix;
+float DepthHazePadding0;
+float DepthHazePadding1;
 float DepthHazeMipCount;
 float DepthHazeLayer;
 
@@ -1079,17 +1079,8 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
             DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, blueMipLevel).b
         );
 
-        // Apply mip intensity variation with atmospheric preservation
-        float mipFade = targetMipFloat / max(DepthHazeMipCount - 1, 1.0);
-        float mipIntensity = lerp(DepthHazeBaseMix, DepthHazeHighMix, mipFade);
-
-        // GIGABRAIN FIX: Boost atmospheric scattering intensity at highest mip levels
-        // This preserves the atmospheric color effect that was getting washed out
-        if (targetMipFloat > 4.0)
-        {
-            float highMipBoost = saturate((targetMipFloat - 4.0) / 2.0); // 0 to 1 for mips 4-6
-            mipIntensity *= lerp(1.0, 1.5, highMipBoost); // Up to 50% boost at highest mips
-        }
+        // Mip intensity is constant at 1.0 for depth haze
+        float mipIntensity = 1.0;
 
         scatteredColor *= mipIntensity;
 
@@ -1137,16 +1128,8 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
                     DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord + offset, clamp(neighborTargetMip + blueMipOffset, 0.0, DepthHazeMaxMipLevel)).b
                 );
 
-                // Blend in the background atmospheric effect with same high-mip boost
-                float neighborMipFade = neighborTargetMip / max(DepthHazeMipCount - 1, 1.0);
-                float neighborMipIntensity = lerp(DepthHazeBaseMix, DepthHazeHighMix, neighborMipFade);
-
-                // Apply same high-mip boost to neighborhood sampling
-                if (neighborTargetMip > 4.0)
-                {
-                    float neighborHighMipBoost = saturate((neighborTargetMip - 4.0) / 2.0);
-                    neighborMipIntensity *= lerp(1.0, 1.5, neighborHighMipBoost);
-                }
+                // Neighbor mip intensity is constant at 1.0 for depth haze
+                float neighborMipIntensity = 1.0;
 
                 neighborScattered *= neighborMipIntensity;
 

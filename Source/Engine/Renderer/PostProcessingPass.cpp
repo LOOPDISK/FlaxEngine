@@ -20,8 +20,8 @@ GPU_CB_STRUCT(Data{
     float DepthHazeThreshold; // Luminance threshold where depth haze begins
     float DepthHazeThresholdKnee; // Controls the threshold rolloff curve
 
-    float DepthHazeBaseMix; // Base mip contribution
-    float DepthHazeHighMix; // High mip contribution
+    float DepthHazePadding0;
+    float DepthHazePadding1;
     float DepthHazeMipCount;
     float DepthHazeLayer;
 
@@ -406,8 +406,8 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.DepthHazeClamp = 1.0f;           // Not used for atmospheric scattering
         data.DepthHazeThreshold = 0.0f;       // Not used for atmospheric scattering
         data.DepthHazeThresholdKnee = 0.0f;   // Not used for atmospheric scattering
-        data.DepthHazeBaseMix = settings.DepthHaze.BaseMix;
-        data.DepthHazeHighMix = settings.DepthHaze.HighMix;
+        data.DepthHazePadding0 = 0.0f;
+        data.DepthHazePadding1 = 0.0f;
         data.DepthHazeMipCount = (float)bloomMipCount;
         data.DepthHazeLayer = 0.0f;
 
