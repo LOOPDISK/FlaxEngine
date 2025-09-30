@@ -566,6 +566,7 @@ float4 PS_DepthHazeImprovedCopy(Quad_VS2PS input) : SV_Target
     return float4(color, 1.0);
 }
 
+//MZ: why the hell are we converting the depth to a float 3
 // Depth copy shader - handles depth buffer properly
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthCopy(Quad_VS2PS input) : SV_Target
@@ -573,8 +574,6 @@ float4 PS_DepthCopy(Quad_VS2PS input) : SV_Target
     // Sample depth and convert to single channel
     float depth = Input0.Sample(SamplerLinearClamp, input.TexCoord).r;
 
-    // Debug: Check if we're getting any depth values
-    // Output depth as red channel so we can see if it's being sampled
     return float4(depth, depth, depth, 1.0);
 }
 
@@ -587,6 +586,8 @@ float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
     uint width, height;
     Input0.GetDimensions(width, height);
     float2 texelSize = 1.0 / float2(width, height);
+
+    // MZ: we should pass in the actual mip level, this method is really bad
 
     // Calculate mip level to adjust bilateral sensitivity
     float referenceWidth = 1920.0;
@@ -620,6 +621,7 @@ float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
             else
                 spatialWeight = 1.0; // Corners
 
+            //MZ: what is bilateral weight? 
             // Bilateral weight (depth similarity)
             float depthDiff = abs(centerDepth - sampleDepth);
             float bilateralWeight = exp(-depthDiff / depthSimilarityThreshold);
@@ -791,8 +793,8 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
     return float4(color, 1.0);
 }
 
-
-
+/*
+//MZ this isn't being used'
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthHazeDownsample(Quad_VS2PS input) : SV_Target
 {
@@ -843,7 +845,9 @@ float4 PS_DepthHazeDownsample(Quad_VS2PS input) : SV_Target
 
     return float4(color / totalWeight, 1.0);
 }
+*/
 
+/*
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
 {
@@ -949,6 +953,7 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
 
     return float4(color, 1.0);
 }
+*/
 
 // Horizontal gaussian blur
 META_PS(true, FEATURE_LEVEL_ES2)

@@ -96,8 +96,8 @@ String PostProcessingPass::ToString() const
 bool PostProcessingPass::Init()
 {
     // Create pipeline states
-    _psDepthHazeDownsample = GPUDevice::Instance->CreatePipelineState();
-    _psDepthHazeDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
+    //_psDepthHazeDownsample = GPUDevice::Instance->CreatePipelineState();
+    //_psDepthHazeDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeImprovedCopy = GPUDevice::Instance->CreatePipelineState();
     _psDepthCopy = GPUDevice::Instance->CreatePipelineState();
     _psDepthFrequencySeparation = GPUDevice::Instance->CreatePipelineState();
@@ -142,18 +142,18 @@ bool PostProcessingPass::setupResources()
 
     // Create pipeline stages
     GPUPipelineState::Description psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
-    if (!_psDepthHazeDownsample->IsValid())
-    {
-        psDesc.PS = shader->GetPS("PS_DepthHazeDownsample");
-        if (_psDepthHazeDownsample->Init(psDesc))
-            return true;
-    }
-    if (!_psDepthHazeDualFilterUpsample->IsValid())
-    {
-        psDesc.PS = shader->GetPS("PS_DepthHazeDualFilterUpsample");
-        if (_psDepthHazeDualFilterUpsample->Init(psDesc))
-            return true;
-    }
+    //if (!_psDepthHazeDownsample->IsValid())
+    //{
+    //    psDesc.PS = shader->GetPS("PS_DepthHazeDownsample");
+    //    if (_psDepthHazeDownsample->Init(psDesc))
+    //        return true;
+    //}
+    //if (!_psDepthHazeDualFilterUpsample->IsValid())
+    //{
+    //    psDesc.PS = shader->GetPS("PS_DepthHazeDualFilterUpsample");
+    //    if (_psDepthHazeDualFilterUpsample->Init(psDesc))
+    //        return true;
+    //}
     if (!_psDepthHazeImprovedCopy->IsValid())
     {
         psDesc.PS = shader->GetPS("PS_DepthHazeImprovedCopy");
@@ -287,8 +287,8 @@ void PostProcessingPass::Dispose()
     RendererPass::Dispose();
 
     // Cleanup
-    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDownsample);
-    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDualFilterUpsample);
+    //SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDownsample);
+    //SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDualFilterUpsample);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeImprovedCopy);
     SAFE_DELETE_GPU_RESOURCE(_psDepthCopy);
     SAFE_DELETE_GPU_RESOURCE(_psDepthFrequencySeparation);
@@ -508,7 +508,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
 
     if (useDepthHaze && depthBuffer)
     {
-        // Generate color mip chain - start with simple copy/downsample (no bright pass)
+        // Generate color mip chain 
         context->SetRenderTarget(scatteringColorBuffer->View(0, 0));
         context->SetViewportAndScissors((float)w2, (float)h2);
         context->BindSR(0, input->View());
