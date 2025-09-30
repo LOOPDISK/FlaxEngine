@@ -122,7 +122,6 @@ Texture2D LensDirt : register(t4);
 Texture2D LensStar : register(t5);
 Texture2D LensColor : register(t6);
 Texture2D DepthHaze : register(t8);
-Texture2D DepthBuffer : register(t9);
 Texture2D DepthMips : register(t10);
 #if USE_VOLUME_LUT
 Texture3D ColorGradingLUT : register(t7);
@@ -898,28 +897,15 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     // Add depth haze effect with uniform atmospheric scattering per depth
     if (DepthHazeIntensity > 0.0)
     {
-        // Use full-res depth for closest objects, blurred depth for distant atmospheric effects
-        float fullResDepthValue = DepthBuffer.Sample(SamplerLinearClamp, input.TexCoord).r;
-        float fullResPixelDepth = LinearizeZ(fullResDepthValue, ViewInfo);
-
-        // Use progressively more blurred depth for distant objects to create smooth atmospheric transitions
-        // Close objects: use full-res depth for sharp boundaries
-        // Distant objects: use blurred depth for smooth atmospheric blending
+        // Sample appropriate depth mip based on target blur level
         float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
-        float distanceRatio = saturate((fullResPixelDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
 
-        // Choose depth smoothing level based on distance
-        // Near objects (0-30% of range): Use full-res depth
-        // Mid objects (30-70% of range): Gradually blend to mip 1
-        // Far objects (70%+ of range): Use mip 2 for smooth atmospheric transitions
-        float depthSmoothingFactor = smoothstep(0.3, 0.7, distanceRatio);
-        int depthMipLevel = (int)(depthSmoothingFactor * 2.0); // 0, 1, or 2
+        // Calculate which depth mip to use based on depth range
+        // Use lower mips (sharper) for near, higher mips (blurrier) for far
+        float depthMipLevel = 0.0; // Start with sharpest depth
 
-        float blurredDepthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, depthMipLevel).r;
-        float blurredPixelDepth = LinearizeZ(blurredDepthValue, ViewInfo);
-
-        // Blend between full-res and blurred depth based on distance
-        float pixelDepth = lerp(fullResPixelDepth, blurredPixelDepth, depthSmoothingFactor);
+        float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, depthMipLevel).r;
+        float pixelDepth = LinearizeZ(depthValue, ViewInfo);
 
         // Clamp depth to atmospheric range to avoid artifacts beyond far distance
         pixelDepth = clamp(pixelDepth, DepthHazeNearDistance, DepthHazeFarDistance);

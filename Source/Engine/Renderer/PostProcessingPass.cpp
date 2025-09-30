@@ -531,16 +531,14 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         // NOTE: No upsampling needed - we sample directly from mip chain in composite
         // This saves performance and simplifies the algorithm
 
-        // Bind mip chains for composite (debug visualization also uses these)
+        // Bind mip chains for composite
         context->BindSR(8, scatteringColorBuffer->View());  // Color mip chain for depth-selective sampling
-        context->BindSR(9, depthBuffer->View());             // Raw depth buffer
-        context->BindSR(10, depthMipBuffer->View());         // Depth mip chain (debug only)
+        context->BindSR(10, depthMipBuffer->View());         // Depth mip chain for sampling
     }
     else
     {
         context->UnBindSR(1);
         context->UnBindSR(8);
-        context->UnBindSR(9);
         context->UnBindSR(10);
     }
 
@@ -712,13 +710,11 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     if (useDepthHaze)
     {
         context->BindSR(8, scatteringColorBuffer->View()); // Color mip chain for sampling
-        context->BindSR(9, depthBuffer->View());           // Raw depth buffer for reference
-        context->BindSR(10, depthMipBuffer->View());       // Depth mip chain for smooth transitions
+        context->BindSR(10, depthMipBuffer->View());       // Depth mip chain for depth reference
     }
     else
     {
         context->BindSR(8, (GPUResourceView*)nullptr);
-        context->BindSR(9, (GPUResourceView*)nullptr);
         context->BindSR(10, (GPUResourceView*)nullptr);
     }
 
