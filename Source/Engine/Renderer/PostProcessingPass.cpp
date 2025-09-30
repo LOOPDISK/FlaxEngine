@@ -96,7 +96,6 @@ String PostProcessingPass::ToString() const
 bool PostProcessingPass::Init()
 {
     // Create pipeline states
-    _psDepthHazeBrightPass = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeDownsample = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeImprovedCopy = GPUDevice::Instance->CreatePipelineState();
@@ -143,12 +142,6 @@ bool PostProcessingPass::setupResources()
 
     // Create pipeline stages
     GPUPipelineState::Description psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
-    if (!_psDepthHazeBrightPass->IsValid())
-    {
-        psDesc.PS = shader->GetPS("PS_DepthHazeBrightPass");
-        if (_psDepthHazeBrightPass->Init(psDesc))
-            return true;
-    }
     if (!_psDepthHazeDownsample->IsValid())
     {
         psDesc.PS = shader->GetPS("PS_DepthHazeDownsample");
@@ -294,7 +287,6 @@ void PostProcessingPass::Dispose()
     RendererPass::Dispose();
 
     // Cleanup
-    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeBrightPass);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeDualFilterUpsample);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeImprovedCopy);
