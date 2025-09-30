@@ -23,7 +23,7 @@ GPU_CB_STRUCT(Data{
     float DepthHazeMaxMipLevel;  // Maximum mip level for depth haze blur
     float DepthHazeChromaticDispersion; // Chromatic dispersion strength
     float DepthHazeMipCount;
-    float CurrentMipLevel;
+    float DepthHazePadding0;
 
     float BloomIntensity; // Overall bloom strength multiplier
     float BloomClamp; // Maximum brightness limit for bloom
@@ -498,40 +498,29 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         context->DrawFullscreenTriangle();
         context->ResetRenderTarget();
 
-        // Generate frequency-separated depth mip chain
-        // Each mip samples from full-resolution depth with different high/low pass filtering
+        // Generate depth mip chain with simple box blur
         for (int32 mip = 0; mip < bloomMipCount; mip++)
         {
             const int32 mipWidth = w2 >> mip;
             const int32 mipHeight = h2 >> mip;
 
-            // Set current mip for shader
-            data.CurrentMipLevel = static_cast<float>(mip);
-            context->UpdateCB(cb0, &data);
-
             context->SetRenderTarget(depthMipBuffer->View(0, mip));
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
             context->BindSR(0, depthBuffer->View()); // Always sample from full resolution depth
-            context->SetState(_psDepthFrequencySeparation); // New shader for frequency-separated depth
+            context->SetState(_psDepthFrequencySeparation);
             context->DrawFullscreenTriangle();
             context->ResetRenderTarget();
         }
 
-        // Progressive downsamples for color chain only
+        // Progressive downsamples for color chain with simple tent filter
         for (int32 mip = 1; mip < bloomMipCount; mip++)
         {
             const int32 mipWidth = w2 >> mip;
             const int32 mipHeight = h2 >> mip;
 
-            // Set current mip for shader
-            data.CurrentMipLevel = static_cast<float>(mip);
-            context->UpdateCB(cb0, &data);
-
-            // Downsample color chain with bilateral filtering
             context->SetRenderTarget(scatteringColorBuffer->View(0, mip));
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
             context->BindSR(0, scatteringColorBuffer->View(0, mip - 1)); // Previous color mip
-            context->BindSR(1, depthBuffer->View()); // Full resolution depth for bilateral comparison
             context->SetState(_psDepthHazeAdaptiveBilateralDownsample);
             context->DrawFullscreenTriangle();
             context->ResetRenderTarget();

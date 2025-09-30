@@ -50,7 +50,7 @@ float DepthHazePower;
 float DepthHazeMaxMipLevel;
 float DepthHazeChromaticDispersion;
 float DepthHazeMipCount;
-float CurrentMipLevel;
+float DepthHazePadding0;
 
 float BloomIntensity;
 float BloomClamp;
@@ -567,29 +567,18 @@ float4 PS_DepthCopy(Quad_VS2PS input) : SV_Target
     return float4(depth, depth, depth, 1.0);
 }
 
-//MZ: wait, i don't think we are actually doing any fequency separation?
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
 {
-    // Depth-aware bilateral filtering to prevent cross-depth contamination
-    // Uses depth similarity to weight samples, preventing color bleeding across depth boundaries
-
+    // Simple box blur for depth downsampling
     uint width, height;
     Input0.GetDimensions(width, height);
     float2 texelSize = 1.0 / float2(width, height);
 
-    
-
-    // Depth similarity threshold - more permissive at higher mips (distant objects)
-    float depthSimilarityThreshold = 0.01 * (1.0 + CurrentMipLevel * 0.5);
-
     float color = 0.0;
     float totalWeight = 0.0;
 
-    // Center sample - reference depth for bilateral comparison
-    float centerDepth = Input0.Sample(SamplerLinearClamp, input.TexCoord).r;
-
-    // Bilateral filter using 3x3 kernel
+    // 3x3 box filter
     UNROLL
     for (int y = -1; y <= 1; y++)
     {
@@ -599,7 +588,7 @@ float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
             float2 offset = float2(x, y) * texelSize;
             float sampleDepth = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).r;
 
-            // Spatial weight (distance from center)
+            // Simple spatial weight
             float spatialWeight = 1.0;
             if (x == 0 && y == 0)
                 spatialWeight = 4.0; // Center
@@ -608,174 +597,67 @@ float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
             else
                 spatialWeight = 1.0; // Corners
 
-            //MZ: what is bilateral weight? 
-            // Bilateral weight (depth similarity)
-            float depthDiff = abs(centerDepth - sampleDepth);
-            float bilateralWeight = exp(-depthDiff / depthSimilarityThreshold);
-
-            // Combined weight
-            float finalWeight = spatialWeight * bilateralWeight;
-
-            color += sampleDepth * finalWeight;
-            totalWeight += finalWeight;
+            color += sampleDepth * spatialWeight;
+            totalWeight += spatialWeight;
         }
     }
 
-    // Normalize
-    if (totalWeight > 0.0)
-        color /= totalWeight;
-    else
-        color = centerDepth; // Fallback
-
-    return color.xxxx;
+    return (color / totalWeight).xxxx;
 }
 
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
 {
-    // Adaptive bilateral color downsampling - less aggressive on first few mips
+    // Simple tent filter downsampling
     // Input0: Previous color mip level
-    // Input1: Full resolution depth buffer
+    // Input1: Full resolution depth buffer (unused now)
 
-    uint colorWidth, colorHeight, depthWidth, depthHeight;
-    Input0.GetDimensions(colorWidth, colorHeight);
-    Input1.GetDimensions(depthWidth, depthHeight);
+    uint width, height;
+    Input0.GetDimensions(width, height);
+    float2 texelSize = 1.0 / float2(width, height);
 
-    float2 colorTexelSize = 1.0 / float2(colorWidth, colorHeight);
-    float2 depthTexelSize = 1.0 / float2(depthWidth, depthHeight);
+    // 9-tap tent filter with fixed weights
+    float3 color = 0;
+    float totalWeight = 0;
 
-    // Calculate scale factor between color mip and full-res depth
-    float2 depthScale = float2(depthWidth, depthHeight) / float2(colorWidth, colorHeight);
-
-
-
-    // Sample reference depth at current pixel location in full-res depth buffer
-    float2 depthUV = input.TexCoord;
-    float centerDepth = Input1.Sample(SamplerLinearClamp, depthUV).r;
-
-    // Adaptive depth similarity threshold - more permissive for first few mips
-    // This allows more natural blurring on closer objects
-    float baseSimilarityThreshold = 0.005;
-    float adaptiveThreshold = baseSimilarityThreshold * (1.0 + CurrentMipLevel * 0.8);
-
-    // Adaptive bilateral strength: less aggressive at first mips, but also preserve atmospheric colors at high mips
-    // Problem: At highest mips, too much bilateral filtering was washing out atmospheric colors
-    float bilateralStrength = saturate(CurrentMipLevel / 3.0); // Gradual ramp-up from 0 to 1
-
-    // GIGABRAIN FIX: At very high mip levels, reduce bilateral strength to preserve atmospheric scattering
-    if (CurrentMipLevel > 4.0) // At highest blur levels
+    // Sample offsets (fixed)
+    const float2 offsets[9] =
     {
-        float highMipFactor = saturate((CurrentMipLevel - 4.0) / 2.0); // Factor from 0 to 1 for mips 4-6
-        bilateralStrength = lerp(bilateralStrength, 0.3, highMipFactor); // Reduce to 30% at highest mips
-    }
+        float2( 0,  0),    // Center
+        float2(-1, -1),    // Corners
+        float2( 1, -1),
+        float2(-1,  1),
+        float2( 1,  1),
+        float2( 0, -1),    // Cross
+        float2(-1,  0),
+        float2( 1,  0),
+        float2( 0,  1)
+    };
 
-    float3 color = float3(0, 0, 0);
-    float totalWeight = 0.0;
-
-    // First pass: Detect depth discontinuities in neighborhood
-    float minDepth = centerDepth;
-    float maxDepth = centerDepth;
+    // Sample weights (fixed)
+    const float weights[9] =
+    {
+        4.0,    // Center
+        1.0,    // Corners
+        1.0,
+        1.0,
+        1.0,
+        2.0,    // Cross
+        2.0,
+        2.0,
+        2.0
+    };
 
     UNROLL
-    for (int y = -1; y <= 1; y++)
+    for (int i = 0; i < 9; i++)
     {
-        UNROLL
-        for (int x = -1; x <= 1; x++)
-        {
-            float2 depthOffset = float2(x, y) * colorTexelSize * depthScale;
-            float depthSample = Input1.Sample(SamplerLinearClamp, depthUV + depthOffset).r;
-            minDepth = min(minDepth, depthSample);
-            maxDepth = max(maxDepth, depthSample);
-        }
+        float2 offset = offsets[i] * texelSize;
+        float3 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).rgb;
+        color += sampleColor * weights[i];
+        totalWeight += weights[i];
     }
 
-    // Calculate depth variation in neighborhood
-    float depthVariation = abs(maxDepth - minDepth);
-    float edgeStrength = saturate(depthVariation / adaptiveThreshold);
-
-    // Adaptive bilateral threshold based on edge strength
-    // Near edges, dramatically increase threshold to include more samples
-    float dynamicThreshold = adaptiveThreshold * (1.0 + edgeStrength * 10.0);
-
-    // Second pass: Filtering with dynamic threshold
-    UNROLL
-    for (int y = -1; y <= 1; y++)
-    {
-        UNROLL
-        for (int x = -1; x <= 1; x++)
-        {
-            float2 colorOffset = float2(x, y) * colorTexelSize;
-            float2 depthOffset = float2(x, y) * colorTexelSize * depthScale;
-
-            // Sample color from previous mip
-            float3 colorSample = Input0.Sample(SamplerLinearClamp, input.TexCoord + colorOffset).rgb;
-
-            // Sample corresponding depth from full-res buffer
-            float depthSample = Input1.Sample(SamplerLinearClamp, depthUV + depthOffset).r;
-
-            // Enhanced spatial weight for better anti-aliasing
-            float spatialWeight = 1.0;
-            if (x == 0 && y == 0)
-                spatialWeight = 4.0; // Center
-            else if (x == 0 || y == 0)
-                spatialWeight = 2.5; // Cross - slightly higher for smoother transitions
-            else
-                spatialWeight = 1.2; // Corners - slightly higher for anti-aliasing
-
-            // Progressive bilateral weight with dynamic threshold
-            float depthDiff = abs(centerDepth - depthSample);
-            float bilateralWeight = exp(-depthDiff / dynamicThreshold);
-
-            // GIGABRAIN SOLUTION: Asymmetric atmospheric wrapping
-            // Allow atmospheric scattering to wrap around foreground objects naturally
-            // while preventing bright foreground bleeding into dark backgrounds
-
-            float atmosphericWeight = 1.0;
-
-            if (edgeStrength > 0.2) // We're at an object boundary
-            {
-                float depthRatio = depthSample / max(centerDepth, 0.001);
-
-                if (depthRatio > 1.3) // Sample is significantly further (background)
-                {
-                    // BACKGROUND → FOREGROUND: Allow atmospheric scattering to wrap around
-                    // This creates natural atmospheric perspective around object edges
-                    atmosphericWeight = 2.0; // Strong atmospheric contribution
-
-                    // Reduce bilateral strictness for atmospheric wrapping
-                    bilateralWeight = max(bilateralWeight, 0.3);
-                }
-                else if (depthRatio < 0.7) // Sample is significantly closer (foreground)
-                {
-                    // FOREGROUND → BACKGROUND: Prevent bright object bleeding
-                    // Maintain strict bilateral filtering to prevent contamination
-                    atmosphericWeight = 0.5; // Reduced foreground bleeding
-
-                    // Keep bilateral weight strict
-                    // bilateralWeight unchanged
-                }
-
-                // For same-depth samples, use normal weighting
-            }
-
-            // Blend between pure spatial and bilateral based on mip level
-            float finalBilateralWeight = lerp(1.0, bilateralWeight, bilateralStrength);
-
-            // Combined weight with atmospheric wrapping
-            float finalWeight = spatialWeight * finalBilateralWeight * atmosphericWeight;
-
-            color += colorSample * finalWeight;
-            totalWeight += finalWeight;
-        }
-    }
-
-    // Normalize
-    if (totalWeight > 0.0)
-        color /= totalWeight;
-    else
-        color = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb; // Fallback
-
-    return float4(color, 1.0);
+    return float4(color / totalWeight, 1.0);
 }
 
 // Horizontal gaussian blur
