@@ -43,24 +43,14 @@ float LinearizeZ(float depth, float4 viewInfo)
 META_CB_BEGIN(0, Data)
 
 float DepthHazeIntensity;
-float DepthHazeClamp;
-float DepthHazeThreshold;
-float DepthHazeThresholdKnee;
-
-float DepthHazePadding0;
-float DepthHazePadding1;
-float DepthHazeMipCount;
-float DepthHazeLayer;
-
 float DepthHazeNearDistance;
 float DepthHazeFarDistance;
 float DepthHazePower;
-float DepthHazeMaxMipLevel;
 
+float DepthHazeMaxMipLevel;
 float DepthHazeChromaticDispersion;
+float DepthHazeMipCount;
 float CurrentMipLevel;
-float DepthHazePadding2;
-float DepthHazePadding3;
 
 float BloomIntensity;
 float BloomClamp;

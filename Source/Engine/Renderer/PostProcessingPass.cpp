@@ -16,24 +16,14 @@
 
 GPU_CB_STRUCT(Data{
     float DepthHazeIntensity; // Overall depth haze strength multiplier
-    float DepthHazeClamp; // Maximum brightness limit for depth haze
-    float DepthHazeThreshold; // Luminance threshold where depth haze begins
-    float DepthHazeThresholdKnee; // Controls the threshold rolloff curve
-
-    float DepthHazePadding0;
-    float DepthHazePadding1;
-    float DepthHazeMipCount;
-    float DepthHazeLayer;
-
     float DepthHazeNearDistance; // Distance where fog starts
     float DepthHazeFarDistance;  // Distance where fog is maximum
     float DepthHazePower;        // Power curve for depth falloff
-    float DepthHazeMaxMipLevel;  // Maximum mip level for depth haze blur
 
+    float DepthHazeMaxMipLevel;  // Maximum mip level for depth haze blur
     float DepthHazeChromaticDispersion; // Chromatic dispersion strength
+    float DepthHazeMipCount;
     float CurrentMipLevel;
-    float DepthHazePadding2;
-    float DepthHazePadding3;
 
     float BloomIntensity; // Overall bloom strength multiplier
     float BloomClamp; // Maximum brightness limit for bloom
@@ -403,20 +393,12 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     if (useDepthHaze)
     {
         data.DepthHazeIntensity = settings.DepthHaze.Intensity;
-        data.DepthHazeClamp = 1.0f;           // Not used for atmospheric scattering
-        data.DepthHazeThreshold = 0.0f;       // Not used for atmospheric scattering
-        data.DepthHazeThresholdKnee = 0.0f;   // Not used for atmospheric scattering
-        data.DepthHazePadding0 = 0.0f;
-        data.DepthHazePadding1 = 0.0f;
-        data.DepthHazeMipCount = (float)bloomMipCount;
-        data.DepthHazeLayer = 0.0f;
-
-        // Atmospheric scattering distance parameters
         data.DepthHazeNearDistance = settings.DepthHaze.NearDistance;
         data.DepthHazeFarDistance = settings.DepthHaze.FarDistance;
         data.DepthHazePower = settings.DepthHaze.Power;
         data.DepthHazeMaxMipLevel = settings.DepthHaze.MaxMipLevel;
         data.DepthHazeChromaticDispersion = settings.DepthHaze.ChromaticDispersion;
+        data.DepthHazeMipCount = (float)bloomMipCount;
     }
     else
     {
