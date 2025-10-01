@@ -248,6 +248,24 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
     return result;
 }
 
+// Sample the distant shadow map for the given directional light
+float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantShadowMap, float3 worldPosition)
+{
+    // Project world position into distant shadow map UV space
+    float4 shadowPos = mul(float4(worldPosition, 1.0f), worldToShadow);
+    float2 shadowUV = shadowPos.xy;
+
+    // Check if position is within shadow map bounds
+    if (any(shadowUV < 0.0) || any(shadowUV > 1.0))
+        return 1.0; // No shadow outside bounds
+
+    // Sample distant shadow map (already blurred, so simple sample is fine)
+    float shadow = distantShadowMap.SampleLevel(SamplerLinearClamp, shadowUV, 0).r;
+    shadow = shadow < shadowPos.z ? 0.0 : 1.0;
+
+    return shadow;
+}
+
 // Samples the shadow for the given directional light on the material surface (supports subsurface shadowing)
 ShadowSample SampleDirectionalLightShadow(LightData light, Buffer<float4> shadowsBuffer, Texture2D<float> shadowMap, GBufferSample gBuffer, float dither = 0.0f)
 {
@@ -266,7 +284,7 @@ ShadowSample SampleDirectionalLightShadow(LightData light, Buffer<float4> shadow
     ShadowSample result;
     result.SurfaceShadow = 1;
     result.TransmissionShadow = 1;
-    
+
     // Load shadow data
     if (light.ShadowsBufferAddress == 0)
         return result; // No shadow assigned

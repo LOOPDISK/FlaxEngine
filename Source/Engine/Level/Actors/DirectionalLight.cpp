@@ -49,6 +49,10 @@ void DirectionalLight::Draw(RenderContext& renderContext)
         data.Cascade3Spacing = Cascade3Spacing;
         data.Cascade4Spacing = Cascade4Spacing;
         data.PartitionMode = PartitionMode;
+        data.EnableDistantShadows = EnableDistantShadows;
+        data.DistantShadowSize = DistantShadowSize;
+        data.DistantShadowUpdateRate = DistantShadowUpdateRate;
+        data.DistantShadowResolution = DistantShadowResolution;
         data.ContactShadowsLength = ContactShadowsLength;
         data.StaticFlags = GetStaticFlags();
         data.ID = GetID();
@@ -70,6 +74,10 @@ void DirectionalLight::Serialize(SerializeStream& stream, const void* otherObj)
     SERIALIZE(Cascade3Spacing);
     SERIALIZE(Cascade4Spacing);
     SERIALIZE(PartitionMode);
+    SERIALIZE(EnableDistantShadows);
+    SERIALIZE(DistantShadowSize);
+    SERIALIZE(DistantShadowUpdateRate);
+    SERIALIZE(DistantShadowResolution);
 }
 
 void DirectionalLight::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
@@ -83,6 +91,10 @@ void DirectionalLight::Deserialize(DeserializeStream& stream, ISerializeModifier
     DESERIALIZE(Cascade3Spacing);
     DESERIALIZE(Cascade4Spacing);
     DESERIALIZE(PartitionMode);
+    DESERIALIZE(EnableDistantShadows);
+    DESERIALIZE(DistantShadowSize);
+    DESERIALIZE(DistantShadowUpdateRate);
+    DESERIALIZE(DistantShadowResolution);
 }
 
 bool DirectionalLight::IntersectsItself(const Ray& ray, Real& distance, Vector3& normal)

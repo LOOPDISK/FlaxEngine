@@ -17,10 +17,16 @@ float Dummy0;
 float TemporalTime;
 float ContactShadowsDistance;
 float ContactShadowsLength;
+float4x4 DistantShadowWorldToShadow;
+float CSMMaxDistance;
+float DistantShadowBlendRange;
+float Dummy1;
+float Dummy2;
 META_CB_END
 
 Buffer<float4> ShadowsBuffer : register(t5);
 Texture2D<float> ShadowMap : register(t6);
+Texture2D<float> DistantShadowMap : register(t7);
 
 DECLARE_GBUFFERDATA_ACCESS(GBuffer)
 
@@ -124,8 +130,20 @@ float4 PS_DirLight(Quad_VS2PS input) : SV_Target0
 	GBufferData gBufferData = GetGBufferData();
 	GBufferSample gBuffer = SampleGBuffer(gBufferData, input.TexCoord);
 
-	// Sample shadow
+	// Sample CSM shadow
     ShadowSample shadow = SampleDirectionalLightShadow(Light, ShadowsBuffer, ShadowMap, gBuffer, TemporalTime);
+
+	// Blend with Distant Shadow Map (DSM) if beyond CSM range
+	float viewDepth = gBuffer.ViewPos.z;
+	if (viewDepth > CSMMaxDistance && DistantShadowBlendRange > 0.0)
+	{
+		float blendFactor = saturate((viewDepth - CSMMaxDistance) / DistantShadowBlendRange);
+		if (blendFactor > 0.0)
+		{
+			float distantShadow = SampleDistantShadowMap(DistantShadowWorldToShadow, DistantShadowMap, gBuffer.WorldPos);
+			shadow.SurfaceShadow = lerp(shadow.SurfaceShadow, distantShadow, blendFactor);
+		}
+	}
 
 #if CONTACT_SHADOWS && SHADOWS_QUALITY > 0
 	// Calculate screen-space contact shadow

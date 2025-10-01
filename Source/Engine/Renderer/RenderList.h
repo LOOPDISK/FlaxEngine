@@ -74,6 +74,11 @@ struct RenderDirectionalLightData : RenderLightData
     PartitionMode PartitionMode;
     int32 CascadeCount;
 
+    bool EnableDistantShadows;
+    float DistantShadowSize;
+    int32 DistantShadowUpdateRate;
+    int32 DistantShadowResolution;
+
     RenderDirectionalLightData()
     {
         Platform::MemoryClear(this, sizeof(RenderDirectionalLightData));
