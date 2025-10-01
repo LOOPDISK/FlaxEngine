@@ -1680,11 +1680,8 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             m.Transpose();
             dsm.WorldToShadow = m;
 
-            // Create render context for distant shadow rendering (added to batch)
-            const int32 dsmContextIndex = renderContextBatch.Contexts.Count();
-            renderContextBatch.Contexts.AddDefault(1);
-            auto& dsmContext = renderContextBatch.Contexts[dsmContextIndex];
-
+            // Create render context for distant shadow rendering
+            RenderContext dsmContext;
             dsmContext.Buffers = renderContext.Buffers;
             dsmContext.Task = renderContext.Task;
             dsmContext.List = RenderList::GetFromPool();
@@ -1701,23 +1698,35 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             dsmContext.View.StaticFlagsCompare = StaticFlags::Shadow; // Only static geometry
             dsmContext.View.RenderLayersMask = renderContext.View.RenderLayersMask;
             dsmContext.View.Origin = renderContext.View.Origin;
+            dsmContext.View.CullingFrustum.SetMatrix(shadowVP);
             dsmContext.View.PrepareCache(dsmContext, (float)dsm.Resolution, (float)dsm.Resolution, Float2::Zero, &renderContext.View);
+
+            // Collect geometry using a temporary batch
+            RenderContextBatch dsmBatch;
+            dsmBatch.Contexts.Add(dsmContext);
+            renderContext.Task->OnCollectDrawCalls(dsmBatch, SceneRendering::DrawCategory::SceneDraw);
+
+            // Get the updated context from batch
+            auto& dsmCtx = dsmBatch.Contexts[0];
+
+            LOG(Info, "DSM Rendering: DrawCalls={0}, WorldCenter={1}, SunDir={2}, WorldSize={3}",
+                dsmCtx.List->DrawCalls.Count(), worldCenter, sunDirection, dsm.WorldSize);
 
             // Render depth
             context->SetRenderTarget(dsm.ShadowMap->View(), (GPUTextureView*)nullptr);
             context->SetViewportAndScissors(Viewport(0, 0, (float)dsm.Resolution, (float)dsm.Resolution));
-            context->ClearDepth(dsm.ShadowMap->View());
-            dsmContext.List->ExecuteDrawCalls(dsmContext, DrawCallsListType::Depth);
-            dsmContext.List->ExecuteDrawCalls(dsmContext, dsmContext.List->ShadowDepthDrawCallsList, renderContext.List, nullptr);
+            context->ClearDepth(dsm.ShadowMap->View(), 1.0f);
+            dsmCtx.List->ExecuteDrawCalls(dsmCtx, DrawCallsListType::Depth);
 
             // Apply blur to DSM for soft distant shadows
             // TODO: Implement separable Gaussian blur pass here (horizontal + vertical)
             // For now, the shader will sample the unblurred depth map
             // The blur helps hide low resolution and creates atmospheric shadow effect
 
-            // Cleanup (Note: RenderList will be automatically returned by renderContextBatch cleanup, so don't manually return it)
+            // Cleanup
             context->ResetSR();
             context->ResetRenderTarget();
+            RenderList::ReturnToPool(dsmCtx.List);
 
             dsm.LastUpdateFrame = Engine::FrameCount;
             dsm.IsDirty = false;
@@ -1837,6 +1846,9 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
         // Blend range: 10% of remaining distance to camera far plane, or 10m minimum
         const float remainingDistance = view.Far - sperLight.CSMMaxDistance;
         sperLight.DistantShadowBlendRange = Math::Max(1000.0f, remainingDistance * 0.1f);
+
+        LOG(Info, "DSM Shader Params: CSMMaxDist={0}, BlendRange={1}, ViewFar={2}",
+            sperLight.CSMMaxDistance, sperLight.DistantShadowBlendRange, view.Far);
     }
     else
     {

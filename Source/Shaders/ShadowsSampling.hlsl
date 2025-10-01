@@ -259,9 +259,11 @@ float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantSha
     if (any(shadowUV < 0.0) || any(shadowUV > 1.0))
         return 1.0; // No shadow outside bounds
 
-    // Sample distant shadow map (already blurred, so simple sample is fine)
-    float shadow = distantShadowMap.SampleLevel(SamplerLinearClamp, shadowUV, 0).r;
-    shadow = shadow < shadowPos.z ? 0.0 : 1.0;
+    // Sample distant shadow map depth
+    float shadowDepth = distantShadowMap.SampleLevel(SamplerLinearClamp, shadowUV, 0).r;
+
+    // Compare depth: if sampled depth is less than current position depth, we're in shadow
+    float shadow = shadowDepth < shadowPos.z ? 0.0 : 1.0;
 
     return shadow;
 }

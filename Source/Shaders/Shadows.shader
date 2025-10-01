@@ -142,6 +142,10 @@ float4 PS_DirLight(Quad_VS2PS input) : SV_Target0
 		{
 			float distantShadow = SampleDistantShadowMap(DistantShadowWorldToShadow, DistantShadowMap, gBuffer.WorldPos);
 			shadow.SurfaceShadow = lerp(shadow.SurfaceShadow, distantShadow, blendFactor);
+
+			// Debug: visualize blend region (uncomment to debug)
+			//if (blendFactor < 0.1) shadow.SurfaceShadow = float2(1.0, 0.0); // Red = start of blend
+			//else if (blendFactor > 0.9) shadow.SurfaceShadow = float2(0.0, 1.0); // Blue = full DSM
 		}
 	}
 
