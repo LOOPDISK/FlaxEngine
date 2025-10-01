@@ -513,7 +513,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
             context->ResetRenderTarget();
         }
 
-        // Progressive downsamples for color chain with simple tent filter
+        // Progressive downsamples for color chain with depth-aware bilateral filtering
         for (int32 mip = 1; mip < bloomMipCount; mip++)
         {
             const int32 mipWidth = w2 >> mip;
@@ -522,10 +522,13 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
             context->SetRenderTarget(scatteringColorBuffer->View(0, mip));
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
             context->BindSR(0, scatteringColorBuffer->View(0, mip - 1)); // Previous color mip
+            context->BindSR(10, depthMipBuffer->View()); // Depth mips for bilateral filtering
             context->SetState(_psDepthHazeAdaptiveBilateralDownsample);
             context->DrawFullscreenTriangle();
             context->ResetRenderTarget();
         }
+
+        context->UnBindSR(10);
 
         // Create second buffer for upsampling
         scatteringColorBuffer2 = RenderTargetPool::Get(scatteringColorDesc);

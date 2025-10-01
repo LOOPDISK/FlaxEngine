@@ -607,15 +607,19 @@ float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
 {
-    // Simple tent filter downsampling
+    // Depth-aware bilateral tent filter downsampling
     // Input0: Previous color mip level
-    // Input1: Full resolution depth buffer (unused now)
+    // DepthMips: Depth mip chain for depth-aware filtering
 
     uint width, height;
     Input0.GetDimensions(width, height);
     float2 texelSize = 1.0 / float2(width, height);
 
-    // 9-tap tent filter with fixed weights
+    // Get center depth for comparison
+    float centerDepth = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
+    float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo);
+
+    // 9-tap tent filter with fixed spatial weights
     float3 color = 0;
     float totalWeight = 0;
 
@@ -633,8 +637,8 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
         float2( 0,  1)
     };
 
-    // Sample weights (fixed)
-    const float weights[9] =
+    // Spatial weights (fixed)
+    const float spatialWeights[9] =
     {
         4.0,    // Center
         1.0,    // Corners
@@ -647,13 +651,29 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
         2.0
     };
 
+    // Bilateral depth threshold - how much depth difference we tolerate
+    // Adaptive based on center depth (more tolerance for far objects)
+    float depthThreshold = max(centerLinearDepth * 0.1, 1.0);
+
     UNROLL
     for (int i = 0; i < 9; i++)
     {
-        float2 offset = offsets[i] * texelSize;
-        float3 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).rgb;
-        color += sampleColor * weights[i];
-        totalWeight += weights[i];
+        float2 sampleUV = input.TexCoord + offsets[i] * texelSize;
+        float3 sampleColor = Input0.Sample(SamplerLinearClamp, sampleUV).rgb;
+
+        // Sample depth at this location
+        float sampleDepth = DepthMips.SampleLevel(SamplerLinearClamp, sampleUV, 0).r;
+        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
+
+        // Calculate depth similarity weight (bilateral weight)
+        float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
+        float depthWeight = exp(-depthDiff / depthThreshold);
+
+        // Combine spatial and depth weights
+        float finalWeight = spatialWeights[i] * depthWeight;
+
+        color += sampleColor * finalWeight;
+        totalWeight += finalWeight;
     }
 
     return float4(color / totalWeight, 1.0);
@@ -662,15 +682,19 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
 {
-    // Dual filter upsampling for depth haze with depth-aware blending
+    // Depth-aware dual filter upsampling for depth haze
     // Input0: Blurrier upsampled mip from previous iteration
-    // Input1: Current downsampled mip (unused for now, but available for future depth-aware blending)
-    // DepthMips: Depth mip chain for depth-aware selection
+    // Input1: Current downsampled mip for accumulation
+    // DepthMips: Depth mip chain for depth-aware blending
 
     float anisotropy = 1.0;
     uint width, height;
     Input0.GetDimensions(width, height);
     float2 texelSize = 1.0 / float2(width, height);
+
+    // Get center depth for comparison
+    float centerDepth = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
+    float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo);
 
     // Maintain fixed scale through mip chain
     float baseOffset = 1.0;
@@ -678,13 +702,16 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     float3 color = 0;
     float totalWeight = 0;
 
+    // Bilateral depth threshold - adaptive based on depth
+    float depthThreshold = max(centerLinearDepth * 0.1, 1.0);
+
     // Center
     float4 center = Input0.Sample(SamplerLinearClamp, input.TexCoord);
     float centerWeight = 4.0;
     color += center.rgb * centerWeight;
     totalWeight += centerWeight;
 
-    // Cross - fixed distance samples
+    // Cross - fixed distance samples with depth awareness
     float2 crossOffsets[4] = {
         float2(offsetScale * anisotropy, 0),
         float2(-offsetScale * anisotropy, 0),
@@ -695,13 +722,21 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     UNROLL
     for (int i = 0; i < 4; i++)
     {
-        float4 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + crossOffsets[i] * texelSize);
-        float weight = 2.0;
+        float2 sampleUV = input.TexCoord + crossOffsets[i] * texelSize;
+        float4 sampleColor = Input0.Sample(SamplerLinearClamp, sampleUV);
+
+        // Sample depth and calculate bilateral weight
+        float sampleDepth = DepthMips.SampleLevel(SamplerLinearClamp, sampleUV, 0).r;
+        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
+        float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
+        float depthWeight = exp(-depthDiff / depthThreshold);
+
+        float weight = 2.0 * depthWeight;
         color += sampleColor.rgb * weight;
         totalWeight += weight;
     }
 
-    // Corners - fixed distance samples
+    // Corners - fixed distance samples with depth awareness
     float2 cornerOffsets[4] =
     {
         float2(offsetScale * anisotropy, offsetScale),
@@ -713,8 +748,16 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     UNROLL
     for (int j = 0; j < 4; j++)
     {
-        float4 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + cornerOffsets[j] * texelSize);
-        float weight = 1.0;
+        float2 sampleUV = input.TexCoord + cornerOffsets[j] * texelSize;
+        float4 sampleColor = Input0.Sample(SamplerLinearClamp, sampleUV);
+
+        // Sample depth and calculate bilateral weight
+        float sampleDepth = DepthMips.SampleLevel(SamplerLinearClamp, sampleUV, 0).r;
+        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
+        float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
+        float depthWeight = exp(-depthDiff / depthThreshold);
+
+        float weight = 1.0 * depthWeight;
         color += sampleColor.rgb * weight;
         totalWeight += weight;
     }
