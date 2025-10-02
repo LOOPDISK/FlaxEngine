@@ -72,6 +72,18 @@ public:
     API_FIELD(Attributes="EditorOrder(73), DefaultValue(1024), VisibleIf(nameof(ShowDistantShadowSettings)), EditorDisplay(\"Shadow\", \"Distant Shadow Resolution\")")
     int32 DistantShadowResolution = 1024;
 
+    /// <summary>
+    /// Depth bias multiplier for distant shadows to prevent z-fighting. Higher values reduce self-shadowing artifacts. Default is 0.0005.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(74), DefaultValue(0.0005f), VisibleIf(nameof(ShowDistantShadowSettings)), Limit(0, 0.01f, 0.0001f), EditorDisplay(\"Shadow\", \"Distant Shadow Depth Bias\")")
+    float DistantShadowDepthBias = 0.0005f;
+
+    /// <summary>
+    /// Normal offset bias scale for distant shadows. Reduces peter-panning on grazing angles. Default is 0.5.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(75), DefaultValue(0.5f), VisibleIf(nameof(ShowDistantShadowSettings)), Limit(0, 2.0f, 0.1f), EditorDisplay(\"Shadow\", \"Distant Shadow Normal Bias Scale\")")
+    float DistantShadowNormalBiasScale = 0.5f;
+
 public:
     // [LightWithShadow]
     void Draw(RenderContext& renderContext) override;

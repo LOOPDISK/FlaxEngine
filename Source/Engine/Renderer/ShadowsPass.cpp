@@ -40,8 +40,8 @@ GPU_CB_STRUCT(Data {
     Matrix DistantShadowWorldToShadow;
     float CSMMaxDistance;
     float DistantShadowBlendRange;
-    float Dummy1;
-    float Dummy2;
+    float DistantShadowDepthBias;
+    float DistantShadowNormalBias;
     });
 
 struct ShadowsAtlasRectTile : RectPackNode<uint16>
@@ -1847,14 +1847,24 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
         const float remainingDistance = view.Far - sperLight.CSMMaxDistance;
         sperLight.DistantShadowBlendRange = Math::Max(1000.0f, remainingDistance * 0.1f);
 
-        LOG(Info, "DSM Shader Params: CSMMaxDist={0}, BlendRange={1}, ViewFar={2}",
-            sperLight.CSMMaxDistance, sperLight.DistantShadowBlendRange, view.Far);
+        // Bias values to prevent z-fighting (scaled for large world size)
+        // Depth bias: scaled by world size / resolution for consistent bias across different resolutions
+        const float depthBiasScale = shadows.DistantShadow.WorldSize / (float)shadows.DistantShadow.Resolution;
+        sperLight.DistantShadowDepthBias = dirLight.DistantShadowDepthBias * depthBiasScale; // Adaptive depth bias
+
+        // Normal bias: use light's normal offset scale scaled for DSM world size
+        sperLight.DistantShadowNormalBias = light.ShadowsNormalOffsetScale * depthBiasScale * dirLight.DistantShadowNormalBiasScale;
+
+        LOG(Info, "DSM Shader Params: CSMMaxDist={0}, BlendRange={1}, ViewFar={2}, DepthBias={3}, NormalBias={4}",
+            sperLight.CSMMaxDistance, sperLight.DistantShadowBlendRange, view.Far, sperLight.DistantShadowDepthBias, sperLight.DistantShadowNormalBias);
     }
     else
     {
         sperLight.DistantShadowWorldToShadow = Matrix::Identity;
         sperLight.CSMMaxDistance = 0.0f;
         sperLight.DistantShadowBlendRange = 0.0f;
+        sperLight.DistantShadowDepthBias = 0.0f;
+        sperLight.DistantShadowNormalBias = 0.0f;
     }
 
     bool isViewInside;

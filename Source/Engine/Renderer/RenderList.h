@@ -78,6 +78,8 @@ struct RenderDirectionalLightData : RenderLightData
     float DistantShadowSize;
     int32 DistantShadowUpdateRate;
     int32 DistantShadowResolution;
+    float DistantShadowDepthBias;
+    float DistantShadowNormalBiasScale;
 
     RenderDirectionalLightData()
     {

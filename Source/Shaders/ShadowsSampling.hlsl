@@ -249,7 +249,7 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
 }
 
 // Sample the distant shadow map for the given directional light
-float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantShadowMap, float3 worldPosition)
+float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantShadowMap, float3 worldPosition, float depthBias = 0.0001)
 {
     // Project world position into distant shadow map UV space
     float4 shadowPos = mul(float4(worldPosition, 1.0f), worldToShadow);
@@ -259,11 +259,14 @@ float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantSha
     if (any(shadowUV < 0.0) || any(shadowUV > 1.0))
         return 1.0; // No shadow outside bounds
 
+    // Apply depth bias to prevent z-fighting
+    float biasedDepth = shadowPos.z - depthBias;
+
     // Sample distant shadow map depth
     float shadowDepth = distantShadowMap.SampleLevel(SamplerLinearClamp, shadowUV, 0).r;
 
     // Compare depth: if sampled depth is less than current position depth, we're in shadow
-    float shadow = shadowDepth < shadowPos.z ? 0.0 : 1.0;
+    float shadow = shadowDepth < biasedDepth ? 0.0 : 1.0;
 
     return shadow;
 }

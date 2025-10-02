@@ -20,8 +20,8 @@ float ContactShadowsLength;
 float4x4 DistantShadowWorldToShadow;
 float CSMMaxDistance;
 float DistantShadowBlendRange;
-float Dummy1;
-float Dummy2;
+float DistantShadowDepthBias;
+float DistantShadowNormalBias;
 META_CB_END
 
 Buffer<float4> ShadowsBuffer : register(t5);
@@ -140,7 +140,11 @@ float4 PS_DirLight(Quad_VS2PS input) : SV_Target0
 		float blendFactor = saturate((viewDepth - CSMMaxDistance) / DistantShadowBlendRange);
 		if (blendFactor > 0.0)
 		{
-			float distantShadow = SampleDistantShadowMap(DistantShadowWorldToShadow, DistantShadowMap, gBuffer.WorldPos);
+			// Apply normal offset bias to reduce z-fighting and peter-panning
+			float NoL = dot(gBuffer.Normal, Light.Direction);
+			float3 biasedWorldPos = gBuffer.WorldPos + GetShadowPositionOffset(DistantShadowNormalBias, NoL, gBuffer.Normal);
+
+			float distantShadow = SampleDistantShadowMap(DistantShadowWorldToShadow, DistantShadowMap, biasedWorldPos, DistantShadowDepthBias);
 			shadow.SurfaceShadow = lerp(shadow.SurfaceShadow, distantShadow, blendFactor);
 
 			// Debug: visualize blend region (uncomment to debug)
