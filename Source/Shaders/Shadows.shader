@@ -133,11 +133,15 @@ float4 PS_DirLight(Quad_VS2PS input) : SV_Target0
 	// Sample CSM shadow
     ShadowSample shadow = SampleDirectionalLightShadow(Light, ShadowsBuffer, ShadowMap, gBuffer, TemporalTime);
 
-	// Blend with Distant Shadow Map (DSM) if beyond CSM range
+	// Blend with Distant Shadow Map (DSM) during and after CSM fade
 	float viewDepth = gBuffer.ViewPos.z;
-	if (viewDepth > CSMMaxDistance && DistantShadowBlendRange > 0.0)
+	// CSMMaxDistance is where CSM fade completes (ShadowsDistance + FadeDistance)
+	// Start blending DSM from where CSM begins to fade
+	float csmFadeStart = CSMMaxDistance - DistantShadowBlendRange;
+	if (viewDepth > csmFadeStart && DistantShadowBlendRange > 0.0)
 	{
-		float blendFactor = saturate((viewDepth - CSMMaxDistance) / DistantShadowBlendRange);
+		// Blend factor: 0 at CSM fade start, 1 when CSM is fully faded
+		float blendFactor = saturate((viewDepth - csmFadeStart) / DistantShadowBlendRange);
 		if (blendFactor > 0.0)
 		{
 			// Apply normal offset bias to reduce z-fighting and peter-panning

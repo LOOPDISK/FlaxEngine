@@ -1840,12 +1840,12 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
         auto& dirLight = (RenderDirectionalLightData&)light;
         sperLight.DistantShadowWorldToShadow = shadows.DistantShadow.WorldToShadow;
 
-        // Blend starts where CSM ends (including fade distance)
+        // CSM fade range: from ShadowsDistance to ShadowsDistance + FadeDistance
         sperLight.CSMMaxDistance = light.ShadowsDistance + light.ShadowsFadeDistance;
 
-        // Blend range: 10% of remaining distance to camera far plane, or 10m minimum
-        const float remainingDistance = view.Far - sperLight.CSMMaxDistance;
-        sperLight.DistantShadowBlendRange = Math::Max(1000.0f, remainingDistance * 0.1f);
+        // Blend DSM during CSM fade for perfect transition
+        // Use CSM fade distance as blend range to ensure DSM replaces CSM as it fades
+        sperLight.DistantShadowBlendRange = Math::Max(100.0f, light.ShadowsFadeDistance);
 
         // Bias values to prevent z-fighting (scaled for large world size)
         // Depth bias: scaled by world size / resolution for consistent bias across different resolutions
