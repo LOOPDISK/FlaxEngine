@@ -248,7 +248,7 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
     return result;
 }
 
-// Sample the distant shadow map for the given directional light
+// Sample the distant shadow map for the given directional light with PCF filtering
 float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantShadowMap, float3 worldPosition, float depthBias = 0.0001)
 {
     // Project world position into distant shadow map UV space
@@ -262,13 +262,15 @@ float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantSha
     // Apply depth bias to prevent z-fighting
     float biasedDepth = shadowPos.z - depthBias;
 
-    // Sample distant shadow map depth
+    // Use PCF filtering for smooth shadows (quality-dependent)
+#if SHADOWS_QUALITY == 0
+    // Low quality: single sample
     float shadowDepth = distantShadowMap.SampleLevel(SamplerLinearClamp, shadowUV, 0).r;
-
-    // Compare depth: if sampled depth is less than current position depth, we're in shadow
-    float shadow = shadowDepth < biasedDepth ? 0.0 : 1.0;
-
-    return shadow;
+    return shadowDepth < biasedDepth ? 0.0 : 1.0;
+#else
+    // Medium/High quality: use optimized PCF like CSM
+    return SampleShadowMapOptimizedPCF(distantShadowMap, shadowUV, biasedDepth);
+#endif
 }
 
 // Samples the shadow for the given directional light on the material surface (supports subsurface shadowing)

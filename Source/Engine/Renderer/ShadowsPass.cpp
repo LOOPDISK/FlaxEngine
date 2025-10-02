@@ -146,10 +146,22 @@ struct DistantShadowMap
 
     void Init(PixelFormat shadowMapFormat)
     {
+        // Check if we need to create or recreate textures due to resolution change
+        bool needsRecreate = false;
         if (!ShadowMap)
         {
             ShadowMap = GPUDevice::Instance->CreateTexture(TEXT("Distant Shadow Map"));
             BlurredShadowMap = GPUDevice::Instance->CreateTexture(TEXT("Distant Shadow Map Blurred"));
+            needsRecreate = true;
+        }
+        else if (ShadowMap->Width() != Resolution || ShadowMap->Height() != Resolution)
+        {
+            // Resolution changed, mark for recreation
+            needsRecreate = true;
+        }
+
+        if (needsRecreate)
+        {
             auto desc = GPUTextureDescription::New2D(Resolution, Resolution, shadowMapFormat, GPUTextureFlags::ShaderResource | GPUTextureFlags::DepthStencil);
             if (ShadowMap->Init(desc))
             {
@@ -1091,8 +1103,6 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
             dsm.WorldCenter = viewWorldPos;
             dsm.MarkDirty();
         }
-
-        LOG(Info, "DSM Auto-Config: CSMEnd={0}cm, CameraFar={1}cm, DSMWorldSize={2}cm", csmEndDistance, cameraFarPlane, dsm.WorldSize);
     }
 }
 
@@ -1709,9 +1719,6 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // Get the updated context from batch
             auto& dsmCtx = dsmBatch.Contexts[0];
 
-            LOG(Info, "DSM Rendering: DrawCalls={0}, WorldCenter={1}, SunDir={2}, WorldSize={3}",
-                dsmCtx.List->DrawCalls.Count(), worldCenter, sunDirection, dsm.WorldSize);
-
             // Render depth
             context->SetRenderTarget(dsm.ShadowMap->View(), (GPUTextureView*)nullptr);
             context->SetViewportAndScissors(Viewport(0, 0, (float)dsm.Resolution, (float)dsm.Resolution));
@@ -1854,9 +1861,6 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
 
         // Normal bias: use light's normal offset scale scaled for DSM world size
         sperLight.DistantShadowNormalBias = light.ShadowsNormalOffsetScale * depthBiasScale * dirLight.DistantShadowNormalBiasScale;
-
-        LOG(Info, "DSM Shader Params: CSMMaxDist={0}, BlendRange={1}, ViewFar={2}, DepthBias={3}, NormalBias={4}",
-            sperLight.CSMMaxDistance, sperLight.DistantShadowBlendRange, view.Far, sperLight.DistantShadowDepthBias, sperLight.DistantShadowNormalBias);
     }
     else
     {
