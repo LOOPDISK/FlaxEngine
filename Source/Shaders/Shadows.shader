@@ -130,31 +130,40 @@ float4 PS_DirLight(Quad_VS2PS input) : SV_Target0
 	GBufferData gBufferData = GetGBufferData();
 	GBufferSample gBuffer = SampleGBuffer(gBufferData, input.TexCoord);
 
-	// Sample CSM shadow
+	// Sample CSM shadow (this will have fade applied, lerping shadow towards 1.0)
     ShadowSample shadow = SampleDirectionalLightShadow(Light, ShadowsBuffer, ShadowMap, gBuffer, TemporalTime);
 
-	// Blend with Distant Shadow Map (DSM) during and after CSM fade
+	// Blend with Distant Shadow Map (DSM) - override CSM's fade-to-1.0 with fade-to-DSM
 	float viewDepth = gBuffer.ViewPos.z;
-	// CSMMaxDistance is where CSM fade completes (ShadowsDistance + FadeDistance)
-	// Start blending DSM from where CSM begins to fade
-	float csmFadeStart = CSMMaxDistance - DistantShadowBlendRange;
-	if (viewDepth > csmFadeStart && DistantShadowBlendRange > 0.0)
+	float csmFadeStart = CSMMaxDistance - DistantShadowBlendRange; // Where CSM starts fading
+
+	// Calculate the fade that CSM uses internally (even before fade starts, to know when to sample DSM)
+	float csmFade = saturate((viewDepth - csmFadeStart + DistantShadowBlendRange) / DistantShadowBlendRange);
+
+	if (csmFade > 0.0 && DistantShadowBlendRange > 0.0)
 	{
-		// Blend factor: 0 at CSM fade start, 1 when CSM is fully faded
-		float blendFactor = saturate((viewDepth - csmFadeStart) / DistantShadowBlendRange);
-		if (blendFactor > 0.0)
-		{
-			// Apply normal offset bias to reduce z-fighting and peter-panning
-			float NoL = dot(gBuffer.Normal, Light.Direction);
-			float3 biasedWorldPos = gBuffer.WorldPos + GetShadowPositionOffset(DistantShadowNormalBias, NoL, gBuffer.Normal);
+		// Sample DSM (always sample when in fade region)
+		float NoL = dot(gBuffer.Normal, Light.Direction);
+		float3 biasedWorldPos = gBuffer.WorldPos + GetShadowPositionOffset(DistantShadowNormalBias, NoL, gBuffer.Normal);
+		float2 screenPos = input.TexCoord * gBufferData.ScreenSize;
+		float distantShadow = SampleDistantShadowMap(DistantShadowWorldToShadow, DistantShadowMap, biasedWorldPos, DistantShadowDepthBias, screenPos);
 
-			float distantShadow = SampleDistantShadowMap(DistantShadowWorldToShadow, DistantShadowMap, biasedWorldPos, DistantShadowDepthBias);
-			shadow.SurfaceShadow = lerp(shadow.SurfaceShadow, distantShadow, blendFactor);
+		// CSM currently has: lerp(csmShadow, 1.0, fade)
+		// We want: lerp(csmShadow, DSM, fade)
+		// So we need to "undo" the fade-to-1.0 and replace it with fade-to-DSM
 
-			// Debug: visualize blend region (uncomment to debug)
-			//if (blendFactor < 0.1) shadow.SurfaceShadow = float2(1.0, 0.0); // Red = start of blend
-			//else if (blendFactor > 0.9) shadow.SurfaceShadow = float2(0.0, 1.0); // Blue = full DSM
-		}
+		// Reverse the CSM fade to get unfaded CSM value
+		// From: result = lerp(csm, 1.0, fade) = csm * (1-fade) + 1.0 * fade
+		// Solve: csm = (result - fade) / (1 - fade)
+		float unfadedCSM = csmFade < 0.999 ? (shadow.SurfaceShadow - csmFade) / max(1.0 - csmFade, 0.001) : shadow.SurfaceShadow;
+		unfadedCSM = saturate(unfadedCSM); // Clamp to valid shadow range
+
+		// Now apply fade towards DSM instead of 1.0
+		shadow.SurfaceShadow = lerp(unfadedCSM, distantShadow, csmFade);
+
+		// Debug: visualize blend region
+		//if (csmFade < 0.1) shadow.SurfaceShadow = float2(1.0, 0.0); // Red = start
+		//else if (csmFade > 0.9) shadow.SurfaceShadow = float2(0.0, 1.0); // Blue = end
 	}
 
 #if CONTACT_SHADOWS && SHADOWS_QUALITY > 0

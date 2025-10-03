@@ -52,4 +52,12 @@ float4 PerlinRamp(in float4 t)
     return t * t * t * (t * (t * 6 - 15) + 10);
 }
 
+// Interleaved Gradient Noise (screen-space stable dither/blue noise)
+// Based on: http://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
+float InterleavedGradientNoise(float2 screenPos)
+{
+    float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+    return frac(magic.z * frac(dot(screenPos, magic.xy)));
+}
+
 #endif

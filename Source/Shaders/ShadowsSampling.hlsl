@@ -94,7 +94,7 @@ float SampleShadowMapOptimizedPCFHelper(Texture2D<float> shadowMap, float2 baseU
 }
 
 // [Shadow map sampling method used in The Witness, https://github.com/TheRealMJP/Shadows]
-float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV, float sceneDepth)
+float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV, float sceneDepth, float2 screenPos = float2(0, 0))
 {
 #if SHADOWS_QUALITY != 0
     float2 shadowMapSize;
@@ -103,9 +103,16 @@ float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV
     float2 uv = shadowMapUV.xy * shadowMapSize; // 1 unit - 1 texel
     float2 shadowMapSizeInv = 1.0f / shadowMapSize;
 
+    // Add screen-space stable blue noise offset for temporal stability
+    float noise = 0.0;
+#if SHADOWS_CSM_DITHERING
+    if (any(screenPos))
+        noise = InterleavedGradientNoise(screenPos) - 0.5;
+#endif
+
     float2 baseUV;
-    baseUV.x = floor(uv.x + 0.5);
-    baseUV.y = floor(uv.y + 0.5);
+    baseUV.x = floor(uv.x + 0.5 + noise);
+    baseUV.y = floor(uv.y + 0.5 + noise);
     float s = (uv.x + 0.5 - baseUV.x);
     float t = (uv.y + 0.5 - baseUV.y);
     baseUV -= float2(0.5, 0.5);
@@ -212,7 +219,7 @@ float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV
 }
 
 // Samples the shadow cascade for the given directional light on the material surface (supports subsurface shadowing)
-ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4> shadowsBuffer, Texture2D<float> shadowMap, GBufferSample gBuffer, ShadowData shadow, float3 samplePosition, uint cascadeIndex)
+ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4> shadowsBuffer, Texture2D<float> shadowMap, GBufferSample gBuffer, ShadowData shadow, float3 samplePosition, uint cascadeIndex, float2 screenPos)
 {
     ShadowSample result;
     ShadowTileData shadowTile = LoadShadowsBufferTile(shadowsBuffer, light.ShadowsBufferAddress, cascadeIndex);
@@ -221,8 +228,8 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
     float4 shadowPosition;
     float2 shadowMapUV = GetLightShadowAtlasUV(shadow, shadowTile, samplePosition, shadowPosition);
 
-    // Sample shadow map
-    result.SurfaceShadow = SampleShadowMapOptimizedPCF(shadowMap, shadowMapUV, shadowPosition.z);
+    // Sample shadow map with blue noise
+    result.SurfaceShadow = SampleShadowMapOptimizedPCF(shadowMap, shadowMapUV, shadowPosition.z, screenPos);
 
     // Increase the sharpness for higher cascades to match the filter radius
     const float SharpnessScale[MaxNumCascades] = { 1.0f, 1.5f, 3.0f, 3.5f };
@@ -239,6 +246,10 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
 		result.TransmissionShadow = CalculateSubsurfaceOcclusion(opacity, shadowPosition.z, shadowMapDepth);
         result.TransmissionShadow = PostProcessShadow(shadow, result.TransmissionShadow);
 	}
+	else
+	{
+		result.TransmissionShadow = 1;
+	}
 #else
     result.TransmissionShadow = 1;
 #endif
@@ -249,7 +260,7 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
 }
 
 // Sample the distant shadow map for the given directional light with PCF filtering
-float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantShadowMap, float3 worldPosition, float depthBias = 0.0001)
+float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantShadowMap, float3 worldPosition, float depthBias = 0.0001, float2 screenPos = float2(0, 0))
 {
     // Project world position into distant shadow map UV space
     float4 shadowPos = mul(float4(worldPosition, 1.0f), worldToShadow);
@@ -268,8 +279,8 @@ float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantSha
     float shadowDepth = distantShadowMap.SampleLevel(SamplerLinearClamp, shadowUV, 0).r;
     return shadowDepth < biasedDepth ? 0.0 : 1.0;
 #else
-    // Medium/High quality: use optimized PCF like CSM
-    return SampleShadowMapOptimizedPCF(distantShadowMap, shadowUV, biasedDepth);
+    // Medium/High quality: use optimized PCF like CSM with blue noise
+    return SampleShadowMapOptimizedPCF(distantShadowMap, shadowUV, biasedDepth, screenPos);
 #endif
 }
 
@@ -333,19 +344,25 @@ ShadowSample SampleDirectionalLightShadow(LightData light, Buffer<float4> shadow
     // Apply normal offset bias
     samplePosition += GetShadowPositionOffset(shadow.NormalOffsetScale, NoL, gBuffer.Normal);
 #endif
-    result = SampleDirectionalLightShadowCascade(light, shadowsBuffer, shadowMap, gBuffer, shadow, samplePosition, cascadeIndex);
+    // Use view position for screen-space noise (available in all contexts)
+    float2 screenPos = gBuffer.ViewPos.xy;
+    result = SampleDirectionalLightShadowCascade(light, shadowsBuffer, shadowMap, gBuffer, shadow, samplePosition, cascadeIndex, screenPos);
 
 #if SHADOWS_CSM_BLENDING
 	const float BlendThreshold = 0.1f;
     if (splitDist <= BlendThreshold && cascadeIndex != shadow.TilesCount - 1)
     {
 	    // Sample the next cascade, and blend between the two results to smooth the transition
-        ShadowSample nextResult = SampleDirectionalLightShadowCascade(light, shadowsBuffer, shadowMap, gBuffer, shadow, samplePosition, cascadeIndex + 1);
+        ShadowSample nextResult = SampleDirectionalLightShadowCascade(light, shadowsBuffer, shadowMap, gBuffer, shadow, samplePosition, cascadeIndex + 1, screenPos);
 		float blendAmount = splitDist / BlendThreshold;
 		result.SurfaceShadow = lerp(nextResult.SurfaceShadow, result.SurfaceShadow, blendAmount);
 		result.TransmissionShadow = lerp(nextResult.TransmissionShadow, result.TransmissionShadow, blendAmount);
     }
 #endif
+
+    // Apply CSM fade to smoothly blend to no-shadow at distance
+    result.SurfaceShadow = lerp(result.SurfaceShadow, 1.0, fade);
+    result.TransmissionShadow = lerp(result.TransmissionShadow, 1.0, fade);
 
     return result;
 }
