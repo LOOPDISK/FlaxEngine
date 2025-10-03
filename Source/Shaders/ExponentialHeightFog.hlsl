@@ -6,9 +6,9 @@
 #include "./Flax/Common.hlsl"
 #include "./Flax/Math.hlsl"
 
-// Environment cube texture for fog coloring
-TextureCube EnvironmentTexture : register(t15);
-SamplerState EnvironmentSampler : register(s15);
+// 2D gradient texture for fog coloring (U = sun angle, V = height)
+Texture2D FogGradientTexture : register(t15);
+SamplerState FogGradientSampler : register(s15);
 
 // Structure that contains information about exponential height fog
 struct ExponentialHeightFogData
@@ -32,8 +32,8 @@ struct ExponentialHeightFogData
     float DirectionalInscatteringStartDistance;
     float StartDistance;
 
-    float EnvironmentInfluence;
-    float EnvironmentMipLevel;
+    float GradientInfluence;
+    float GradientHeightRange;
     float2 Padding;
 };
 
@@ -94,21 +94,28 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     float gradualCurve = pow(t, buildupPower);
     float expFogFactor = max(1.0 - gradualCurve, exponentialHeightFog.FogMinOpacity);
 
-    // Calculate the directional light inscattering
+    // Calculate the fog inscattering color
     float3 inscatteringColor = exponentialHeightFog.FogInscatteringColor;
-    
-    // Sample environment texture if influence is enabled
+
+    // Sample 2D gradient texture if influence is enabled
     BRANCH
-    if (exponentialHeightFog.EnvironmentInfluence > 0.0f)
+    if (exponentialHeightFog.GradientInfluence > 0.0f)
     {
-        // Calculate height-based sampling for stable fog color gradient
-        float fogHeightNormalized = saturate((posWS.y - exponentialHeightFog.FogHeight) / max(1.0f, exponentialHeightFog.FogHeight * 0.5f));
+        // Calculate height coordinate (V axis)
+        float heightRange = max(1.0f, exponentialHeightFog.GradientHeightRange);
+        float heightNormalized = saturate((posWS.y - exponentialHeightFog.FogHeight) / heightRange);
 
-        // Create height-based sample direction - lerp from down (-Y) to up (+Y) based on height
-        float3 heightBasedDirection = lerp(float3(0, -1, 0), float3(0, 1, 0), fogHeightNormalized);
+        // Calculate sun angle coordinate (U axis)
+        // dot(viewDir, sunDir) gives -1 (away from sun) to +1 (toward sun)
+        float sunAngle = dot(cameraToReceiverNorm, exponentialHeightFog.InscatteringLightDirection);
+        float sunAngleNormalized = sunAngle * 0.5f + 0.5f; // Remap to 0-1
 
-        float3 environmentColor = EnvironmentTexture.SampleLevel(EnvironmentSampler, heightBasedDirection, exponentialHeightFog.EnvironmentMipLevel).rgb;
-        inscatteringColor = lerp(inscatteringColor, environmentColor * inscatteringColor, exponentialHeightFog.EnvironmentInfluence);
+        // Sample gradient texture with bicubic filtering
+        float2 gradientUV = float2(sunAngleNormalized, heightNormalized);
+        float3 gradientColor = FogGradientTexture.SampleLevel(FogGradientSampler, gradientUV, 0).rgb;
+
+        // Blend gradient with base fog color
+        inscatteringColor = lerp(inscatteringColor, gradientColor, exponentialHeightFog.GradientInfluence);
     }
     
     float3 directionalInscattering = 0;

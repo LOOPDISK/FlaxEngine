@@ -6,7 +6,7 @@
 #include "Engine/Scripting/ScriptingObjectReference.h"
 #include "Engine/Renderer/DrawCall.h"
 #include "Engine/Content/Assets/Shader.h"
-#include "Engine/Content/Assets/CubeTexture.h"
+#include "Engine/Content/Assets/Texture.h"
 #include "Engine/Content/AssetReference.h"
 #include "Engine/Graphics/GPUPipelineStatePermutations.h"
 
@@ -42,22 +42,22 @@ public:
     Color FogInscatteringColor = Color(0.448f, 0.634f, 1.0f);
 
     /// <summary>
-    /// The environment cube texture used to tint fog color based on viewing direction. Uses a low-resolution mip for performance.
+    /// 2D gradient texture for fog color variation. U axis = sun angle (0 = away from sun, 1 = toward sun), V axis = height.
     /// </summary>
     API_FIELD(Attributes="EditorOrder(35), DefaultValue(null), EditorDisplay(\"Exponential Height Fog\")")
-    AssetReference<CubeTexture> EnvironmentTexture;
+    AssetReference<Texture> FogGradientTexture;
 
     /// <summary>
-    /// Controls how much the environment texture influences the fog color (0 = no influence, 1 = full influence).
+    /// Controls how much the gradient texture influences the fog color (0 = base color only, 1 = gradient fully replaces base color).
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(36), DefaultValue(0.5f), Limit(0, 1, 0.01f), EditorDisplay(\"Exponential Height Fog\")")
-    float EnvironmentInfluence = 0.5f;
+    API_FIELD(Attributes="EditorOrder(36), DefaultValue(0.0f), Limit(0, 1, 0.01f), EditorDisplay(\"Exponential Height Fog\")")
+    float GradientInfluence = 0.0f;
 
     /// <summary>
-    /// The mip level to sample from the environment texture. Higher values give more blurred/diffuse results.
+    /// The height range (in world units) over which the gradient texture's V axis is mapped. Controls the vertical gradient stretch.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(37), DefaultValue(3.0f), Limit(0, 10, 0.1f), EditorDisplay(\"Exponential Height Fog\")")
-    float EnvironmentMipLevel = 3.0f;
+    API_FIELD(Attributes="EditorOrder(37), DefaultValue(1000.0f), Limit(1, 100000, 1.0f), EditorDisplay(\"Exponential Height Fog\")")
+    float GradientHeightRange = 1000.0f;
 
     /// <summary>
     /// Maximum opacity of the fog.
