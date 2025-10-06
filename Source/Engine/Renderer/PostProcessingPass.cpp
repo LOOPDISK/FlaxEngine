@@ -702,6 +702,9 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
 
     // Setup shader data
     Data data;
+    Platform::MemoryClear(&data, sizeof(Data));
+
+    // Depth haze settings
     data.DepthHazeIntensity = settings.DepthHaze.Intensity;
     data.DepthHazeNearDistance = settings.DepthHaze.NearDistance;
     data.DepthHazeFarDistance = settings.DepthHaze.FarDistance;
@@ -709,7 +712,14 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
     data.DepthHazeMaxMipLevel = settings.DepthHaze.MaxMipLevel;
     data.DepthHazeChromaticDispersion = settings.DepthHaze.ChromaticDispersion;
     data.DepthHazeMipCount = (float)bloomMipCount;
+
+    // Bloom settings (needed for BloomLayer in upsample shader)
+    data.BloomMipCount = (float)bloomMipCount;
+    data.BloomLayer = 0.0f;
+
+    // View settings
     data.ViewInfo = view.ViewInfo;
+
     context->UpdateCB(cb0, &data);
     context->BindCB(0, cb0);
 
@@ -813,14 +823,19 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
     ////////////////////////////////////////////////////////////////////////////////////
     // Composite depth haze with scene
 
+    // Re-update constant buffer with correct values for composite pass
+    // (the upsample loop modified BloomLayer, so we need to restore the correct settings)
+    data.BloomLayer = 0.0f;
+    context->UpdateCB(cb0, &data);
+
     context->ResetRenderTarget();
     context->SetViewportAndScissors((float)output->Width(), (float)output->Height());
     context->SetRenderTarget(output->View());
     context->BindSR(0, input->View());
     if (scatteringColorBuffer2)
     {
-        context->BindSR(8, scatteringColorBuffer2->View(0, 0));
-        context->BindSR(10, depthMipBuffer->View());
+        context->BindSR(8, scatteringColorBuffer2->View());  // Bind entire mip chain, not just mip 0
+        context->BindSR(10, depthMipBuffer->View());         // Bind entire depth mip chain
     }
     else
     {

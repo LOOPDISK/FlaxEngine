@@ -57,8 +57,6 @@ void DepthHazeSettings::BlendWith(DepthHazeSettings& other, float weight)
     BLEND_FLOAT(NearDistance);
     BLEND_FLOAT(FarDistance);
     BLEND_FLOAT(Power);
-    BLEND_FLOAT(BaseMix);
-    BLEND_FLOAT(HighMix);
     BLEND_FLOAT(MaxMipLevel);
     BLEND_FLOAT(ChromaticDispersion);
 }

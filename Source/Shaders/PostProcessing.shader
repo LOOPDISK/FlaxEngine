@@ -779,7 +779,8 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     if (width1 > 0)
     {
         float3 previousMip = Input1.Sample(SamplerLinearClamp, input.TexCoord).rgb;
-        color += previousMip;
+        // Blend instead of add to preserve energy
+        color = lerp(previousMip, color, 0.5);
     }
 
     return float4(color, 1.0);
