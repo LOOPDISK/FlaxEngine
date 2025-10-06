@@ -18,6 +18,7 @@ float3 ZenithColor;
 float Padding3;
 META_CB_END
 
+
 DECLARE_GBUFFERDATA_ACCESS(GBuffer)
 
 struct MaterialInput

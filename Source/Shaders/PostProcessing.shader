@@ -1113,3 +1113,58 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 
     return float4(sceneColor, 1.0);
 }
+
+// Standalone depth haze composition pass (applied after forward pass, before UI)
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthHazeComposite(Quad_VS2PS input) : SV_Target
+{
+    float2 screenPos = input.TexCoord;
+
+    // Sample base scene color (Input0)
+    float3 sceneColor = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+
+    // Add depth haze effect with depth-based mip selection and chromatic dispersion
+    if (DepthHazeIntensity > 0.0)
+    {
+        // Get depth for mip selection and blending
+        float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
+        float pixelDepth = LinearizeZ(depthValue, ViewInfo);
+
+        // Calculate depth-based mip level for sampling from upsampled buffer
+        float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
+        float normalizedDepth = saturate((pixelDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
+
+        // Apply power curve for artistic control
+        float targetMipFloat = pow(normalizedDepth, DepthHazePower) * (DepthHazeMipCount - 1);
+
+        // Apply max mip level limit to prevent excessive blur
+        float effectiveMaxMip = min(DepthHazeMaxMipLevel, DepthHazeMipCount - 1);
+        targetMipFloat = min(targetMipFloat, effectiveMaxMip);
+
+        // Wavelength-dependent chromatic dispersion for Mie scattering
+        // Red light scatters less (sharper), blue light scatters more (blurrier)
+        float redMipOffset = -DepthHazeChromaticDispersion;
+        float greenMipOffset = 0.0;
+        float blueMipOffset = DepthHazeChromaticDispersion;
+
+        // Sample each channel at different mip levels from the upsampled buffer
+        float redMipLevel = clamp(targetMipFloat + redMipOffset, 0.0, effectiveMaxMip);
+        float greenMipLevel = clamp(targetMipFloat + greenMipOffset, 0.0, effectiveMaxMip);
+        float blueMipLevel = clamp(targetMipFloat + blueMipOffset, 0.0, effectiveMaxMip);
+
+        float3 scatteredColor = float3(
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, redMipLevel).r,
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, greenMipLevel).g,
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, blueMipLevel).b
+        );
+
+        // Create smooth scattering mask based on distance
+        float scatteringMask = smoothstep(DepthHazeNearDistance * 0.8, DepthHazeNearDistance * 1.2, pixelDepth);
+
+        // Apply atmospheric scattering with intensity
+        float finalMask = scatteringMask * DepthHazeIntensity;
+        sceneColor = lerp(sceneColor, scatteredColor, finalMask);
+    }
+
+    return float4(sceneColor, 1.0);
+}

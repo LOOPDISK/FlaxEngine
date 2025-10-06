@@ -92,6 +92,7 @@ bool PostProcessingPass::Init()
     _psDepthCopy = GPUDevice::Instance->CreatePipelineState();
     _psDepthFrequencySeparation = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeAdaptiveBilateralDownsample = GPUDevice::Instance->CreatePipelineState();
+    _psDepthHazeComposite = GPUDevice::Instance->CreatePipelineState();
     _psBloomBrightPass = GPUDevice::Instance->CreatePipelineState();
     _psBloomDownsample = GPUDevice::Instance->CreatePipelineState();
     _psBloomDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
@@ -166,6 +167,12 @@ bool PostProcessingPass::setupResources()
     {
         psDesc.PS = shader->GetPS("PS_DepthHazeAdaptiveBilateralDownsample");
         if (_psDepthHazeAdaptiveBilateralDownsample->Init(psDesc))
+            return true;
+    }
+    if (!_psDepthHazeComposite->IsValid())
+    {
+        psDesc.PS = shader->GetPS("PS_DepthHazeComposite");
+        if (_psDepthHazeComposite->Init(psDesc))
             return true;
     }
     if (!_psBloomBrightPass->IsValid())
@@ -283,6 +290,7 @@ void PostProcessingPass::Dispose()
     SAFE_DELETE_GPU_RESOURCE(_psDepthCopy);
     SAFE_DELETE_GPU_RESOURCE(_psDepthFrequencySeparation);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeAdaptiveBilateralDownsample);
+    SAFE_DELETE_GPU_RESOURCE(_psDepthHazeComposite);
     SAFE_DELETE_GPU_RESOURCE(_psBloomBrightPass);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDualFilterUpsample);
@@ -467,110 +475,8 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
 
     ////////////////////////////////////////////////////////////////////////////////////
     // Atmospheric Scattering Mip Chains
-
-    // Get depth buffer for atmospheric scattering calculation
-    GPUTexture* depthBuffer = renderContext.Buffers->DepthBuffer;
-
-    // Create clean color mip chain (no bright pass, just downsampling)
-    auto scatteringColorDesc = GPUTextureDescription::New2D(w2, h2, bloomMipCount, output->Format(), GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
-    auto scatteringColorBuffer = RenderTargetPool::Get(scatteringColorDesc);
-    RENDER_TARGET_POOL_SET_NAME(scatteringColorBuffer, "PostProcessing.ScatteringColor");
-    GPUTexture* scatteringColorBuffer2 = nullptr;
-
-    // Create depth mip chain
-    auto depthMipDesc = GPUTextureDescription::New2D(w2, h2, bloomMipCount, PixelFormat::R32_Float, GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
-    auto depthMipBuffer = RenderTargetPool::Get(depthMipDesc);
-    RENDER_TARGET_POOL_SET_NAME(depthMipBuffer, "PostProcessing.DepthMips");
-
-    // Clear mip chains
-    for (int32 mip = 0; mip < bloomMipCount; mip++)
-    {
-        context->Clear(scatteringColorBuffer->View(0, mip), Color::Transparent);
-        context->Clear(depthMipBuffer->View(0, mip), Color::Black);
-    }
-
-    if (useDepthHaze && depthBuffer)
-    {
-        // Generate color mip chain 
-        context->SetRenderTarget(scatteringColorBuffer->View(0, 0));
-        context->SetViewportAndScissors((float)w2, (float)h2);
-        context->BindSR(0, input->View());
-        context->SetState(_psDepthHazeImprovedCopy); // Improved anti-aliased copy
-        context->DrawFullscreenTriangle();
-        context->ResetRenderTarget();
-
-        // Generate depth mip chain with simple box blur
-        for (int32 mip = 0; mip < bloomMipCount; mip++)
-        {
-            const int32 mipWidth = w2 >> mip;
-            const int32 mipHeight = h2 >> mip;
-
-            context->SetRenderTarget(depthMipBuffer->View(0, mip));
-            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
-            context->BindSR(0, depthBuffer->View()); // Always sample from full resolution depth
-            context->SetState(_psDepthFrequencySeparation);
-            context->DrawFullscreenTriangle();
-            context->ResetRenderTarget();
-        }
-
-        // Progressive downsamples for color chain with depth-aware bilateral filtering
-        for (int32 mip = 1; mip < bloomMipCount; mip++)
-        {
-            const int32 mipWidth = w2 >> mip;
-            const int32 mipHeight = h2 >> mip;
-
-            context->SetRenderTarget(scatteringColorBuffer->View(0, mip));
-            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
-            context->BindSR(0, scatteringColorBuffer->View(0, mip - 1)); // Previous color mip
-            context->BindSR(10, depthMipBuffer->View()); // Depth mips for bilateral filtering
-            context->SetState(_psDepthHazeAdaptiveBilateralDownsample);
-            context->DrawFullscreenTriangle();
-            context->ResetRenderTarget();
-        }
-
-        context->UnBindSR(10);
-
-        // Create second buffer for upsampling
-        scatteringColorBuffer2 = RenderTargetPool::Get(scatteringColorDesc);
-        RENDER_TARGET_POOL_SET_NAME(scatteringColorBuffer2, "PostProcessing.ScatteringColorUpsample");
-
-        // Progressive upsamples for depth haze (similar to bloom)
-        for (int32 mip = bloomMipCount - 2; mip >= 0; mip--)
-        {
-            auto upscaleBuffer = scatteringColorBuffer2;
-            if (mip == bloomMipCount - 2)
-            {
-                // If it's the first, copy the chain over
-                upscaleBuffer = scatteringColorBuffer;
-            }
-            const int32 mipWidth = w2 >> mip;
-            const int32 mipHeight = h2 >> mip;
-
-            data.BloomLayer = static_cast<float>(mip);
-            context->UpdateCB(cb0, &data);
-            context->SetRenderTarget(scatteringColorBuffer2->View(0, mip));
-            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
-            context->BindSR(0, upscaleBuffer->View(0, mip + 1)); // Blurrier upsampled mip
-            context->BindSR(1, scatteringColorBuffer->View(0, mip + 1)); // Current downsampled mip
-            context->BindSR(10, depthMipBuffer->View()); // Depth mips for depth-aware blending
-            context->SetState(_psDepthHazeDualFilterUpsample);
-            context->DrawFullscreenTriangle();
-            context->ResetRenderTarget();
-        }
-
-        context->UnBindSR(0);
-        context->UnBindSR(1);
-        context->UnBindSR(10);
-
-        // Bind upsampled depth haze for composite
-        context->BindSR(8, scatteringColorBuffer2->View(0, 0));  // Use upsampled result
-    }
-    else
-    {
-        context->UnBindSR(1);
-        context->UnBindSR(8);
-        context->UnBindSR(10);
-    }
+    // NOTE: Depth haze is now rendered in a separate pass (RenderDepthHaze) after the forward pass
+    // This section is kept only for reference and is no longer executed
 
     ////////////////////////////////////////////////////////////////////////////////////
     // Bloom
@@ -736,17 +642,9 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     context->BindSR(4, GetCustomOrDefault(settings.LensFlares.LensDirt, _defaultLensDirt, TEXT("Engine/Textures/DefaultLensDirt")));
     context->BindSR(7, colorGradingLutView);
 
-    // Bind depth haze resources for depth-coherent sampling
-    if (useDepthHaze)
-    {
-        context->BindSR(8, scatteringColorBuffer->View()); // Color mip chain for sampling
-        context->BindSR(10, depthMipBuffer->View());       // Depth mip chain for depth reference
-    }
-    else
-    {
-        context->BindSR(8, (GPUResourceView*)nullptr);
-        context->BindSR(10, (GPUResourceView*)nullptr);
-    }
+    // Depth haze is now rendered separately before this pass, so don't bind it here
+    context->BindSR(8, (GPUResourceView*)nullptr);
+    context->BindSR(10, (GPUResourceView*)nullptr);
 
     // Composite final frame during single pass (done in full resolution)
     context->SetViewportAndScissors((float)output->Width(), (float)output->Height());
@@ -755,10 +653,190 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     context->DrawFullscreenTriangle();
 
     // Cleanup
+    RenderTargetPool::Release(bloomBuffer1);
+    RenderTargetPool::Release(bloomBuffer2);
+}
+
+void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTexture* input, GPUTexture* output)
+{
+    PROFILE_GPU_CPU("Depth Haze");
+    auto device = GPUDevice::Instance;
+    auto context = device->GetMainContext();
+    auto& view = renderContext.View;
+
+    context->ResetRenderTarget();
+
+    PostProcessSettings& settings = renderContext.List->Settings;
+    bool useDepthHaze = EnumHasAnyFlags(view.Flags, ViewFlags::DepthHaze) && settings.DepthHaze.Enabled && settings.DepthHaze.Intensity > 0.0f;
+
+    // Cache viewport sizes
+    int32 w1 = input->Width();
+    int32 w2 = w1 >> 1;
+    int32 h1 = input->Height();
+    int32 h2 = h1 >> 1;
+    int32 bloomMipCount = CalculateBloomMipCount(w1, h1);
+
+    // Check if shader and pipeline states are ready
+    if (checkIfSkipPass())
+    {
+        context->SetViewportAndScissors((float)output->Width(), (float)output->Height());
+        context->SetRenderTarget(output->View());
+        context->Draw(input);
+        return;
+    }
+
+    // Cache data
+    auto shader = _shader->GetShader();
+    auto cb0 = shader->GetCB(0);
+
+    // If depth haze is not enabled or resources are not ready, just copy the input to output
+    if (!useDepthHaze || w2 <= 1 || h2 <= 1 || !_psDepthHazeComposite || !_psDepthHazeComposite->IsValid())
+    {
+        context->ResetRenderTarget();
+        context->SetViewportAndScissors((float)output->Width(), (float)output->Height());
+        context->SetRenderTarget(output->View());
+        context->Draw(input);
+        context->ResetRenderTarget();
+        return;
+    }
+
+    // Setup shader data
+    Data data;
+    data.DepthHazeIntensity = settings.DepthHaze.Intensity;
+    data.DepthHazeNearDistance = settings.DepthHaze.NearDistance;
+    data.DepthHazeFarDistance = settings.DepthHaze.FarDistance;
+    data.DepthHazePower = settings.DepthHaze.Power;
+    data.DepthHazeMaxMipLevel = settings.DepthHaze.MaxMipLevel;
+    data.DepthHazeChromaticDispersion = settings.DepthHaze.ChromaticDispersion;
+    data.DepthHazeMipCount = (float)bloomMipCount;
+    data.ViewInfo = view.ViewInfo;
+    context->UpdateCB(cb0, &data);
+    context->BindCB(0, cb0);
+
+    ////////////////////////////////////////////////////////////////////////////////////
+    // Atmospheric Scattering Mip Chains
+
+    // Get depth buffer for atmospheric scattering calculation
+    GPUTexture* depthBuffer = renderContext.Buffers->DepthBuffer;
+
+    // Create clean color mip chain (no bright pass, just downsampling)
+    auto scatteringColorDesc = GPUTextureDescription::New2D(w2, h2, bloomMipCount, output->Format(), GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
+    auto scatteringColorBuffer = RenderTargetPool::Get(scatteringColorDesc);
+    RENDER_TARGET_POOL_SET_NAME(scatteringColorBuffer, "DepthHaze.ScatteringColor");
+    GPUTexture* scatteringColorBuffer2 = nullptr;
+
+    // Create depth mip chain
+    auto depthMipDesc = GPUTextureDescription::New2D(w2, h2, bloomMipCount, PixelFormat::R32_Float, GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget | GPUTextureFlags::PerMipViews);
+    auto depthMipBuffer = RenderTargetPool::Get(depthMipDesc);
+    RENDER_TARGET_POOL_SET_NAME(depthMipBuffer, "DepthHaze.DepthMips");
+
+    // Clear mip chains
+    for (int32 mip = 0; mip < bloomMipCount; mip++)
+    {
+        context->Clear(scatteringColorBuffer->View(0, mip), Color::Transparent);
+        context->Clear(depthMipBuffer->View(0, mip), Color::Black);
+    }
+
+    if (depthBuffer)
+    {
+        // Generate color mip chain
+        context->SetRenderTarget(scatteringColorBuffer->View(0, 0));
+        context->SetViewportAndScissors((float)w2, (float)h2);
+        context->BindSR(0, input->View());
+        context->SetState(_psDepthHazeImprovedCopy);
+        context->DrawFullscreenTriangle();
+        context->ResetRenderTarget();
+
+        // Generate depth mip chain with simple box blur
+        for (int32 mip = 0; mip < bloomMipCount; mip++)
+        {
+            const int32 mipWidth = w2 >> mip;
+            const int32 mipHeight = h2 >> mip;
+
+            context->SetRenderTarget(depthMipBuffer->View(0, mip));
+            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
+            context->BindSR(0, depthBuffer->View());
+            context->SetState(_psDepthFrequencySeparation);
+            context->DrawFullscreenTriangle();
+            context->ResetRenderTarget();
+        }
+
+        // Progressive downsamples for color chain with depth-aware bilateral filtering
+        for (int32 mip = 1; mip < bloomMipCount; mip++)
+        {
+            const int32 mipWidth = w2 >> mip;
+            const int32 mipHeight = h2 >> mip;
+
+            context->SetRenderTarget(scatteringColorBuffer->View(0, mip));
+            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
+            context->BindSR(0, scatteringColorBuffer->View(0, mip - 1));
+            context->BindSR(10, depthMipBuffer->View());
+            context->SetState(_psDepthHazeAdaptiveBilateralDownsample);
+            context->DrawFullscreenTriangle();
+            context->ResetRenderTarget();
+        }
+
+        context->UnBindSR(10);
+
+        // Create second buffer for upsampling
+        scatteringColorBuffer2 = RenderTargetPool::Get(scatteringColorDesc);
+        RENDER_TARGET_POOL_SET_NAME(scatteringColorBuffer2, "DepthHaze.ScatteringColorUpsample");
+
+        // Progressive upsamples for depth haze
+        for (int32 mip = bloomMipCount - 2; mip >= 0; mip--)
+        {
+            auto upscaleBuffer = scatteringColorBuffer2;
+            if (mip == bloomMipCount - 2)
+            {
+                upscaleBuffer = scatteringColorBuffer;
+            }
+            const int32 mipWidth = w2 >> mip;
+            const int32 mipHeight = h2 >> mip;
+
+            data.BloomLayer = static_cast<float>(mip);
+            context->UpdateCB(cb0, &data);
+            context->SetRenderTarget(scatteringColorBuffer2->View(0, mip));
+            context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
+            context->BindSR(0, upscaleBuffer->View(0, mip + 1));
+            context->BindSR(1, scatteringColorBuffer->View(0, mip + 1));
+            context->BindSR(10, depthMipBuffer->View());
+            context->SetState(_psDepthHazeDualFilterUpsample);
+            context->DrawFullscreenTriangle();
+            context->ResetRenderTarget();
+        }
+
+        context->UnBindSR(0);
+        context->UnBindSR(1);
+        context->UnBindSR(10);
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////
+    // Composite depth haze with scene
+
+    context->ResetRenderTarget();
+    context->SetViewportAndScissors((float)output->Width(), (float)output->Height());
+    context->SetRenderTarget(output->View());
+    context->BindSR(0, input->View());
+    if (scatteringColorBuffer2)
+    {
+        context->BindSR(8, scatteringColorBuffer2->View(0, 0));
+        context->BindSR(10, depthMipBuffer->View());
+    }
+    else
+    {
+        context->BindSR(8, (GPUResourceView*)nullptr);
+        context->BindSR(10, (GPUResourceView*)nullptr);
+    }
+    context->SetState(_psDepthHazeComposite);
+    context->DrawFullscreenTriangle();
+
+    // Cleanup
+    context->ResetRenderTarget();
+    context->UnBindSR(0);
+    context->UnBindSR(8);
+    context->UnBindSR(10);
     RenderTargetPool::Release(scatteringColorBuffer);
     if (scatteringColorBuffer2)
         RenderTargetPool::Release(scatteringColorBuffer2);
     RenderTargetPool::Release(depthMipBuffer);
-    RenderTargetPool::Release(bloomBuffer1);
-    RenderTargetPool::Release(bloomBuffer2);
 }

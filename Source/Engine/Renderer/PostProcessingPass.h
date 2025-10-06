@@ -21,6 +21,7 @@ private:
     GPUPipelineState* _psDepthCopy = nullptr;
     GPUPipelineState* _psDepthFrequencySeparation = nullptr;
     GPUPipelineState* _psDepthHazeAdaptiveBilateralDownsample = nullptr;
+    GPUPipelineState* _psDepthHazeComposite = nullptr;
     GPUPipelineState* _psBloomBrightPass = nullptr;
     GPUPipelineState* _psBloomDownsample = nullptr;
     GPUPipelineState* _psBloomDualFilterUpsample = nullptr;
@@ -42,6 +43,14 @@ public:
     /// <param name="colorGradingLUT">The prebaked LUT for color grading and tonemapping.</param>
     void Render(RenderContext& renderContext, GPUTexture* input, GPUTexture* output, GPUTexture* colorGradingLUT);
 
+    /// <summary>
+    /// Renders depth haze composition pass (should be called after forward pass, before UI)
+    /// </summary>
+    /// <param name="renderContext">The rendering context.</param>
+    /// <param name="input">Target with rendered HDR frame</param>
+    /// <param name="output">Output frame</param>
+    void RenderDepthHaze(RenderContext& renderContext, GPUTexture* input, GPUTexture* output);
+
 private:
 #if COMPILE_WITH_DEV_ENV
     void OnShaderReloading(Asset* obj)
@@ -55,6 +64,7 @@ private:
         _psDepthCopy->ReleaseGPU();
         _psDepthFrequencySeparation->ReleaseGPU();
         _psDepthHazeAdaptiveBilateralDownsample->ReleaseGPU();
+        _psDepthHazeComposite->ReleaseGPU();
         _psBloomBrightPass->ReleaseGPU();
         _psBloomDownsample->ReleaseGPU();
         _psBloomDualFilterUpsample->ReleaseGPU();
