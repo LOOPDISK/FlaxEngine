@@ -66,7 +66,14 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     float lineIntegral = (1.0f - exp2(-falloff)) / falloff;
     float lineIntegralTaylor = log(2.0f) - (0.5f * Pow2(log(2.0f))) * falloff;
     float exponentialHeightLineIntegralCalc = rayOriginTerms * (abs(falloff) > 0.01f ? lineIntegral : lineIntegralTaylor);
-    float exponentialHeightLineIntegral = exponentialHeightLineIntegralCalc * rayLength;
+
+    // Apply gradual buildup to height falloff (matching depth math)
+    float heightBuildupScale = 0.1;
+    float heightBuildupPower = 0.2;
+    float heightT = saturate(exponentialHeightLineIntegralCalc * rayLength * heightBuildupScale);
+    float heightGradualCurve = pow(heightT, heightBuildupPower);
+
+    float exponentialHeightLineIntegral = exponentialHeightLineIntegralCalc * rayLength * heightGradualCurve;
 
     // Apply distance-based fog density ramping (core physics integration)
     float startDist = max(exponentialHeightFog.StartDistance, 0.1f);
