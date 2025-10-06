@@ -52,6 +52,18 @@ public:
     API_FIELD(Attributes="EditorOrder(40), Limit(0, 100, 0.1f), EditorDisplay(\"Sky\")")
     float IndirectLightingIntensity = 1.0f;
 
+    /// <summary>
+    /// The color of the sky at the horizon.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(50), EditorDisplay(\"Sky\")")
+    Color HorizonColor = Color(0x2C2C2CFF);
+
+    /// <summary>
+    /// The color of the sky at the zenith (top).
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(60), EditorDisplay(\"Sky\")")
+    Color ZenithColor = Color(0xAE9F9AFF);
+
 private:
 #if COMPILE_WITH_DEV_ENV
     void OnShaderReloading(Asset* obj)

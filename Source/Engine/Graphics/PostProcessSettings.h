@@ -591,7 +591,7 @@ API_STRUCT() struct FLAXENGINE_API DepthHazeSettings : ISerializable
     /// If checked, depth haze effect will be rendered.
     /// </summary>
     API_FIELD(Attributes="EditorOrder(0), PostProcessSetting((int)DepthHazeSettingsOverride.Enabled)")
-    bool Enabled = true;
+    bool Enabled = false;
 
     /// <summary>
     /// Overall depth haze effect strength. Higher values create a stronger haze effect.

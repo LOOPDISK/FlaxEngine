@@ -1091,7 +1091,7 @@ API_ENUM(Attributes="Flags") enum class ViewFlags : uint64
     /// <summary>
     /// Default flags for materials/models previews generating.
     /// </summary>
-    DefaultAssetPreview = Reflections | Decals | DirectionalLights | PointLights | SpotLights | SkyLights | SpecularLight | AntiAliasing | DepthHaze | Bloom | ToneMapping | EyeAdaptation | CameraArtifacts | LensFlares | ContactShadows | Sky,
+    DefaultAssetPreview = Reflections | Decals | DirectionalLights | PointLights | SpotLights | SkyLights | SpecularLight | AntiAliasing | Bloom | ToneMapping | EyeAdaptation | CameraArtifacts | LensFlares | ContactShadows | Sky,
 };
 
 DECLARE_ENUM_OPERATORS(ViewFlags);
