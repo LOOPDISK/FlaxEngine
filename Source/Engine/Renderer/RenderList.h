@@ -56,6 +56,7 @@ struct RenderLightData
     float ScreenSize;
     uint32 ShadowsBufferAddress;
 
+    uint32 WeaponShadowsBufferAddress;
     float ShadowsUpdateRate;
     float ShadowsUpdateRateAtDistance;
     uint32 ShadowFrame;

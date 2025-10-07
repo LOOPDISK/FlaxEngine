@@ -757,6 +757,11 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     GlobalSurfaceAtlas = 1 << 6,
 
     /// <summary>
+    /// The weapon-only depth rendering to the depth buffer (used for weapon self-shadowing with FOV override). Objects in this pass don't cast shadows on the world.
+    /// </summary>
+    WeaponDepth = 1 << 7,
+
+    /// <summary>
     /// The debug quad overdraw rendering (editor-only).
     /// </summary>
     API_ENUM(Attributes="HideInEditor")
@@ -766,7 +771,7 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     /// The default set of draw passes for the scene objects.
     /// </summary>
     API_ENUM(Attributes="HideInEditor")
-    Default = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas,
+    Default = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | WeaponDepth,
 
     /// <summary>
     /// The all draw passes combined into a single mask.

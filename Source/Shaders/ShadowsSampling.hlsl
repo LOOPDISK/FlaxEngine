@@ -284,6 +284,33 @@ float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantSha
 #endif
 }
 
+// Samples weapon shadow for the given directional light (simple single shadow map, no cascades)
+float SampleWeaponShadow(LightData light, Buffer<float4> weaponShadowsBuffer, Texture2D<float> weaponShadowMap, float3 worldPosition)
+{
+    // Check if weapon shadows are enabled
+    if (light.WeaponShadowsBufferAddress == 0)
+        return 1.0; // No weapon shadow
+
+    // Load weapon shadow matrix from buffer (single 4x4 matrix)
+    float4x4 weaponWorldToShadow;
+    weaponWorldToShadow[0] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 0];
+    weaponWorldToShadow[1] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 1];
+    weaponWorldToShadow[2] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 2];
+    weaponWorldToShadow[3] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 3];
+
+    // Transform world position to weapon shadow atlas UV space
+    float4 shadowPos = mul(float4(worldPosition, 1.0), weaponWorldToShadow);
+    shadowPos.xyz /= shadowPos.w;
+
+    // Check if position is within weapon shadow map bounds
+    if (any(shadowPos.xy < 0.0) || any(shadowPos.xy > 1.0))
+        return 1.0; // Outside weapon shadow coverage, fully lit
+
+    // Sample weapon shadow map with PCF
+    float weaponShadow = SampleShadowMapOptimizedPCF(weaponShadowMap, shadowPos.xy, shadowPos.z);
+    return weaponShadow;
+}
+
 // Samples the shadow for the given directional light on the material surface (supports subsurface shadowing)
 ShadowSample SampleDirectionalLightShadow(LightData light, Buffer<float4> shadowsBuffer, Texture2D<float> shadowMap, GBufferSample gBuffer, float dither = 0.0f)
 {

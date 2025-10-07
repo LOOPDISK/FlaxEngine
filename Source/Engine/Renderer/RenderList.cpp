@@ -99,6 +99,7 @@ void RenderDirectionalLightData::SetShaderData(ShaderLightData& data, bool useSh
     data.FalloffExponent = 0;
     data.InverseSquared = 0;
     data.RadiusInv = 0;
+    data.WeaponShadowsBufferAddress = useShadow ? WeaponShadowsBufferAddress : 0;
 }
 
 bool RenderLocalLightData::CanRenderShadow(const RenderView& view) const
@@ -536,7 +537,7 @@ void RenderList::AddDrawCall(const RenderContext& renderContext, DrawPass drawMo
     const int32 index = DrawCalls.Add(drawCall);
 
     // Add draw call to proper draw lists
-    if ((drawModes & DrawPass::Depth) != DrawPass::None)
+    if ((drawModes & (DrawPass::Depth | DrawPass::WeaponDepth)) != DrawPass::None)
     {
         DrawCallsLists[(int32)DrawCallsListType::Depth].Indices.Add(index);
     }
@@ -579,7 +580,7 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
     drawModes = modes & mainRenderContext.View.Pass;
     if (drawModes != DrawPass::None && mainRenderContext.View.CullingFrustum.Intersects(bounds))
     {
-        if ((drawModes & DrawPass::Depth) != DrawPass::None)
+        if ((drawModes & (DrawPass::Depth | DrawPass::WeaponDepth)) != DrawPass::None)
         {
             DrawCallsLists[(int32)DrawCallsListType::Depth].Indices.Add(index);
         }

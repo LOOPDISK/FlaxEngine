@@ -30,6 +30,7 @@ private:
             switch (pass)
             {
             case DrawPass::Depth:
+            case DrawPass::WeaponDepth: // Weapon depth uses same pipeline as regular depth
                 return useSkinning ? &DepthSkinned : &Depth;
             case DrawPass::GBuffer:
             case DrawPass::GBuffer | DrawPass::GlobalSurfaceAtlas:

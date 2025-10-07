@@ -5,7 +5,8 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(grep:*)",
       "WebFetch(domain:therealmjp.github.io)",
-      "WebFetch(domain:community.arm.com)"
+      "WebFetch(domain:community.arm.com)",
+      "Read(//mnt/d/CODE/derelict/Cache/Shaders/Source/**)"
     ],
     "deny": []
   }

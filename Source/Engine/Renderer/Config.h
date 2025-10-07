@@ -85,7 +85,7 @@ GPU_CB_STRUCT(ShaderLightData {
     float FalloffExponent;
     float InverseSquared;
     float RadiusInv;
-    float Dummy0;
+    uint32 WeaponShadowsBufferAddress;
     });
 
 /// <summary>

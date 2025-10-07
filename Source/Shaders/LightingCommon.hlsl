@@ -35,7 +35,7 @@ struct LightData
     float FalloffExponent;
     float InverseSquared;
     float RadiusInv;
-    float Dummy0;
+    uint WeaponShadowsBufferAddress;
 };
 
 // Structure that contains information about shadow sampling result

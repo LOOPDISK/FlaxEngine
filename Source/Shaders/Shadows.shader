@@ -27,6 +27,8 @@ META_CB_END
 Buffer<float4> ShadowsBuffer : register(t5);
 Texture2D<float> ShadowMap : register(t6);
 Texture2D<float> DistantShadowMap : register(t7);
+Buffer<float4> WeaponShadowsBuffer : register(t8);
+Texture2D<float> WeaponShadowMap : register(t9);
 
 DECLARE_GBUFFERDATA_ACCESS(GBuffer)
 
@@ -170,6 +172,10 @@ float4 PS_DirLight(Quad_VS2PS input) : SV_Target0
 	// Calculate screen-space contact shadow
 	shadow.SurfaceShadow *= RayCastScreenSpaceShadow(gBufferData, gBuffer, gBuffer.WorldPos, Light.Direction, ContactShadowsLength);
 #endif
+
+	// Sample and combine weapon self-shadow (multiplicative combine)
+	float weaponShadow = SampleWeaponShadow(Light, WeaponShadowsBuffer, WeaponShadowMap, gBuffer.WorldPos);
+	shadow.SurfaceShadow *= weaponShadow;
 
 	return GetShadowMask(shadow);
 }

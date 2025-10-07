@@ -390,15 +390,26 @@ public:
     Dictionary<Guid, ShadowAtlasLight> Lights;
     DistantShadowMap DistantShadow;
 
+    // Weapon self-shadowing support
+    GPUTexture* WeaponShadowMapAtlas = nullptr;
+    DynamicTypedBuffer WeaponShadowsBuffer;
+    GPUBufferView* WeaponShadowsBufferView = nullptr;
+    RectPackAtlas<ShadowsAtlasRectTile> WeaponAtlas;
+    mutable bool ClearWeaponShadowMapAtlas = true;
+    ShadowsAtlasRectTile* WeaponDirectionalLightTile = nullptr;
+
     ShadowsCustomBuffer()
         : ShadowsBuffer(1024, PixelFormat::R32G32B32A32_Float, false, TEXT("ShadowsBuffer"))
+        , WeaponShadowsBuffer(128, PixelFormat::R32G32B32A32_Float, false, TEXT("WeaponShadowsBuffer"))
     {
         ShadowMapAtlas = GPUDevice::Instance->CreateTexture(TEXT("Shadow Map Atlas"));
+        WeaponShadowMapAtlas = GPUDevice::Instance->CreateTexture(TEXT("Weapon Shadow Map Atlas"));
     }
 
     void ClearDynamic()
     {
         ClearShadowMapAtlas = true;
+        ClearWeaponShadowMapAtlas = true;
         for (auto it = Lights.Begin(); it.IsNotEnd(); ++it)
         {
             auto& atlasLight = it->Value;
@@ -407,6 +418,8 @@ public:
                 atlasLight.Tiles[i].ClearDynamic();
         }
         Atlas.Clear();
+        WeaponAtlas.Clear();
+        WeaponDirectionalLightTile = nullptr;
         AtlasPixelsUsed = 0;
     }
 
@@ -474,6 +487,7 @@ public:
         Reset();
         SAFE_DELETE_GPU_RESOURCE(ShadowMapAtlas);
         SAFE_DELETE_GPU_RESOURCE(StaticShadowMapAtlas);
+        SAFE_DELETE_GPU_RESOURCE(WeaponShadowMapAtlas);
     }
 
     // [ISceneRenderingListener]
@@ -1798,6 +1812,160 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
         }
     }
 
+    // Render weapon self-shadows for directional light (single shadow map, no cascades)
+    // Initialize weapon shadow buffer (always, even if no shadows - for dummy entry)
+    shadowsMutable.WeaponShadowsBuffer.Clear();
+    shadowsMutable.WeaponShadowsBuffer.Write(Float4::Zero); // WeaponShadowsBufferAddress=0 indicates no weapon shadow
+
+    if (shadowsMutable.WeaponShadowMapAtlas && renderContextBatch.Contexts.HasItems())
+    {
+        PROFILE_GPU_CPU("Weapon Shadows");
+
+        // Find directional light
+        RenderDirectionalLightData* dirLight = nullptr;
+        for (int32 i = 0; i < renderContext.List->DirectionalLights.Count(); i++)
+        {
+            if (renderContext.List->DirectionalLights[i].HasShadow)
+            {
+                dirLight = &renderContext.List->DirectionalLights[i];
+                break;
+            }
+        }
+
+        if (!dirLight)
+        {
+            LOG(Warning, "Weapon Shadow: No directional light with shadows found");
+        }
+        else
+        {
+            // Initialize weapon shadow atlas if needed
+            const int32 weaponAtlasResolution = 1024; // Fixed size for weapon shadows
+            if (shadowsMutable.WeaponAtlas.Width != weaponAtlasResolution)
+            {
+                shadowsMutable.WeaponAtlas.Init(weaponAtlasResolution, weaponAtlasResolution);
+                auto desc = shadowsMutable.ShadowMapAtlas->GetDescription();
+                desc.Width = desc.Height = weaponAtlasResolution;
+                if (shadowsMutable.WeaponShadowMapAtlas->Init(desc))
+                {
+                    LOG(Error, "Failed to setup weapon shadow map of size {0}x{1}", desc.Width, desc.Height);
+                    goto skip_weapon_shadows;
+                }
+            }
+
+            // Allocate weapon shadow tile if needed
+            const uint16 weaponShadowRes = 512; // Single 512x512 shadow map for all weapon geometry
+            if (!shadowsMutable.WeaponDirectionalLightTile)
+            {
+                shadowsMutable.WeaponDirectionalLightTile = shadowsMutable.WeaponAtlas.Insert(weaponShadowRes, weaponShadowRes, &shadowsMutable, false);
+                if (!shadowsMutable.WeaponDirectionalLightTile)
+                {
+                    LOG(Error, "Failed to allocate weapon shadow tile");
+                    goto skip_weapon_shadows;
+                }
+            }
+
+            // Setup shadow view for weapons (simplified, no cascades)
+            RenderView weaponShadowView;
+            const float weaponShadowDistance = 500.0f; // 5 meters (500cm) - weapons are close to camera
+            const Float3 weaponCenter = renderContext.View.Position + renderContext.View.Direction * 100.0f; // 1 meter (100cm) in front
+
+            Matrix weaponShadowView_, weaponShadowProjection;
+            Matrix::LookAt(weaponCenter - dirLight->Direction * weaponShadowDistance, weaponCenter, Float3::Up, weaponShadowView_);
+            const float weaponShadowSize = 200.0f; // 2 meter (200cm) square for weapons
+            Matrix::Ortho(weaponShadowSize, weaponShadowSize, 10.0f, weaponShadowDistance * 2.0f, weaponShadowProjection);
+
+            weaponShadowView.SetUp(weaponShadowView_, weaponShadowProjection);
+            weaponShadowView.Pass = DrawPass::WeaponDepth;
+            weaponShadowView.Flags = renderContext.View.Flags;
+            weaponShadowView.RenderLayersMask = renderContext.View.RenderLayersMask;
+
+            // Create render context for weapon shadows
+            RenderContext weaponShadowContext;
+            weaponShadowContext.Buffers = renderContext.Buffers;
+            weaponShadowContext.Task = renderContext.Task;
+            weaponShadowContext.List = RenderList::GetFromPool();
+            weaponShadowContext.View = weaponShadowView;
+            weaponShadowContext.View.Origin = renderContext.View.Origin;
+            Matrix weaponShadowVP;
+            Matrix::Multiply(weaponShadowView_, weaponShadowProjection, weaponShadowVP);
+            weaponShadowContext.View.CullingFrustum.SetMatrix(weaponShadowVP);
+            weaponShadowContext.View.PrepareCache(weaponShadowContext, (float)weaponShadowRes, (float)weaponShadowRes, Float2::Zero, &renderContext.View);
+
+            // Collect weapon geometry (use SceneDrawAsync to get StaticModel/AnimatedModel actors)
+            RenderContextBatch weaponBatch;
+            weaponBatch.Contexts.Add(weaponShadowContext);
+            renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDrawAsync);
+            auto& weaponCtx = weaponBatch.Contexts[0];
+
+            // Debug: Check all draw call lists
+            LOG(Info, "Weapon Shadow Draw Lists: Depth={0}, GBuffer={1}, GBufferNoDecals={2}, Forward={3}, Distortion={4}, MotionVectors={5}",
+                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::Depth].Indices.Count(),
+                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::GBuffer].Indices.Count(),
+                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::GBufferNoDecals].Indices.Count(),
+                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::Forward].Indices.Count(),
+                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::Distortion].Indices.Count(),
+                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::MotionVectors].Indices.Count());
+
+            int32 weaponDrawCallCount = weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::Depth].Indices.Count();
+            LOG(Info, "Weapon Shadow: Collected {0} weapon draw calls for WeaponDepth pass", weaponDrawCallCount);
+
+            // Render weapon shadows
+            if (shadowsMutable.ClearWeaponShadowMapAtlas)
+                context->ClearDepth(shadowsMutable.WeaponShadowMapAtlas->View());
+
+            context->SetRenderTarget(shadowsMutable.WeaponShadowMapAtlas->View(), (GPUTextureView*)nullptr);
+            auto* tile = shadowsMutable.WeaponDirectionalLightTile;
+            context->SetViewportAndScissors(Viewport(tile->X, tile->Y, tile->Width, tile->Height));
+
+            if (!shadowsMutable.ClearWeaponShadowMapAtlas)
+                ClearShadowMapTile(context, quadShaderCB, quadShaderData);
+
+            weaponCtx.List->ExecuteDrawCalls(weaponCtx, DrawCallsListType::Depth);
+            weaponCtx.List->ExecuteDrawCalls(weaponCtx, weaponCtx.List->ShadowDepthDrawCallsList, renderContext.List, nullptr);
+
+            // Store weapon shadow data in buffer
+            const float weaponAtlasInv = 1.0f / weaponAtlasResolution;
+            Matrix ClipToUV(
+                0.5f, 0.0f, 0.0f, 0.0f,
+                0.0f, -0.5f, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+                0.5f, 0.5f, 0.0f, 1.0f);
+            Matrix weaponWorldToShadow;
+            Matrix::Multiply(weaponShadowVP, ClipToUV, weaponWorldToShadow);
+
+            // Scale and offset for atlas position
+            const float scaleX = tile->Width * weaponAtlasInv;
+            const float scaleY = tile->Height * weaponAtlasInv;
+            const float offsetX = tile->X * weaponAtlasInv;
+            const float offsetY = tile->Y * weaponAtlasInv;
+            Matrix atlasTransform(
+                scaleX, 0.0f, 0.0f, 0.0f,
+                0.0f, scaleY, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+                offsetX, offsetY, 0.0f, 1.0f);
+            Matrix::Multiply(weaponWorldToShadow, atlasTransform, weaponWorldToShadow);
+            weaponWorldToShadow.Transpose();
+
+            // Cache weapon shadow buffer address for this light (before writing data)
+            dirLight->WeaponShadowsBufferAddress = shadowsMutable.WeaponShadowsBuffer.Data.Count() / sizeof(Float4);
+
+            // Write weapon shadow data to buffer (4 float4s for matrix)
+            shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadow);
+
+            LOG(Info, "Weapon Shadow: Rendered weapon shadows, buffer address={0}, tile=({1},{2},{3},{4})",
+                dirLight->WeaponShadowsBufferAddress, tile->X, tile->Y, tile->Width, tile->Height);
+
+            // Cleanup
+            RenderList::ReturnToPool(weaponCtx.List);
+            shadowsMutable.ClearWeaponShadowMapAtlas = false;
+        }
+    }
+    skip_weapon_shadows:;
+
+    // Always flush weapon shadow buffer and set up view (even if empty/dummy)
+    shadowsMutable.WeaponShadowsBuffer.Flush(context);
+    shadowsMutable.WeaponShadowsBufferView = shadowsMutable.WeaponShadowsBuffer.GetBuffer() ? shadowsMutable.WeaponShadowsBuffer.GetBuffer()->View() : nullptr;
+
     // Restore GPU context
     context->ResetSR();
     context->ResetRenderTarget();
@@ -1888,6 +2056,18 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
     context->BindSR(5, shadows.ShadowsBufferView);
     context->BindSR(6, shadows.ShadowMapAtlas);
     context->BindSR(7, shadows.DistantShadow.ShadowMap ? shadows.DistantShadow.ShadowMap : nullptr);
+    context->BindSR(8, shadows.WeaponShadowsBufferView);
+    context->BindSR(9, shadows.WeaponShadowMapAtlas);
+
+    // Debug logging for directional light weapon shadows
+    if (light.IsDirectionalLight)
+    {
+        LOG(Info, "Weapon Shadow: Binding resources for directional light, WeaponShadowsBufferAddress={0}, WeaponShadowsBufferView={1}, WeaponShadowMapAtlas={2}",
+            sperLight.Light.WeaponShadowsBufferAddress,
+            shadows.WeaponShadowsBufferView ? TEXT("valid") : TEXT("null"),
+            shadows.WeaponShadowMapAtlas ? TEXT("valid") : TEXT("null"));
+    }
+
     const int32 permutationIndex = shadowQuality + (sperLight.ContactShadowsLength > ZeroTolerance ? 4 : 0);
     context->SetRenderTarget(shadowMask);
     if (light.IsPointLight)
@@ -1913,6 +2093,8 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
     context->UnBindSR(5);
     context->UnBindSR(6);
     context->UnBindSR(7);
+    context->UnBindSR(8);
+    context->UnBindSR(9);
 }
 
 void ShadowsPass::GetShadowAtlas(const RenderBuffers* renderBuffers, GPUTexture*& shadowMapAtlas, GPUBufferView*& shadowsBuffer)
