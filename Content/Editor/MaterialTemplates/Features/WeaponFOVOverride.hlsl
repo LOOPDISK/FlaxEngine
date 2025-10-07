@@ -32,27 +32,25 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
 {
     // Transform world position to view space first
     float4 viewPosition = mul(float4(worldPosition, 1.0), ViewMatrix);
-    
-    // Calculate FOV scaling factor
-    // Camera FOV = 90°, Weapon FOV = 120° (higher FOV makes weapons appear larger)
-    // tan(45°) = 1.0, tan(60°) ≈ 1.732
-    float cameraFovHalf = radians(45.0); // 90° / 2
-    float weaponFovHalf = radians(70.0);  // 120° / 2
-    float fovScale = tan(weaponFovHalf) / tan(cameraFovHalf);
-    // fovScale = 1.732 / 1.0 = 1.732 (makes weapons appear larger)
-    
-    // Apply FOV scaling to X and Y in view space (this makes weapons appear larger)
-    viewPosition.xy *= fovScale;
-    
-    // Now apply the normal projection matrix
-    // This maintains the same depth relationships as the main camera
-    // Reconstruct projection matrix from ViewInfo
+
+    // Create a custom projection matrix with a NARROWER FOV for weapons
+    // NARROWER FOV = larger projection values = things appear BIGGER on screen
+    // Camera FOV varies, Weapon FOV = 54° (narrower makes things appear larger)
+    // Original Projection M11 = 1/tan(cameraFOV/2)/aspect
+    // Weapon Projection M11 = 1/tan(weaponFOV/2)/aspect
+    // Since we want narrower FOV: weaponFOV < cameraFOV, so weapon M11 > camera M11
+
+    float weaponFovHalf = radians(20.0);  // 54° / 2 (narrower than typical 90° camera FOV)
+    float weaponProjectionScale = 1.0f / tan(weaponFovHalf);
+
+    // Build custom projection matrix with narrower FOV but same depth behavior
+    // ViewInfo: x=1/P[0,0], y=1/P[1,1], z=Far/(Far-Near), w=(-Far*Near)/(Far-Near)
     float4x4 projectionMatrix = (float4x4)0;
-    projectionMatrix[0][0] = 1.0f / ViewInfo.x; // Projection[0,0]
-    projectionMatrix[1][1] = 1.0f / ViewInfo.y; // Projection[1,1]  
-    projectionMatrix[2][2] = ViewInfo.z; // (Far / (Far - Near))
-    projectionMatrix[2][3] = 1.0f;
-    projectionMatrix[3][2] = ViewInfo.w * ViewFar; // (-Far * Near) / (Far - Near)
+    projectionMatrix[0][0] = weaponProjectionScale / aspect; // Narrower FOV in X = bigger on screen
+    projectionMatrix[1][1] = weaponProjectionScale; // Narrower FOV in Y = bigger on screen
+    projectionMatrix[2][2] = ViewInfo.z; // Same depth: Far/(Far-Near)
+    projectionMatrix[2][3] = 1.0f; // W component
+    projectionMatrix[3][2] = ViewInfo.w; // Same depth: (-Far*Near)/(Far-Near)
     return mul(viewPosition, projectionMatrix);
 }
 
