@@ -306,7 +306,11 @@ float SampleWeaponShadow(LightData light, Buffer<float4> weaponShadowsBuffer, Te
     if (any(shadowPos.xy < 0.0) || any(shadowPos.xy > 1.0))
         return 1.0; // Outside weapon shadow coverage, fully lit
 
-    // Sample weapon shadow map with PCF
+    // DIRTY HACK: Remap depth from compressed range [0.95, 1.0] to full [0.0, 1.0]
+    float depthRemapped = (shadowPos.z - 0.995) / 0.005;
+    depthRemapped = saturate(depthRemapped); // Clamp to [0, 1]
+
+    // Sample weapon shadow map with PCF using remapped depth
     float weaponShadow = SampleShadowMapOptimizedPCF(weaponShadowMap, shadowPos.xy, shadowPos.z);
     return weaponShadow;
 }

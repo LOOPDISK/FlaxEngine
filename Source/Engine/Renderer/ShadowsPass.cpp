@@ -1864,20 +1864,34 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
                 }
             }
 
-            // Setup shadow view for weapons (simplified, no cascades)
+            // Setup shadow view for weapons (use same logic as regular directional shadows)
             RenderView weaponShadowView;
-            const float weaponShadowDistance = 500.0f; // 5 meters (500cm) - weapons are close to camera
             const Float3 weaponCenter = renderContext.View.Position + renderContext.View.Direction * 100.0f; // 1 meter (100cm) in front
+            const float weaponRadius = 100.0f; // 1 meter radius to cover weapon bounds
 
-            Matrix weaponShadowView_, weaponShadowProjection;
-            Matrix::LookAt(weaponCenter - dirLight->Direction * weaponShadowDistance, weaponCenter, Float3::Up, weaponShadowView_);
-            const float weaponShadowSize = 200.0f; // 2 meter (200cm) square for weapons
-            Matrix::Ortho(weaponShadowSize, weaponShadowSize, 10.0f, weaponShadowDistance * 2.0f, weaponShadowProjection);
+            // Build shadow bounds around weapon sphere (same as cascade shadow logic)
+            Float3 maxExtents = Float3(weaponRadius);
+            Float3 minExtents = -maxExtents;
+            Float3 cascadeExtents = maxExtents - minExtents;
+
+            Matrix weaponShadowView_, weaponShadowProjection, weaponShadowVP;
+
+            // Create view matrix (position light behind the weapon bounds)
+            Matrix::LookAt(weaponCenter + dirLight->Direction * minExtents.Z, weaponCenter, Float3::Up, weaponShadowView_);
+
+            // Create projection matrix (near=0, far=depth of bounding volume)
+            Matrix::OrthoOffCenter(minExtents.X, maxExtents.X, minExtents.Y, maxExtents.Y, 0.0f, cascadeExtents.Z, weaponShadowProjection);
+
+            LOG(Info, "Weapon Shadow Setup - weaponCenter=({0},{1},{2}), radius={3}, cascadeDepth={4}",
+                weaponCenter.X, weaponCenter.Y, weaponCenter.Z, weaponRadius, cascadeExtents.Z);
 
             weaponShadowView.SetUp(weaponShadowView_, weaponShadowProjection);
             weaponShadowView.Pass = DrawPass::WeaponDepth;
             weaponShadowView.Flags = renderContext.View.Flags;
             weaponShadowView.RenderLayersMask = renderContext.View.RenderLayersMask;
+
+            // Calculate view-projection for shadow matrix (used later for storing in buffer)
+            Matrix::Multiply(weaponShadowView_, weaponShadowProjection, weaponShadowVP);
 
             // Create render context for weapon shadows
             RenderContext weaponShadowContext;
@@ -1886,10 +1900,9 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             weaponShadowContext.List = RenderList::GetFromPool();
             weaponShadowContext.View = weaponShadowView;
             weaponShadowContext.View.Origin = renderContext.View.Origin;
-            Matrix weaponShadowVP;
-            Matrix::Multiply(weaponShadowView_, weaponShadowProjection, weaponShadowVP);
-            weaponShadowContext.View.CullingFrustum.SetMatrix(weaponShadowVP);
-            weaponShadowContext.View.PrepareCache(weaponShadowContext, (float)weaponShadowRes, (float)weaponShadowRes, Float2::Zero, &renderContext.View);
+            // Don't overwrite CullingFrustum - SetUp() already configured it correctly
+            // Don't pass main view to avoid FOV override contamination
+            weaponShadowContext.View.PrepareCache(weaponShadowContext, (float)weaponShadowRes, (float)weaponShadowRes, Float2::Zero, nullptr);
 
             // Collect weapon geometry (use SceneDrawAsync to get StaticModel/AnimatedModel actors)
             RenderContextBatch weaponBatch;

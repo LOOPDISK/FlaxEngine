@@ -27,9 +27,21 @@ float4x4 CalculateWeaponProjectionMatrix(float fov, float aspect, float nearPlan
     return projMatrix;
 }
 
+
 // Apply weapon FOV override to world position using default settings
 float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
 {
+    // HACK: Detect if we're in a shadow/depth pass by checking if projection is ortho
+    // Ortho projection has [2][3] == 0, perspective has [2][3] == 1
+    // Also check if ViewProjection[3][3] == 1 (ortho) vs 0 (perspective)
+    float4x4 vp = ViewProjectionMatrix;
+    bool isOrtho = (abs(vp[2][3]) < 0.01 && abs(vp[3][3] - 1.0) < 0.01);
+
+    if (isOrtho)
+    {
+        // Shadow/depth pass with ortho projection - don't apply FOV override
+        return mul(float4(worldPosition, 1.0), ViewProjectionMatrix);
+    }
     // Transform world position to view space first
     float4 viewPosition = mul(float4(worldPosition, 1.0), ViewMatrix);
 
@@ -57,12 +69,21 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
 // Apply weapon FOV override with custom parameters
 float4 ApplyWeaponFOVOverride(float3 worldPosition, float fov, float aspect, float nearPlane, float farPlane)
 {
+    // HACK: Detect if we're in a shadow/depth pass by checking if projection is ortho
+    float4x4 vp = ViewProjectionMatrix;
+    bool isOrtho = (abs(vp[2][3]) < 0.01 && abs(vp[3][3] - 1.0) < 0.01);
+
+    if (isOrtho)
+    {
+        // Shadow/depth pass with ortho projection - don't apply FOV override
+        return mul(float4(worldPosition, 1.0), ViewProjectionMatrix);
+    }
     // Calculate custom projection matrix
     float4x4 weaponProjectionMatrix = CalculateWeaponProjectionMatrix(fov, aspect, nearPlane, farPlane);
-    
+
     // Transform world position to view space
     float4 viewPosition = mul(float4(worldPosition, 1.0), ViewMatrix);
-    
+
     // Apply custom projection
     return mul(viewPosition, weaponProjectionMatrix);
 }
