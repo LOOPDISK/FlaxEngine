@@ -326,11 +326,7 @@ void StaticModel::Draw(RenderContext& renderContext)
     // Debug weapon shadow collection - FIRST THING
     if (renderContext.View.Pass == DrawPass::WeaponDepth)
     {
-        LOG(Info, "StaticModel::Draw(RenderContext): ENTRY for WeaponDepth pass, Model={0}, IsLoaded={1}, CanBeRendered={2}",
-            Model ? TEXT("valid") : TEXT("null"),
-            Model && Model->IsLoaded(),
-            Model && Model->CanBeRendered());
-    }
+            }
 
     if (!Model || !Model->IsLoaded() || !Model->CanBeRendered())
         return;
@@ -384,7 +380,7 @@ void StaticModel::Draw(RenderContextBatch& renderContextBatch)
     // Debug weapon shadow collection - FIRST THING
     if (renderContext.View.Pass == DrawPass::WeaponDepth)
     {
-        LOG(Info, "StaticModel::Draw: ENTRY for WeaponDepth pass, Model={0}, IsLoaded={1}", Model ? TEXT("valid") : TEXT("null"), Model && Model->IsLoaded());
+
     }
 
     if (!Model || !Model->IsLoaded())

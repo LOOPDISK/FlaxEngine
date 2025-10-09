@@ -25,7 +25,7 @@ DrawPass DeferredMaterialShader::GetDrawModes() const
 
     if (useWeaponFOV)
     {
-        LOG(Info, "Material: Using WeaponDepth pass, draw modes = {0}", (int32)result);
+        
     }
 
     return result;

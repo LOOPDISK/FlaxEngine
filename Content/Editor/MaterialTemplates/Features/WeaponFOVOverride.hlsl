@@ -27,7 +27,6 @@ float4x4 CalculateWeaponProjectionMatrix(float fov, float aspect, float nearPlan
     return projMatrix;
 }
 
-
 // Apply weapon FOV override to world position using default settings
 float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
 {

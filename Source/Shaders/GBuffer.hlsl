@@ -118,6 +118,7 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
     result.Roughness = gBuffer2.r;
     result.Metalness = gBuffer2.g;
     result.Specular = gBuffer2.b;
+    result.WeaponMask = gBuffer2.a;
 #if defined(USE_GBUFFER_CUSTOM_DATA)
 	result.CustomData = gBuffer3;
 #endif

@@ -1834,7 +1834,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
 
         if (!dirLight)
         {
-            LOG(Warning, "Weapon Shadow: No directional light with shadows found");
+            
         }
         else
         {
@@ -1882,16 +1882,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // Create projection matrix (near=0, far=depth of bounding volume)
             Matrix::OrthoOffCenter(minExtents.X, maxExtents.X, minExtents.Y, maxExtents.Y, 0.0f, cascadeExtents.Z, weaponShadowProjection);
 
-            LOG(Info, "Weapon Shadow Setup - weaponCenter=({0},{1},{2}), radius={3}, cascadeDepth={4}",
-                weaponCenter.X, weaponCenter.Y, weaponCenter.Z, weaponRadius, cascadeExtents.Z);
-            LOG(Info, "  minExtents=({0},{1},{2}), maxExtents=({3},{4},{5})",
-                minExtents.X, minExtents.Y, minExtents.Z, maxExtents.X, maxExtents.Y, maxExtents.Z);
-            LOG(Info, "  Light position: weaponCenter + dirLight->Direction * minExtents.Z");
-            Float3 lightPos = weaponCenter + dirLight->Direction * minExtents.Z;
-            LOG(Info, "    = ({0},{1},{2}) + ({3},{4},{5}) * {6}",
-                weaponCenter.X, weaponCenter.Y, weaponCenter.Z,
-                dirLight->Direction.X, dirLight->Direction.Y, dirLight->Direction.Z, minExtents.Z);
-            LOG(Info, "    = ({0},{1},{2})", lightPos.X, lightPos.Y, lightPos.Z);
+
 
             weaponShadowView.SetUp(weaponShadowView_, weaponShadowProjection);
             weaponShadowView.Pass = DrawPass::WeaponDepth;
@@ -1922,17 +1913,9 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDrawAsync);
             auto& weaponCtx = weaponBatch.Contexts[0];
 
-            // Debug: Check all draw call lists
-            LOG(Info, "Weapon Shadow Draw Lists: Depth={0}, GBuffer={1}, GBufferNoDecals={2}, Forward={3}, Distortion={4}, MotionVectors={5}",
-                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::Depth].Indices.Count(),
-                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::GBuffer].Indices.Count(),
-                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::GBufferNoDecals].Indices.Count(),
-                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::Forward].Indices.Count(),
-                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::Distortion].Indices.Count(),
-                weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::MotionVectors].Indices.Count());
 
-            int32 weaponDrawCallCount = weaponCtx.List->DrawCallsLists[(int32)DrawCallsListType::Depth].Indices.Count();
-            LOG(Info, "Weapon Shadow: Collected {0} weapon draw calls for WeaponDepth pass", weaponDrawCallCount);
+
+
 
             // Render weapon shadows
             if (shadowsMutable.ClearWeaponShadowMapAtlas)
@@ -1989,17 +1972,9 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadowTransposed.GetColumn3());
             shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadowTransposed.GetColumn4());
 
-            // DEBUG: Log the weapon shadow matrix (pre-transpose version that's actually stored)
-            LOG(Info, "Weapon Shadow Matrix (stored as columns after transpose):");
-            LOG(Info, "  Col 1: [{0}, {1}, {2}, {3}]", weaponWorldToShadowTransposed.GetColumn1().X, weaponWorldToShadowTransposed.GetColumn1().Y, weaponWorldToShadowTransposed.GetColumn1().Z, weaponWorldToShadowTransposed.GetColumn1().W);
-            LOG(Info, "  Col 2: [{0}, {1}, {2}, {3}]", weaponWorldToShadowTransposed.GetColumn2().X, weaponWorldToShadowTransposed.GetColumn2().Y, weaponWorldToShadowTransposed.GetColumn2().Z, weaponWorldToShadowTransposed.GetColumn2().W);
-            LOG(Info, "  Col 3: [{0}, {1}, {2}, {3}]", weaponWorldToShadowTransposed.GetColumn3().X, weaponWorldToShadowTransposed.GetColumn3().Y, weaponWorldToShadowTransposed.GetColumn3().Z, weaponWorldToShadowTransposed.GetColumn3().W);
-            LOG(Info, "  Col 4: [{0}, {1}, {2}, {3}]", weaponWorldToShadowTransposed.GetColumn4().X, weaponWorldToShadowTransposed.GetColumn4().Y, weaponWorldToShadowTransposed.GetColumn4().Z, weaponWorldToShadowTransposed.GetColumn4().W);
-            LOG(Info, "  WeaponCenter: ({0}, {1}, {2})", weaponCenter.X, weaponCenter.Y, weaponCenter.Z);
-            LOG(Info, "  ViewPos: ({0}, {1}, {2})", renderContext.View.Position.X, renderContext.View.Position.Y, renderContext.View.Position.Z);
 
-            LOG(Info, "Weapon Shadow: Rendered weapon shadows, buffer address={0}, tile=({1},{2},{3},{4})",
-                dirLight->WeaponShadowsBufferAddress, tile->X, tile->Y, tile->Width, tile->Height);
+
+
 
             // Cleanup
             RenderList::ReturnToPool(weaponCtx.List);
@@ -2108,10 +2083,7 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
     // Debug logging for directional light weapon shadows
     if (light.IsDirectionalLight)
     {
-        LOG(Info, "Weapon Shadow: Binding resources for directional light, WeaponShadowsBufferAddress={0}, WeaponShadowsBufferView={1}, WeaponShadowMapAtlas={2}",
-            sperLight.Light.WeaponShadowsBufferAddress,
-            shadows.WeaponShadowsBufferView ? TEXT("valid") : TEXT("null"),
-            shadows.WeaponShadowMapAtlas ? TEXT("valid") : TEXT("null"));
+
     }
 
     const int32 permutationIndex = shadowQuality + (sperLight.ContactShadowsLength > ZeroTolerance ? 4 : 0);

@@ -247,7 +247,7 @@ void SceneRenderTask::OnCollectDrawCalls(RenderContextBatch& renderContextBatch,
     // Debug weapon shadow collection
     if (renderContextBatch.Contexts.Count() > 0 && renderContextBatch.Contexts[0].View.Pass == DrawPass::WeaponDepth)
     {
-        LOG(Info, "OnCollectDrawCalls: WeaponDepth pass, category={0}, contexts={1}", category, renderContextBatch.Contexts.Count());
+        
     }
 
     // Setup PostFx in the render list

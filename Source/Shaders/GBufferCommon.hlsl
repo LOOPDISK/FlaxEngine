@@ -17,6 +17,7 @@ struct GBufferSample
     float3 ViewPos;
     float AO;
     int ShadingModel;
+    float WeaponMask;
 #if defined(USE_GBUFFER_CUSTOM_DATA)
 	float4 CustomData;
 #endif

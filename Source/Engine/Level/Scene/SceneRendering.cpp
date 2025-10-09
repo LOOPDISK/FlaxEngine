@@ -131,7 +131,7 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
     // Debug weapon shadow collection
     if (view.Pass == DrawPass::WeaponDepth)
     {
-        LOG(Info, "SceneRendering::Draw: WeaponDepth pass, category={0}, actors count={1}", category, _drawListSize);
+        
     }
 
     // Setup frustum data
@@ -322,8 +322,7 @@ void SceneRendering::DrawActorsJob(int32)
     
     if (view.Pass == DrawPass::WeaponDepth)
     {
-        LOG(Info, "DrawActorsJob: WeaponDepth path selection - StaticFlagsMask={0}, Origin.IsZero={1}, FrustumsCount={2}",
-            (int32)view.StaticFlagsMask, view.Origin.IsZero(), _drawFrustumsData.Count());
+
     }
 
     if (view.StaticFlagsMask != StaticFlags::None)
@@ -345,26 +344,13 @@ void SceneRendering::DrawActorsJob(int32)
             {
                 bool layerPass = (view.RenderLayersMask.Mask & e.LayerMask) != 0;
                 bool frustumPass = CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum, hzb, skipOcclusion);
-                LOG(Info, "WeaponDepth actor iteration: Actor={0}, LayerPass={1}, FrustumPass={2}, Bounds=({3},{4},{5}) r={6}",
-                    e.Actor ? String(e.Actor->GetType().Fullname) : TEXT("null"),
-                    layerPass, frustumPass, e.Bounds.Center.X, e.Bounds.Center.Y, e.Bounds.Center.Z, e.Bounds.Radius);
+
             }
             if (CHECK_ACTOR_SINGLE_FRUSTUM)
             {
-                if (view.Pass == DrawPass::WeaponDepth)
-                {
-                    LOG(Info, "WeaponDepth: CHECK_ACTOR_SINGLE_FRUSTUM passed, Actor={0}, calling e.Actor->Draw(mainContext)", e.Actor ? String(e.Actor->GetType().Fullname) : TEXT("null"));
-                }
                 DRAW_ACTOR(mainContext);
-                if (view.Pass == DrawPass::WeaponDepth)
-                {
-                    LOG(Info, "WeaponDepth: DRAW_ACTOR returned");
-                }
             }
-            else if (view.Pass == DrawPass::WeaponDepth)
-            {
-                LOG(Info, "WeaponDepth: CHECK_ACTOR_SINGLE_FRUSTUM FAILED");
-            }
+
         }
     }
     else if (view.Origin.IsZero())
