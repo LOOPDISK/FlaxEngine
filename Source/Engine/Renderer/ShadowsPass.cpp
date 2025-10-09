@@ -1884,14 +1884,23 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
 
             LOG(Info, "Weapon Shadow Setup - weaponCenter=({0},{1},{2}), radius={3}, cascadeDepth={4}",
                 weaponCenter.X, weaponCenter.Y, weaponCenter.Z, weaponRadius, cascadeExtents.Z);
+            LOG(Info, "  minExtents=({0},{1},{2}), maxExtents=({3},{4},{5})",
+                minExtents.X, minExtents.Y, minExtents.Z, maxExtents.X, maxExtents.Y, maxExtents.Z);
+            LOG(Info, "  Light position: weaponCenter + dirLight->Direction * minExtents.Z");
+            Float3 lightPos = weaponCenter + dirLight->Direction * minExtents.Z;
+            LOG(Info, "    = ({0},{1},{2}) + ({3},{4},{5}) * {6}",
+                weaponCenter.X, weaponCenter.Y, weaponCenter.Z,
+                dirLight->Direction.X, dirLight->Direction.Y, dirLight->Direction.Z, minExtents.Z);
+            LOG(Info, "    = ({0},{1},{2})", lightPos.X, lightPos.Y, lightPos.Z);
 
             weaponShadowView.SetUp(weaponShadowView_, weaponShadowProjection);
             weaponShadowView.Pass = DrawPass::WeaponDepth;
             weaponShadowView.Flags = renderContext.View.Flags;
             weaponShadowView.RenderLayersMask = renderContext.View.RenderLayersMask;
 
-            // Calculate view-projection for shadow matrix (used later for storing in buffer)
-            Matrix::Multiply(weaponShadowView_, weaponShadowProjection, weaponShadowVP);
+            // CRITICAL FIX: Use ViewProjection() from the RenderView, not manual multiply!
+            // SetUp() stores the matrices, and we must use the EXACT same matrix that rendering uses
+            weaponShadowVP = weaponShadowView.ViewProjection();
 
             // Create render context for weapon shadows
             RenderContext weaponShadowContext;
@@ -1904,9 +1913,12 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // Don't pass main view to avoid FOV override contamination
             weaponShadowContext.View.PrepareCache(weaponShadowContext, (float)weaponShadowRes, (float)weaponShadowRes, Float2::Zero, nullptr);
 
-            // Collect weapon geometry (use SceneDrawAsync to get StaticModel/AnimatedModel actors)
+            // Collect weapon geometry from both SceneDraw and SceneDrawAsync categories
+            // We need both because Camera is in SceneDraw, but StaticModel/AnimatedModel are in SceneDrawAsync
+            // CRITICAL: Must do them sequentially (not parallel) to avoid race condition with shared _drawListData
             RenderContextBatch weaponBatch;
             weaponBatch.Contexts.Add(weaponShadowContext);
+            renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDraw);
             renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDrawAsync);
             auto& weaponCtx = weaponBatch.Contexts[0];
 
@@ -1936,9 +1948,9 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             weaponCtx.List->ExecuteDrawCalls(weaponCtx, DrawCallsListType::Depth);
             weaponCtx.List->ExecuteDrawCalls(weaponCtx, weaponCtx.List->ShadowDepthDrawCallsList, renderContext.List, nullptr);
 
-            // Store weapon shadow data in buffer
-            const float weaponAtlasInv = 1.0f / weaponAtlasResolution;
-            Matrix ClipToUV(
+            // Store weapon shadow data in buffer - EXACTLY like CSM does it
+            // Step 1: ViewProjection * ClipToUV (same as CSM's SetWorldToShadow)
+            const Matrix ClipToUV(
                 0.5f, 0.0f, 0.0f, 0.0f,
                 0.0f, -0.5f, 0.0f, 0.0f,
                 0.0f, 0.0f, 1.0f, 0.0f,
@@ -1946,24 +1958,45 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             Matrix weaponWorldToShadow;
             Matrix::Multiply(weaponShadowVP, ClipToUV, weaponWorldToShadow);
 
-            // Scale and offset for atlas position
+            // Step 2: Apply atlas transform (scale and offset to correct tile position)
+            // For CSM, this is done via ShadowToAtlas in the shader, but for weapon shadows
+            // we bake it into the matrix since we only have one tile
+            const float weaponAtlasInv = 1.0f / weaponAtlasResolution;
             const float scaleX = tile->Width * weaponAtlasInv;
             const float scaleY = tile->Height * weaponAtlasInv;
             const float offsetX = tile->X * weaponAtlasInv;
             const float offsetY = tile->Y * weaponAtlasInv;
+
             Matrix atlasTransform(
                 scaleX, 0.0f, 0.0f, 0.0f,
                 0.0f, scaleY, 0.0f, 0.0f,
                 0.0f, 0.0f, 1.0f, 0.0f,
                 offsetX, offsetY, 0.0f, 1.0f);
             Matrix::Multiply(weaponWorldToShadow, atlasTransform, weaponWorldToShadow);
-            weaponWorldToShadow.Transpose();
+
+            // Step 3: Transpose then extract columns (EXACTLY like CSM - lines 108-118, 1564-1567)
+            // This effectively stores the pre-transpose matrix, which is correct for HLSL
+            Matrix weaponWorldToShadowTransposed;
+            Matrix::Transpose(weaponWorldToShadow, weaponWorldToShadowTransposed);
 
             // Cache weapon shadow buffer address for this light (before writing data)
             dirLight->WeaponShadowsBufferAddress = shadowsMutable.WeaponShadowsBuffer.Data.Count() / sizeof(Float4);
 
-            // Write weapon shadow data to buffer (4 float4s for matrix)
-            shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadow);
+            // Write weapon shadow data to buffer - EXACTLY like CSM stores columns after transpose
+            // This stores the original (pre-transpose) matrix, which is what HLSL expects
+            shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadowTransposed.GetColumn1());
+            shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadowTransposed.GetColumn2());
+            shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadowTransposed.GetColumn3());
+            shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadowTransposed.GetColumn4());
+
+            // DEBUG: Log the weapon shadow matrix (pre-transpose version that's actually stored)
+            LOG(Info, "Weapon Shadow Matrix (stored as columns after transpose):");
+            LOG(Info, "  Col 1: [{0}, {1}, {2}, {3}]", weaponWorldToShadowTransposed.GetColumn1().X, weaponWorldToShadowTransposed.GetColumn1().Y, weaponWorldToShadowTransposed.GetColumn1().Z, weaponWorldToShadowTransposed.GetColumn1().W);
+            LOG(Info, "  Col 2: [{0}, {1}, {2}, {3}]", weaponWorldToShadowTransposed.GetColumn2().X, weaponWorldToShadowTransposed.GetColumn2().Y, weaponWorldToShadowTransposed.GetColumn2().Z, weaponWorldToShadowTransposed.GetColumn2().W);
+            LOG(Info, "  Col 3: [{0}, {1}, {2}, {3}]", weaponWorldToShadowTransposed.GetColumn3().X, weaponWorldToShadowTransposed.GetColumn3().Y, weaponWorldToShadowTransposed.GetColumn3().Z, weaponWorldToShadowTransposed.GetColumn3().W);
+            LOG(Info, "  Col 4: [{0}, {1}, {2}, {3}]", weaponWorldToShadowTransposed.GetColumn4().X, weaponWorldToShadowTransposed.GetColumn4().Y, weaponWorldToShadowTransposed.GetColumn4().Z, weaponWorldToShadowTransposed.GetColumn4().W);
+            LOG(Info, "  WeaponCenter: ({0}, {1}, {2})", weaponCenter.X, weaponCenter.Y, weaponCenter.Z);
+            LOG(Info, "  ViewPos: ({0}, {1}, {2})", renderContext.View.Position.X, renderContext.View.Position.Y, renderContext.View.Position.Z);
 
             LOG(Info, "Weapon Shadow: Rendered weapon shadows, buffer address={0}, tile=({1},{2},{3},{4})",
                 dirLight->WeaponShadowsBufferAddress, tile->X, tile->Y, tile->Width, tile->Height);

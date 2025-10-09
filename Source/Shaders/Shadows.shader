@@ -174,7 +174,7 @@ float4 PS_DirLight(Quad_VS2PS input) : SV_Target0
 #endif
 
 	// Sample and combine weapon self-shadow (multiplicative combine)
-	float weaponShadow = SampleWeaponShadow(Light, WeaponShadowsBuffer, WeaponShadowMap, gBuffer.WorldPos);
+	float weaponShadow = SampleWeaponShadow(Light, WeaponShadowsBuffer, WeaponShadowMap, gBuffer.WorldPos, gBufferData.ViewPos);
 	shadow.SurfaceShadow *= weaponShadow;
 
 	return GetShadowMask(shadow);

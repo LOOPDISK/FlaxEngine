@@ -285,33 +285,51 @@ float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantSha
 }
 
 // Samples weapon shadow for the given directional light (simple single shadow map, no cascades)
-float SampleWeaponShadow(LightData light, Buffer<float4> weaponShadowsBuffer, Texture2D<float> weaponShadowMap, float3 worldPosition)
+// EXACTLY matches CSM sampling logic for consistency
+float SampleWeaponShadow(LightData light, Buffer<float4> weaponShadowsBuffer, Texture2D<float> weaponShadowMap, float3 worldPosition, float3 cameraPosition)
 {
     // Check if weapon shadows are enabled
     if (light.WeaponShadowsBufferAddress == 0)
         return 1.0; // No weapon shadow
 
+    // DISABLED FOR TESTING: Distance culling
+    // float distanceFromCamera = length(worldPosition - cameraPosition);
+    // const float maxWeaponDistance = 250.0; // 250cm = 2.5 meters
+    // if (distanceFromCamera > maxWeaponDistance)
+    //     return 1.0; // Too far from camera to be a weapon
+
     // Load weapon shadow matrix from buffer (single 4x4 matrix)
+    // This matrix already includes: ViewProjection * ClipToUV * AtlasTransform
     float4x4 weaponWorldToShadow;
     weaponWorldToShadow[0] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 0];
     weaponWorldToShadow[1] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 1];
     weaponWorldToShadow[2] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 2];
     weaponWorldToShadow[3] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 3];
 
-    // Transform world position to weapon shadow atlas UV space
+    // STEP 1: Transform to shadow space (EXACTLY like CSM line 57)
     float4 shadowPos = mul(float4(worldPosition, 1.0), weaponWorldToShadow);
+
+    // STEP 2: Apply bias BEFORE perspective divide (EXACTLY like CSM line 58)
+    const float weaponShadowBias = 0.005; // Increased bias for testing
+    shadowPos.z -= weaponShadowBias;
+
+    // STEP 3: Perspective divide (EXACTLY like CSM line 59)
     shadowPos.xyz /= shadowPos.w;
 
-    // Check if position is within weapon shadow map bounds
+    // STEP 4: Check bounds (atlas UVs should be [0,1])
     if (any(shadowPos.xy < 0.0) || any(shadowPos.xy > 1.0))
         return 1.0; // Outside weapon shadow coverage, fully lit
 
-    // DIRTY HACK: Remap depth from compressed range [0.95, 1.0] to full [0.0, 1.0]
-    float depthRemapped = (shadowPos.z - 0.995) / 0.005;
-    depthRemapped = saturate(depthRemapped); // Clamp to [0, 1]
-
-    // Sample weapon shadow map with PCF using remapped depth
+    // STEP 5: Sample with PCF (EXACTLY like CSM)
     float weaponShadow = SampleShadowMapOptimizedPCF(weaponShadowMap, shadowPos.xy, shadowPos.z);
+
+    // DEBUG OPTIONS (uncomment one at a time to diagnose):
+    // return shadowMapDepth; // Visualize stored depth in shadow map (0=near, 1=far)
+    // return shadowPos.z; // Visualize receiver depth after transform
+    // float shadowMapDepth = weaponShadowMap.SampleLevel(SamplerLinearClamp, shadowPos.xy, 0).r;
+    // return (shadowPos.z < shadowMapDepth) ? 0.0 : 1.0; // Manual depth comparison (0=shadow, 1=lit)
+    // return 0.5; // Force 50% shadow to verify this code path executes
+
     return weaponShadow;
 }
 
