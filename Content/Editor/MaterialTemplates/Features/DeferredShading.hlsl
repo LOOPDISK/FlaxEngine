@@ -55,7 +55,7 @@ void PS_GBuffer(
 	// Pack material properties to GBuffer
 	RT0 = float4(material.Color, material.AO);
 	RT1 = float4(material.WorldNormal * 0.5 + 0.5, MATERIAL_SHADING_MODEL * (1.0 / 3.0));
-	RT2 = float4(material.Roughness, material.Metalness, material.Specular, 0);
+	RT2 = float4(material.Roughness, material.Metalness, material.Specular, USE_WEAPON_FOV_OVERRIDE);
 
 	// Custom data
 #if USE_GBUFFER_CUSTOM_DATA
