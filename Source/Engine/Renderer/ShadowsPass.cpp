@@ -1898,6 +1898,8 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             weaponShadowContext.Buffers = renderContext.Buffers;
             weaponShadowContext.Task = renderContext.Task;
             weaponShadowContext.List = RenderList::GetFromPool();
+            weaponShadowContext.List->Clear();
+            weaponShadowContext.LodProxyView = const_cast<RenderView*>(&renderContext.View);
             weaponShadowContext.View = weaponShadowView;
             weaponShadowContext.View.Origin = renderContext.View.Origin;
             // Don't overwrite CullingFrustum - SetUp() already configured it correctly
@@ -1910,7 +1912,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             RenderContextBatch weaponBatch;
             weaponBatch.Contexts.Add(weaponShadowContext);
             renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDraw);
-            renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDrawAsync);
+            renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDraw);
             auto& weaponCtx = weaponBatch.Contexts[0];
 
 
@@ -1963,7 +1965,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             Matrix::Transpose(weaponWorldToShadow, weaponWorldToShadowTransposed);
 
             // Cache weapon shadow buffer address for this light (before writing data)
-            dirLight->WeaponShadowsBufferAddress = shadowsMutable.WeaponShadowsBuffer.Data.Count() / sizeof(Float4);
+            dirLight->WeaponShadowsBufferAddress = (uint32)(shadowsMutable.WeaponShadowsBuffer.Data.Count() / sizeof(Float4));
 
             // Write weapon shadow data to buffer - EXACTLY like CSM stores columns after transpose
             // This stores the original (pre-transpose) matrix, which is what HLSL expects
