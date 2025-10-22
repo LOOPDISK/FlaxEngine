@@ -4,16 +4,22 @@
 #include "FoliageInstance.h"
 #include "Foliage.h"
 
+namespace
+{
+    FORCE_INLINE int32 GetActiveChildrenCount()
+    {
+        return Foliage::GetUse3DClusters() ? 8 : 4;
+    }
+}
+
 void FoliageCluster::Init(const BoundingBox& bounds)
 {
     Bounds = bounds;
     TotalBounds = bounds;
     MaxCullDistance = 0.0f;
 
-    Children[0] = nullptr;
-    Children[1] = nullptr;
-    Children[2] = nullptr;
-    Children[3] = nullptr;
+    for (int32 i = 0; i < 8; i++)
+        Children[i] = nullptr;
 
     Instances.Clear();
 }
@@ -24,20 +30,31 @@ void FoliageCluster::UpdateTotalBoundsAndCullDistance()
     {
         ASSERT(Instances.IsEmpty());
 
-        Children[0]->UpdateTotalBoundsAndCullDistance();
-        Children[1]->UpdateTotalBoundsAndCullDistance();
-        Children[2]->UpdateTotalBoundsAndCullDistance();
-        Children[3]->UpdateTotalBoundsAndCullDistance();
-
-        TotalBounds = Children[0]->TotalBounds;
-        BoundingBox::Merge(TotalBounds, Children[1]->TotalBounds, TotalBounds);
-        BoundingBox::Merge(TotalBounds, Children[2]->TotalBounds, TotalBounds);
-        BoundingBox::Merge(TotalBounds, Children[3]->TotalBounds, TotalBounds);
-
-        MaxCullDistance = Children[0]->MaxCullDistance;
-        MaxCullDistance = Math::Max(MaxCullDistance, Children[1]->MaxCullDistance);
-        MaxCullDistance = Math::Max(MaxCullDistance, Children[2]->MaxCullDistance);
-        MaxCullDistance = Math::Max(MaxCullDistance, Children[3]->MaxCullDistance);
+        const int32 childCount = GetActiveChildrenCount();
+        bool hasBounds = false;
+        MaxCullDistance = 0.0f;
+        for (int32 childIndex = 0; childIndex < childCount; childIndex++)
+        {
+            FoliageCluster* child = Children[childIndex];
+            if (!child)
+                continue;
+            child->UpdateTotalBoundsAndCullDistance();
+            if (!hasBounds)
+            {
+                TotalBounds = child->TotalBounds;
+                hasBounds = true;
+            }
+            else
+            {
+                BoundingBox::Merge(TotalBounds, child->TotalBounds, TotalBounds);
+            }
+            MaxCullDistance = Math::Max(MaxCullDistance, child->MaxCullDistance);
+        }
+        if (!hasBounds)
+        {
+            TotalBounds = Bounds;
+            MaxCullDistance = 0.0f;
+        }
     }
     else if (Instances.HasItems())
     {
@@ -64,15 +81,16 @@ void FoliageCluster::UpdateCullDistance()
 {
     if (Children[0])
     {
-        Children[0]->UpdateCullDistance();
-        Children[1]->UpdateCullDistance();
-        Children[2]->UpdateCullDistance();
-        Children[3]->UpdateCullDistance();
-
-        MaxCullDistance = Children[0]->MaxCullDistance;
-        MaxCullDistance = Math::Max(MaxCullDistance, Children[1]->MaxCullDistance);
-        MaxCullDistance = Math::Max(MaxCullDistance, Children[2]->MaxCullDistance);
-        MaxCullDistance = Math::Max(MaxCullDistance, Children[3]->MaxCullDistance);
+        const int32 childCount = GetActiveChildrenCount();
+        MaxCullDistance = 0.0f;
+        for (int32 childIndex = 0; childIndex < childCount; childIndex++)
+        {
+            FoliageCluster* child = Children[childIndex];
+            if (!child)
+                continue;
+            child->UpdateCullDistance();
+            MaxCullDistance = Math::Max(MaxCullDistance, child->MaxCullDistance);
+        }
     }
     else if (Instances.HasItems())
     {
@@ -97,19 +115,20 @@ bool FoliageCluster::Intersects(Foliage* foliage, const Ray& ray, Real& distance
 
     if (Children[0])
     {
-#define CHECK_CHILD(idx) \
-		if (Children[idx]->TotalBounds.Intersects(ray) && Children[idx]->Intersects(foliage, ray, distance, normal, instance) && minDistance > distance) \
-		{ \
-			minDistanceNormal = normal; \
-			minDistance = distance; \
-			minInstance = instance; \
-			result = true; \
-		}
-        CHECK_CHILD(0);
-        CHECK_CHILD(1);
-        CHECK_CHILD(2);
-        CHECK_CHILD(3);
-#undef CHECK_CHILD
+        const int32 childCount = GetActiveChildrenCount();
+        for (int32 childIndex = 0; childIndex < childCount; childIndex++)
+        {
+            FoliageCluster* child = Children[childIndex];
+            if (!child)
+                continue;
+            if (child->TotalBounds.Intersects(ray) && child->Intersects(foliage, ray, distance, normal, instance) && minDistance > distance)
+            {
+                minDistanceNormal = normal;
+                minDistance = distance;
+                minInstance = instance;
+                result = true;
+            }
+        }
     }
     else
     {

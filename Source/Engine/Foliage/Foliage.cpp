@@ -30,6 +30,46 @@
 namespace
 {
     static thread_local Array<Pair<void*, uintptr>> MemPool;
+
+    FORCE_INLINE BoundingBox ComputeChildBounds(const BoundingBox& parentBounds, int32 childIndex, bool use3DSubdivision)
+    {
+        const Vector3 min = parentBounds.Minimum;
+        const Vector3 max = parentBounds.Maximum;
+        const float midX = (min.X + max.X) * 0.5f;
+        const float midY = (min.Y + max.Y) * 0.5f;
+        const float midZ = (min.Z + max.Z) * 0.5f;
+
+        Vector3 childMin = min;
+        Vector3 childMax = max;
+
+        if (childIndex & 1)
+            childMin.X = midX;
+        else
+            childMax.X = midX;
+
+        int32 bits = childIndex >> 1;
+        if (use3DSubdivision)
+        {
+            if (bits & 1)
+                childMin.Y = midY;
+            else
+                childMax.Y = midY;
+            bits >>= 1;
+            if (bits & 1)
+                childMin.Z = midZ;
+            else
+                childMax.Z = midZ;
+        }
+        else
+        {
+            if (bits & 1)
+                childMin.Z = midZ;
+            else
+                childMax.Z = midZ;
+        }
+
+        return BoundingBox(childMin, childMax);
+    }
 }
 
 void* FoliageRendererAllocation::Allocate(uintptr size)
@@ -71,21 +111,25 @@ void Foliage::AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_S
 {
     ASSERT(instance.Bounds.Radius > ZeroTolerance);
     ASSERT(cluster->Bounds.Intersects(instance.Bounds));
+    const bool use3DSubdivision = GetUse3DClusters();
+    const int32 childrenPerNode = use3DSubdivision ? 8 : 4;
 
     // Find target cluster
     while (cluster->Children[0])
     {
-#define CHECK_CHILD(idx) \
-			if (cluster->Children[idx]->Bounds.Intersects(instance.Bounds)) \
-			{ \
-				cluster = cluster->Children[idx]; \
-				continue; \
-			}
-        CHECK_CHILD(0);
-        CHECK_CHILD(1);
-        CHECK_CHILD(2);
-        CHECK_CHILD(3);
-#undef CHECK_CHILD
+        bool movedDown = false;
+        for (int32 childIndex = 0; childIndex < childrenPerNode; childIndex++)
+        {
+            FoliageCluster* child = cluster->Children[childIndex];
+            if (child && child->Bounds.Intersects(instance.Bounds))
+            {
+                cluster = child;
+                movedDown = true;
+                break;
+            }
+        }
+        if (!movedDown)
+            break;
     }
 
     // Check if it's not full
@@ -98,20 +142,15 @@ void Foliage::AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_S
     {
         // Subdivide cluster
         const int32 count = clusters.Count();
-        clusters.Resize(count + 4);
-        cluster->Children[0] = &clusters[count + 0];
-        cluster->Children[1] = &clusters[count + 1];
-        cluster->Children[2] = &clusters[count + 2];
-        cluster->Children[3] = &clusters[count + 3];
-
-        // Setup children
-        const Vector3 min = cluster->Bounds.Minimum;
-        const Vector3 max = cluster->Bounds.Maximum;
-        const Vector3 size = cluster->Bounds.GetSize();
-        cluster->Children[0]->Init(BoundingBox(min, min + size * Vector3(0.5f, 1.0f, 0.5f)));
-        cluster->Children[1]->Init(BoundingBox(min + size * Vector3(0.5f, 0.0f, 0.5f), max));
-        cluster->Children[2]->Init(BoundingBox(min + size * Vector3(0.5f, 0.0f, 0.0f), min + size * Vector3(1.0f, 1.0f, 0.5f)));
-        cluster->Children[3]->Init(BoundingBox(min + size * Vector3(0.0f, 0.0f, 0.5f), min + size * Vector3(0.5f, 1.0f, 1.0f)));
+        clusters.Resize(count + childrenPerNode);
+        for (int32 childIndex = 0; childIndex < childrenPerNode; childIndex++)
+        {
+            auto* child = &clusters[count + childIndex];
+            cluster->Children[childIndex] = child;
+            child->Init(ComputeChildBounds(cluster->Bounds, childIndex, use3DSubdivision));
+        }
+        for (int32 childIndex = childrenPerNode; childIndex < 8; childIndex++)
+            cluster->Children[childIndex] = nullptr;
 
         // Move instances to a proper cells
         for (int32 i = 0; i < cluster->Instances.Count(); i++)
@@ -189,17 +228,18 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
         ASSERT_LOW_LAYER(cluster->Instances.IsEmpty());
 
         BoundingBox box;
-#define DRAW_CLUSTER(idx) \
-        box = cluster->Children[idx]->TotalBounds; \
-        box.Minimum -= viewOrigin; \
-        box.Maximum -= viewOrigin; \
-		if (renderContext.View.CullingFrustum.Intersects(box)) \
-			DrawCluster(renderContext, cluster->Children[idx], type, drawCallsLists, result, activeBatches)
-        DRAW_CLUSTER(0);
-        DRAW_CLUSTER(1);
-        DRAW_CLUSTER(2);
-        DRAW_CLUSTER(3);
-#undef 	DRAW_CLUSTER
+        const int32 childCount = GetUse3DClusters() ? 8 : 4;
+        for (int32 childIndex = 0; childIndex < childCount; childIndex++)
+        {
+            auto* child = cluster->Children[childIndex];
+            if (!child)
+                continue;
+            box = child->TotalBounds;
+            box.Minimum -= viewOrigin;
+            box.Maximum -= viewOrigin;
+            if (renderContext.View.CullingFrustum.Intersects(box))
+                DrawCluster(renderContext, child, type, drawCallsLists, result, activeBatches);
+        }
     }
     else
     {
@@ -322,17 +362,18 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
         ASSERT_LOW_LAYER(cluster->Instances.IsEmpty());
 
         BoundingBox box;
-#define DRAW_CLUSTER(idx) \
-        box = cluster->Children[idx]->TotalBounds; \
-        box.Minimum -= viewOrigin; \
-        box.Maximum -= viewOrigin; \
-		if (renderContext.View.CullingFrustum.Intersects(box)) \
-			DrawCluster(renderContext, cluster->Children[idx], draw)
-        DRAW_CLUSTER(0);
-        DRAW_CLUSTER(1);
-        DRAW_CLUSTER(2);
-        DRAW_CLUSTER(3);
-#undef 	DRAW_CLUSTER
+        const int32 childCount = GetUse3DClusters() ? 8 : 4;
+        for (int32 childIndex = 0; childIndex < childCount; childIndex++)
+        {
+            auto* child = cluster->Children[childIndex];
+            if (!child)
+                continue;
+            box = child->TotalBounds;
+            box.Minimum -= viewOrigin;
+            box.Maximum -= viewOrigin;
+            if (renderContext.View.CullingFrustum.Intersects(box))
+                DrawCluster(renderContext, child, draw);
+        }
     }
     else
     {
@@ -389,14 +430,15 @@ void Foliage::DrawClusterGlobalSDF(class GlobalSignDistanceFieldPass* globalSDF,
     if (cluster->Children[0])
     {
         // Draw children recursive
-#define DRAW_CLUSTER(idx) \
-		if (globalSDFBounds.Intersects(cluster->Children[idx]->TotalBounds)) \
-			DrawClusterGlobalSDF(globalSDF, globalSDFBounds, cluster->Children[idx], type)
-        DRAW_CLUSTER(0);
-        DRAW_CLUSTER(1);
-        DRAW_CLUSTER(2);
-        DRAW_CLUSTER(3);
-#undef 	DRAW_CLUSTER
+        const int32 childCount = GetUse3DClusters() ? 8 : 4;
+        for (int32 childIndex = 0; childIndex < childCount; childIndex++)
+        {
+            auto* child = cluster->Children[childIndex];
+            if (!child)
+                continue;
+            if (globalSDFBounds.Intersects(child->TotalBounds))
+                DrawClusterGlobalSDF(globalSDF, globalSDFBounds, child, type);
+        }
     }
     else
     {
@@ -422,14 +464,15 @@ void Foliage::DrawClusterGlobalSA(GlobalSurfaceAtlasPass* globalSA, const Vector
     if (cluster->Children[0])
     {
         // Draw children recursive
-#define DRAW_CLUSTER(idx) \
-        if (CollisionsHelper::DistanceBoxPoint(cluster->Children[idx]->TotalBounds, Vector3(cullingPosDistance)) < cullingPosDistance.W) \
-            DrawClusterGlobalSA(globalSA, cullingPosDistance, cluster->Children[idx], type, localBounds)
-        DRAW_CLUSTER(0);
-        DRAW_CLUSTER(1);
-        DRAW_CLUSTER(2);
-        DRAW_CLUSTER(3);
-#undef 	DRAW_CLUSTER
+        const int32 childCount = GetUse3DClusters() ? 8 : 4;
+        for (int32 childIndex = 0; childIndex < childCount; childIndex++)
+        {
+            auto* child = cluster->Children[childIndex];
+            if (!child)
+                continue;
+            if (CollisionsHelper::DistanceBoxPoint(child->TotalBounds, Vector3(cullingPosDistance)) < cullingPosDistance.W)
+                DrawClusterGlobalSA(globalSA, cullingPosDistance, child, type, localBounds);
+        }
     }
     else
     {
@@ -1053,12 +1096,8 @@ void Foliage::RemoveLightmap()
         e.RemoveLightmap();
 }
 
+static bool Use3DClustersFlag = true;
 static float GlobalDensityScale = 1.0f;
-
-float Foliage::GetGlobalDensityScale()
-{
-    return GlobalDensityScale;
-}
 
 bool UpdateFoliageDensityScaling(Actor* actor)
 {
@@ -1068,6 +1107,30 @@ bool UpdateFoliageDensityScaling(Actor* actor)
     }
 
     return true;
+}
+
+bool Foliage::GetUse3DClusters()
+{
+    return Use3DClustersFlag;
+}
+
+void Foliage::SetUse3DClusters(bool value)
+{
+    const bool normalizedValue = value ? true : false;
+    if (Use3DClustersFlag == normalizedValue)
+        return;
+
+    PROFILE_CPU();
+
+    Use3DClustersFlag = normalizedValue;
+
+    Function<bool(Actor*)> f(UpdateFoliageDensityScaling);
+    SceneQuery::TreeExecute(f);
+}
+
+float Foliage::GetGlobalDensityScale()
+{
+    return GlobalDensityScale;
 }
 
 void Foliage::SetGlobalDensityScale(float value)

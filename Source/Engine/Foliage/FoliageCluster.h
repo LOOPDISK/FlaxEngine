@@ -35,8 +35,9 @@ public:
 
     /// <summary>
     /// The child clusters. If any element is valid then all are created.
+    /// Uses up to 8 children when 3D subdivision is enabled, otherwise first 4 slots are used.
     /// </summary>
-    FoliageCluster* Children[4];
+    FoliageCluster* Children[8];
 
     /// <summary>
     /// The allocated foliage instances within this cluster.

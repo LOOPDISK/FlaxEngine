@@ -158,6 +158,17 @@ public:
 
 public:
     /// <summary>
+    /// Gets whether foliage clustering uses 3D (octree) subdivision instead of 2D (quad-tree).
+    /// </summary>
+    API_PROPERTY() static bool GetUse3DClusters();
+
+    /// <summary>
+    /// Sets whether foliage clustering uses 3D (octree) subdivision instead of 2D (quad-tree).
+    /// Rebuilds all foliage clusters when changed.
+    /// </summary>
+    API_PROPERTY() static void SetUse3DClusters(bool value);
+
+    /// <summary>
     /// Gets the global density scale for all foliage instances. The default value is 1. Use values from range 0-1. Lower values decrease amount of foliage instances in-game. Use it to tweak game performance for slower devices.
     /// </summary>
     API_PROPERTY() static float GetGlobalDensityScale();
