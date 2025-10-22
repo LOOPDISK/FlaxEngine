@@ -197,8 +197,8 @@ public:
     };
 
 private:
-    typedef Array<struct FoliageBatchedDrawCall, InlinedAllocation<8>> DrawCallsList;
-    typedef Dictionary<DrawKey, struct FoliageBatchedDrawCall, class FoliageRendererAllocation> BatchedDrawCalls;
+    typedef Array<struct BatchedDrawCall, InlinedAllocation<8>> DrawCallsList;
+    typedef Dictionary<DrawKey, struct BatchedDrawCall, class RendererAllocation> BatchedDrawCalls;
 
     void DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
     void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
