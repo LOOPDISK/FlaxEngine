@@ -4,8 +4,11 @@
 
 #include "Config.h"
 #include "Engine/Core/Collections/ChunkedArray.h"
+#include "Engine/Core/Collections/Dictionary.h"
+#include "Engine/Core/Templates.h"
 #include "Engine/Content/Assets/Model.h"
 #include "Engine/Core/ISerializable.h"
+#include "Engine/Platform/Types.h"
 
 /// <summary>
 /// The foliage instances scaling modes.
@@ -47,6 +50,22 @@ API_CLASS(Sealed, NoSpawn) class FLAXENGINE_API FoliageType : public ScriptingOb
     friend Foliage;
 private:
     uint8 _isReady : 1;
+
+    struct CachedMeshSlot
+    {
+        const class Mesh* Mesh = nullptr;
+        IMaterial* Material = nullptr;
+        Float3 GeometrySize = Float3::Zero;
+        DrawPass MaterialDrawModes = DrawPass::None;
+        ShadowsCastingMode ShadowsMode = ShadowsCastingMode::None;
+        bool ReceiveDecals = false;
+        bool Visible = false;
+    };
+
+    struct CachedLOD
+    {
+        Array<CachedMeshSlot> Meshes;
+    };
 
 public:
     /// <summary>
@@ -224,9 +243,23 @@ public:
 private:
     void OnModelChanged();
     void OnModelLoaded();
+    void InvalidateCachedDrawSetup();
+    void EnsureCachedDrawSetup(uint64 frame) const;
+    const Array<CachedLOD>& GetCachedDrawSetup() const
+    {
+        return _cachedDrawSetup;
+    }
+    const CachedMeshSlot* GetCachedMeshSlot(const class Mesh* mesh) const;
 
 public:
     // [ISerializable]
     void Serialize(SerializeStream& stream, const void* otherObj) override;
     void Deserialize(DeserializeStream& stream, ISerializeModifier* modifier) override;
+
+private:
+    bool _densityScalingEditing = false;
+    mutable Array<CachedLOD> _cachedDrawSetup;
+    mutable Dictionary<const class Mesh*, Pair<int32, int32>> _cachedMeshLookup;
+    mutable uint64 _cachedDrawSetupFrame = 0;
+    mutable CriticalSection _cachedDrawSetupLocker;
 };

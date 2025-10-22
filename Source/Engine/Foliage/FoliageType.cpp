@@ -2,8 +2,13 @@
 
 #include "FoliageType.h"
 #include "Engine/Core/Collections/ArrayExtensions.h"
+#include "Engine/Core/Templates.h"
 #include "Engine/Core/Random.h"
 #include "Engine/Serialization/Serialization.h"
+#include "Engine/Graphics/GPUDevice.h"
+#include "Engine/Graphics/Models/Mesh.h"
+#include "Engine/Content/Assets/MaterialBase.h"
+#include "Engine/Threading/Threading.h"
 #include "Foliage.h"
 
 FoliageType::FoliageType()
@@ -48,6 +53,7 @@ FoliageType& FoliageType::operator=(const FoliageType& other)
     UseDensityScaling = other.UseDensityScaling;
     PlacementAlignToNormal = other.PlacementAlignToNormal;
     PlacementRandomYaw = other.PlacementRandomYaw;
+    InvalidateCachedDrawSetup();
     return *this;
 }
 
@@ -65,6 +71,7 @@ void FoliageType::SetMaterials(const Array<MaterialBase*>& value)
     CHECK(value.Count() == Entries.Count());
     for (int32 i = 0; i < value.Count(); i++)
         Entries[i].Material = value[i];
+    InvalidateCachedDrawSetup();
 }
 
 Float3 FoliageType::GetRandomScale() const
@@ -105,11 +112,128 @@ Float3 FoliageType::GetRandomScale() const
     return result;
 }
 
+void FoliageType::InvalidateCachedDrawSetup()
+{
+    ScopeLock lock(_cachedDrawSetupLocker);
+    _cachedDrawSetupFrame = 0;
+    _cachedDrawSetup.Clear();
+    _cachedMeshLookup.Clear();
+}
+
+void FoliageType::EnsureCachedDrawSetup(uint64 frame) const
+{
+    if (_cachedDrawSetupFrame == frame)
+        return;
+
+    ScopeLock lock(_cachedDrawSetupLocker);
+    if (_cachedDrawSetupFrame == frame)
+        return;
+
+    _cachedMeshLookup.Clear();
+
+    if (!IsReady() || !Model || !Model->IsLoaded())
+    {
+        _cachedDrawSetup.Clear();
+        _cachedDrawSetupFrame = frame;
+        return;
+    }
+
+    auto* foliageModel = this->Model.Get();
+    if (!foliageModel)
+    {
+        _cachedDrawSetup.Clear();
+        _cachedDrawSetupFrame = frame;
+        return;
+    }
+
+    const auto& modelLODs = foliageModel->LODs;
+    const int32 lodsCount = modelLODs.Count();
+    _cachedDrawSetup.Resize(lodsCount);
+
+    const auto& materialSlots = foliageModel->MaterialSlots;
+
+    for (int32 lodIndex = 0; lodIndex < lodsCount; lodIndex++)
+    {
+        const auto& lod = modelLODs.Get()[lodIndex];
+        auto& cachedLOD = _cachedDrawSetup[lodIndex].Meshes;
+        const auto& lodMeshes = lod.Meshes;
+        const int32 meshesCount = lodMeshes.Count();
+        cachedLOD.Resize(meshesCount);
+
+        for (int32 meshIndex = 0; meshIndex < meshesCount; meshIndex++)
+        {
+            auto& cache = cachedLOD[meshIndex];
+            const Mesh& mesh = lodMeshes.Get()[meshIndex];
+            cache.Mesh = &mesh;
+            cache.Visible = false;
+            cache.Material = nullptr;
+            cache.MaterialDrawModes = DrawPass::None;
+            cache.ShadowsMode = ShadowsCastingMode::None;
+            cache.ReceiveDecals = false;
+            cache.GeometrySize = Float3::Zero;
+
+            const int32 slotIndex = mesh.GetMaterialSlotIndex();
+            if (!Entries.IsValidIndex(slotIndex))
+                continue;
+
+            const auto& entry = Entries[slotIndex];
+            if (!entry.Visible || !mesh.IsInitialized())
+                continue;
+
+            if (!materialSlots.IsValidIndex(slotIndex))
+                continue;
+            const MaterialSlot& slot = materialSlots[slotIndex];
+
+            MaterialBase* material = nullptr;
+            if (entry.Material && entry.Material->IsLoaded())
+                material = entry.Material;
+            else if (slot.Material && slot.Material->IsLoaded())
+                material = slot.Material;
+            else
+                material = GPUDevice::Instance->GetDefaultMaterial();
+            if (!material || !material->IsSurface())
+                continue;
+
+            cache.Visible = true;
+            cache.Material = material;
+            cache.GeometrySize = mesh.GetBox().GetSize();
+            cache.MaterialDrawModes = material->GetDrawModes();
+            cache.ShadowsMode = (ShadowsCastingMode)(entry.ShadowsMode & slot.ShadowsMode);
+            cache.ReceiveDecals = entry.ReceiveDecals != 0;
+
+            _cachedMeshLookup[&mesh] = Pair<int32, int32>(lodIndex, meshIndex);
+        }
+    }
+
+    _cachedDrawSetupFrame = frame;
+}
+
+const FoliageType::CachedMeshSlot* FoliageType::GetCachedMeshSlot(const Mesh* mesh) const
+{
+    if (!mesh)
+        return nullptr;
+
+    const auto* indices = _cachedMeshLookup.TryGet(mesh);
+    if (!indices)
+        return nullptr;
+
+    const int32 lodIndex = indices->First;
+    const int32 meshIndex = indices->Second;
+    if (!_cachedDrawSetup.IsValidIndex(lodIndex))
+        return nullptr;
+    const auto& meshes = _cachedDrawSetup[lodIndex].Meshes;
+    if (!meshes.IsValidIndex(meshIndex))
+        return nullptr;
+
+    return &meshes[meshIndex];
+}
+
 void FoliageType::OnModelChanged()
 {
     // Cleanup
     _isReady = 0;
     Entries.Release();
+    InvalidateCachedDrawSetup();
 }
 
 void FoliageType::OnModelLoaded()
@@ -122,6 +246,7 @@ void FoliageType::OnModelLoaded()
 
     // Inform foliage that instances may need to be updated (data caching, etc.)
     Foliage->OnFoliageTypeModelLoaded(Index);
+    InvalidateCachedDrawSetup();
 }
 
 void FoliageType::Serialize(SerializeStream& stream, const void* otherObj)
@@ -205,4 +330,5 @@ void FoliageType::Deserialize(DeserializeStream& stream, ISerializeModifier* mod
     DESERIALIZE(PlacementRandomRollAngle);
     DESERIALIZE_BIT(PlacementAlignToNormal);
     DESERIALIZE_BIT(PlacementRandomYaw);
+    InvalidateCachedDrawSetup();
 }
