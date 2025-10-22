@@ -145,10 +145,10 @@ void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instan
         key.Geo = &meshes.Get()[meshIndex];
         key.Lightmap = instance.Lightmap.TextureIndex;
         const auto& cachedMesh = cachedMeshes[meshIndex];
-        FoliageBatchedDrawCall* batch = result.TryGet(key);
+        BatchedDrawCall* batch = result.TryGet(key);
         if (!batch)
         {
-            FoliageBatchedDrawCall& newBatch = result.At(key);
+            BatchedDrawCall& newBatch = result.At(key);
             newBatch.DrawCall = {};
             newBatch.ObjectsStartIndex = 0;
             newBatch.Instances.Clear();
@@ -551,8 +551,7 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
         }
 
         // Add draw call batch
-        BatchedDrawCall* bdc = reinterpret_cast<BatchedDrawCall*>(&batch);
-        const int32 batchIndex = renderContext.List->BatchedDrawCalls.Add(MoveTemp(*bdc));
+        const int32 batchIndex = renderContext.List->BatchedDrawCalls.Add(MoveTemp(batch));
 
         // Add draw call to proper draw lists
         if (EnumHasAnyFlags(drawModes, DrawPass::Depth))

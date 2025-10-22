@@ -8,6 +8,9 @@
 #include "FoliageType.h"
 #include "Engine/Level/Actor.h"
 #include "Engine/Renderer/RendererAllocation.h"
+#include "Engine/Renderer/RenderList.h"
+#include "Engine/Core/Collections/Array.h"
+#include "Engine/Core/Collections/Dictionary.h"
 #include "Engine/Core/Memory/SimpleHeapAllocation.h"
 
 class FoliageRendererAllocation : public SimpleHeapAllocation<FoliageRendererAllocation, 1024>
@@ -189,16 +192,10 @@ public:
         }
     };
 
-    struct FoliageBatchedDrawCall
-    {
-        DrawCall DrawCall;
-        uint16 ObjectsStartIndex = 0; // Index of the instances start in the ObjectsBuffer (set internally).
-        Array<struct ShaderObjectData, RendererAllocation> Instances;
-    };
-
 private:
-    typedef Array<struct BatchedDrawCall, InlinedAllocation<8>> DrawCallsList;
-    typedef Dictionary<DrawKey, struct BatchedDrawCall, class RendererAllocation> BatchedDrawCalls;
+    typedef Array<BatchedDrawCall, InlinedAllocation<8, RendererAllocation>> DrawCallsList;
+    typedef Dictionary<DrawKey, BatchedDrawCall, RendererAllocation> BatchedDrawCalls;
+    typedef Array<DrawKey, RendererAllocation> BatchedDrawCallKeys;
 
     void DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches) const;
     void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches) const;
