@@ -22,6 +22,7 @@
 #include "Engine/Renderer/GI/GlobalSurfaceAtlasPass.h"
 #include "Engine/Serialization/Serialization.h"
 #include "Engine/Utilities/Encryption.h"
+#include "Engine/Core/Templates.h"
 
 #define FOLIAGE_GET_DRAW_MODES(renderContext, type) (type.DrawModes & renderContext.View.Pass & renderContext.View.GetShadowsDrawPassMask(type.ShadowsMode))
 #define FOLIAGE_CAN_DRAW(renderContext, type) (type.IsReady() && FOLIAGE_GET_DRAW_MODES(renderContext, type) != DrawPass::None && type.Model->CanBeRendered())
@@ -492,19 +493,19 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
     }
 
     // Draw instances of the foliage type
-    BatchedDrawCalls _result;
-    DrawCluster(renderContext, type.Root, type, drawCallsLists, _result);
+    thread_local BatchedDrawCalls batchedDrawCalls;
+    DrawCluster(renderContext, type.Root, type, drawCallsLists, batchedDrawCalls);
 
     // Submit draw calls with valid instances added
-    for (auto& e : _result)
+    for (auto& e : batchedDrawCalls)
     {
         auto& batch = e.Value;
         if (batch.Instances.IsEmpty())
             continue;
         const auto& mesh = *e.Key.Geo;
-        const auto& entry = type.Entries[mesh.GetMaterialSlotIndex()];
+        const auto& typeEntry = type.Entries[mesh.GetMaterialSlotIndex()];
         const MaterialSlot& slot = type.Model->MaterialSlots[mesh.GetMaterialSlotIndex()];
-        const auto shadowsMode = entry.ShadowsMode & slot.ShadowsMode;
+        const auto shadowsMode = typeEntry.ShadowsMode & slot.ShadowsMode;
         const auto drawModes = typeDrawModes & renderContext.View.GetShadowsDrawPassMask(shadowsMode) & batch.DrawCall.Material->GetDrawModes();
 
         // Setup draw call
@@ -532,7 +533,7 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
 
         // Add draw call batch
         BatchedDrawCall* bdc = reinterpret_cast<BatchedDrawCall*>(&batch);
-        const int32 batchIndex = renderContext.List->BatchedDrawCalls.Add(*bdc);
+        const int32 batchIndex = renderContext.List->BatchedDrawCalls.Add(MoveTemp(*bdc));
 
         // Add draw call to proper draw lists
         if (EnumHasAnyFlags(drawModes, DrawPass::Depth))
@@ -541,7 +542,7 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
         }
         if (EnumHasAnyFlags(drawModes, DrawPass::GBuffer))
         {
-            if (entry.ReceiveDecals)
+            if (typeEntry.ReceiveDecals)
                 renderContext.List->DrawCallsLists[(int32)DrawCallsListType::GBuffer].PreBatchedDrawCalls.Add(batchIndex);
             else
                 renderContext.List->DrawCallsLists[(int32)DrawCallsListType::GBufferNoDecals].PreBatchedDrawCalls.Add(batchIndex);
@@ -555,6 +556,7 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
             renderContext.List->DrawCallsLists[(int32)DrawCallsListType::MotionVectors].PreBatchedDrawCalls.Add(batchIndex);
         }
     }
+    batchedDrawCalls.Clear();
 #else
     DrawCluster(renderContext, type.Root, draw);
 #endif

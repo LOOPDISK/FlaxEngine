@@ -7,6 +7,7 @@
 #include "FoliageCluster.h"
 #include "FoliageType.h"
 #include "Engine/Level/Actor.h"
+#include "Engine/Renderer/RendererAllocation.h"
 #include "Engine/Core/Memory/SimpleHeapAllocation.h"
 
 class FoliageRendererAllocation : public SimpleHeapAllocation<FoliageRendererAllocation, 1024>
@@ -192,10 +193,10 @@ public:
     {
         DrawCall DrawCall;
         uint16 ObjectsStartIndex = 0; // Index of the instances start in the ObjectsBuffer (set internally).
-        Array<struct ShaderObjectData, FoliageRendererAllocation> Instances;
+        Array<struct ShaderObjectData, RendererAllocation> Instances;
     };
 
-    private:
+private:
     typedef Array<struct FoliageBatchedDrawCall, InlinedAllocation<8>> DrawCallsList;
     typedef Dictionary<DrawKey, struct FoliageBatchedDrawCall, class FoliageRendererAllocation> BatchedDrawCalls;
 
