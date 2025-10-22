@@ -1,6 +1,7 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 #include "RenderList.h"
+#include "Engine/Core/Collections/Dictionary.h"
 #include "Engine/Core/Collections/Sorting.h"
 #include "Engine/Graphics/Materials/IMaterial.h"
 #include "Engine/Graphics/Materials/MaterialShader.h"
@@ -28,7 +29,7 @@ static_assert(sizeof(ShaderObjectData) == sizeof(Float4) * ARRAY_COUNT(ShaderObj
 namespace
 {
     Array<RenderList*> FreeRenderList;
-    Array<Pair<void*, uintptr>> MemPool;
+    Dictionary<uintptr, Array<void*>> MemPoolBySize;
     CriticalSection MemPoolLocker;
 }
 
@@ -171,14 +172,11 @@ void* RendererAllocation::Allocate(uintptr size)
 {
     void* result = nullptr;
     MemPoolLocker.Lock();
-    for (int32 i = MemPool.Count() - 1; i >= 0; i--)
+    auto freeList = MemPoolBySize.TryGet(size);
+    if (freeList && freeList->HasItems())
     {
-        if (MemPool.Get()[i].Second == size)
-        {
-            result = MemPool.Get()[i].First;
-            MemPool.RemoveAt(i);
-            break;
-        }
+        result = freeList->Last();
+        freeList->RemoveLast();
     }
     MemPoolLocker.Unlock();
     if (!result)
@@ -188,8 +186,18 @@ void* RendererAllocation::Allocate(uintptr size)
 
 void RendererAllocation::Free(void* ptr, uintptr size)
 {
+    if (!ptr)
+        return;
+
     MemPoolLocker.Lock();
-    MemPool.Add({ ptr, size });
+    auto freeList = MemPoolBySize.TryGet(size);
+    if (!freeList)
+    {
+        auto bucket = MemPoolBySize.Add(size, Array<void*>());
+        freeList = &bucket->Value;
+        freeList->EnsureCapacity(8);
+    }
+    freeList->Add(ptr);
     MemPoolLocker.Unlock();
 }
 
@@ -227,9 +235,15 @@ void RenderList::CleanupCache()
 
     MemPoolLocker.Lock();
     FreeRenderList.ClearDelete();
-    for (auto& e : MemPool)
-        Platform::Free(e.First);
-    MemPool.Clear();
+    for (auto i = MemPoolBySize.Begin(); i.IsNotEnd(); ++i)
+    {
+        auto& blocks = i->Value;
+        const int32 blocksCount = blocks.Count();
+        for (int32 blockIndex = 0; blockIndex < blocksCount; blockIndex++)
+            Platform::Free(blocks[blockIndex]);
+        blocks.Clear();
+    }
+    MemPoolBySize.Clear();
     MemPoolLocker.Unlock();
 }
 
