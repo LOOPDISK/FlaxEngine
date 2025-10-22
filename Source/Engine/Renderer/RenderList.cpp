@@ -171,7 +171,7 @@ void* RendererAllocation::Allocate(uintptr size)
 {
     void* result = nullptr;
     MemPoolLocker.Lock();
-    for (int32 i = 0; i < MemPool.Count(); i++)
+    for (int32 i = MemPool.Count() - 1; i >= 0; i--)
     {
         if (MemPool.Get()[i].Second == size)
         {

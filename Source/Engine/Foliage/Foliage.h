@@ -194,6 +194,8 @@ public:
         DrawCall DrawCall;
         uint16 ObjectsStartIndex = 0; // Index of the instances start in the ObjectsBuffer (set internally).
         Array<struct ShaderObjectData, RendererAllocation> Instances;
+        uint64 LastUsedFrame = 0;
+        int32 LastUsedTypeIndex = -1;
     };
 
 private:
@@ -201,8 +203,8 @@ private:
     typedef Dictionary<DrawKey, struct FoliageBatchedDrawCall, class FoliageRendererAllocation> BatchedDrawCalls;
     typedef Array<DrawKey, RendererAllocation> BatchedDrawCallKeys;
 
-    void DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches) const;
-    void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches) const;
+    void DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches, uint64 frame) const;
+    void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches, uint64 frame) const;
 #else
     void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, Mesh::DrawInfo& draw);
 #endif
