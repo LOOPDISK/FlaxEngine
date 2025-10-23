@@ -82,6 +82,8 @@ Actor::Actor(const SpawnParams& params)
     , _staticFlags(StaticFlags::FullyStatic)
     , _localTransform(Transform::Identity)
     , _transform(Transform::Identity)
+    , _cachedWorldTransform(Transform::Identity)
+    , _isWorldTransformDirty(true)
     , _sphere(BoundingSphere::Empty)
     , _box(BoundingBox::Zero)
     , _scene(nullptr)
@@ -808,17 +810,32 @@ void Actor::GetWorldToLocalMatrix(Matrix& worldToLocal) const
 
 void Actor::GetLocalToWorldMatrix(Matrix& localToWorld) const
 {
-#if 0
-    _transform.GetWorld(localToWorld);
-#else
-    _localTransform.GetWorld(localToWorld);
-    if (_parent)
+    if (_isWorldTransformDirty)
     {
-        Matrix parentToWorld;
-        _parent->GetLocalToWorldMatrix(parentToWorld);
-        localToWorld = localToWorld * parentToWorld;
+        if (_parent)
+        {
+            Matrix parentToWorld;
+            _parent->GetLocalToWorldMatrix(parentToWorld);
+            _localTransform.GetWorld(localToWorld);
+            localToWorld = localToWorld * parentToWorld;
+        }
+        else
+        {
+            _localTransform.GetWorld(localToWorld);
+        }
+        // Decompose the localToWorld matrix into components for Transform
+        Float3 scale;
+        Quaternion rotation;
+        Float3 translation;
+        localToWorld.Decompose(scale, rotation, translation);
+
+        _cachedWorldTransform.Translation = translation;
+        _cachedWorldTransform.Orientation = rotation;
+        _cachedWorldTransform.Scale = scale;
+
+        _isWorldTransformDirty = false;
     }
-#endif
+    localToWorld = _cachedWorldTransform.GetWorld();
 }
 
 void Actor::GetWorldToLocalMatrix(Double4x4& worldToLocal) const
@@ -829,17 +846,59 @@ void Actor::GetWorldToLocalMatrix(Double4x4& worldToLocal) const
 
 void Actor::GetLocalToWorldMatrix(Double4x4& localToWorld) const
 {
-#if 0
-    _transform.GetWorld(localToWorld);
-#else
-    _localTransform.GetWorld(localToWorld);
-    if (_parent)
+    if (_isWorldTransformDirty)
     {
-        Double4x4 parentToWorld;
-        _parent->GetLocalToWorldMatrix(parentToWorld);
-        localToWorld = localToWorld * parentToWorld;
+        if (_parent)
+        {
+            Double4x4 parentToWorld;
+            _parent->GetLocalToWorldMatrix(parentToWorld);
+            _localTransform.GetWorld(localToWorld);
+            localToWorld = localToWorld * parentToWorld;
+        }
+        else
+        {
+            _localTransform.GetWorld(localToWorld);
+        }
+        // Manually decompose the localToWorld (Double4x4) matrix into components for Transform
+        Vector3 translation;
+        Quaternion rotation;
+        Float3 scale;
+
+        // Extract Translation (M41, M42, M43)
+        translation = Vector3((float)localToWorld.M41, (float)localToWorld.M42, (float)localToWorld.M43);
+
+        // Extract Scale and Rotation
+        // This is a simplified decomposition. A full decomposition handles shear.
+        // Assuming no shear, the basis vectors are orthogonal.
+        Vector3 xAxis = Vector3((float)localToWorld.M11, (float)localToWorld.M12, (float)localToWorld.M13);
+        Vector3 yAxis = Vector3((float)localToWorld.M21, (float)localToWorld.M22, (float)localToWorld.M23);
+        Vector3 zAxis = Vector3((float)localToWorld.M31, (float)localToWorld.M32, (float)localToWorld.M33);
+
+        scale.X = xAxis.Length();
+        scale.Y = yAxis.Length();
+        scale.Z = zAxis.Length();
+
+        // Normalize basis vectors to get rotation matrix
+        if (scale.X != 0.0f) xAxis /= scale.X;
+        if (scale.Y != 0.0f) yAxis /= scale.Y;
+        if (scale.Z != 0.0f) zAxis /= scale.Z;
+
+        Matrix rotationMatrix(
+            xAxis.X, xAxis.Y, xAxis.Z, 0.0f,
+            yAxis.X, yAxis.Y, yAxis.Z, 0.0f,
+            zAxis.X, zAxis.Y, zAxis.Z, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f
+        );
+        Quaternion::RotationMatrix(rotationMatrix, rotation);
+
+
+        _cachedWorldTransform.Translation = translation;
+        _cachedWorldTransform.Orientation = rotation;
+        _cachedWorldTransform.Scale = scale;
+
+        _isWorldTransformDirty = false;
     }
-#endif
+    localToWorld = _cachedWorldTransform.GetWorld();
 }
 
 void Actor::LinkPrefab(const Guid& prefabId, const Guid& prefabObjectId)
@@ -1258,6 +1317,7 @@ void Actor::OnParentChanged()
 
 void Actor::OnTransformChanged()
 {
+    _isWorldTransformDirty = true; // Mark as dirty
     ASSERT_LOW_LAYER(!_localTransform.IsNanOrInfinity());
 
     if (_parent)

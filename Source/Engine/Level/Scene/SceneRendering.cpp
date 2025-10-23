@@ -268,7 +268,25 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
     key = -1;
 }
 
-#define FOR_EACH_BATCH_ACTOR const int64 count = _drawListSize; while (true) { const int64 index = Platform::InterlockedIncrement(&_drawListIndex); if (index >= count) break; auto e = _drawListData[index];
+#define FOR_EACH_BATCH_ACTOR_BEGIN \
+    const int64 count = _drawListSize; \
+    const int32 batchSize = 8; \
+    while (true) \
+    { \
+        const int64 base = Platform::InterlockedAdd(&_drawListIndex, batchSize); \
+        int64 start = base + 1; \
+        if (start >= count) \
+            break; \
+        int64 end = start + batchSize; \
+        if (end > count) \
+            end = count; \
+        for (int64 index = start; index < end; ++index) \
+        { \
+            auto e = _drawListData[index];
+
+#define FOR_EACH_BATCH_ACTOR_END \
+        } \
+    }
 #define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData, hzb, skipOcclusion)))
 #define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum, hzb, skipOcclusion)))
 #if SCENE_RENDERING_USE_PROFILER_PER_ACTOR
@@ -311,47 +329,48 @@ void SceneRendering::DrawActorsJob(int32)
     if (view.StaticFlagsMask != StaticFlags::None)
     {
         // Static-flags culling
-        FOR_EACH_BATCH_ACTOR
+        FOR_EACH_BATCH_ACTOR_BEGIN
             e.Bounds.Center -= view.Origin;
             if (CHECK_ACTOR && (e.Actor->GetStaticFlags() & view.StaticFlagsMask) == view.StaticFlagsCompare)
             {
                 DRAW_ACTOR(*_drawBatch);
             }
-        }
+        FOR_EACH_BATCH_ACTOR_END
     }
     else if (view.Origin.IsZero() && _drawFrustumsData.Count() == 1)
     {
         // Fast path for no origin shifting with a single context
-        FOR_EACH_BATCH_ACTOR
+        FOR_EACH_BATCH_ACTOR_BEGIN
             if (CHECK_ACTOR_SINGLE_FRUSTUM)
             {
                 DRAW_ACTOR(mainContext);
             }
-        }
+        FOR_EACH_BATCH_ACTOR_END
     }
     else if (view.Origin.IsZero())
     {
         // Fast path for no origin shifting
-        FOR_EACH_BATCH_ACTOR
+        FOR_EACH_BATCH_ACTOR_BEGIN
             if (CHECK_ACTOR)
             {
                 DRAW_ACTOR(*_drawBatch);
             }
-        }
+        FOR_EACH_BATCH_ACTOR_END
     }
     else
     {
         // Generic case
-        FOR_EACH_BATCH_ACTOR
+        FOR_EACH_BATCH_ACTOR_BEGIN
             e.Bounds.Center -= view.Origin;
             if (CHECK_ACTOR)
             {
                 DRAW_ACTOR(*_drawBatch);
             }
-        }
+        FOR_EACH_BATCH_ACTOR_END
     }
 }
 
-#undef FOR_EACH_BATCH_ACTOR
+#undef FOR_EACH_BATCH_ACTOR_BEGIN
+#undef FOR_EACH_BATCH_ACTOR_END
 #undef CHECK_ACTOR
 #undef DRAW_ACTOR

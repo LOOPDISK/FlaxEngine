@@ -45,6 +45,8 @@ protected:
     StaticFlags _staticFlags;
     Transform _localTransform;
     Transform _transform;
+    mutable Transform _cachedWorldTransform; // Added for caching world matrix
+    mutable bool _isWorldTransformDirty;     // Added for caching world matrix
     BoundingSphere _sphere;
     BoundingBox _box;
     String _name;

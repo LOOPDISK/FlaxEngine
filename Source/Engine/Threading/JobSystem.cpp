@@ -238,6 +238,7 @@ int32 JobSystemThread::Run()
         else
         {
             // Wait for signal
+            PROFILE_CPU_NAMED("JobSystem::WaitForJob");
             JobsMutex.Lock();
             JobsSignal.Wait(JobsMutex);
             JobsMutex.Unlock();
