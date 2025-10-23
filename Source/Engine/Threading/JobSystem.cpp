@@ -12,6 +12,7 @@
 #include "Engine/Core/Collections/RingBuffer.h"
 #include "Engine/Engine/EngineService.h"
 #include "Engine/Profiler/ProfilerCPU.h"
+#include "ConcurrentQueue.h"
 #if USE_CSHARP
 #include "Engine/Scripting/ManagedCLR/MCore.h"
 #endif
@@ -102,7 +103,7 @@ namespace
     ConditionVariable WaitSignal;
     CriticalSection WaitMutex;
     CriticalSection JobsLocker;
-    RingBuffer<JobData> Jobs;
+    ConcurrentQueue<JobData> Jobs;
 }
 
 void* JobSystemAllocation::Allocate(uintptr size)
@@ -165,7 +166,6 @@ void JobSystemService::Dispose()
     }
 
     JobContexts.SetCapacity(0);
-    Jobs.Release();
     for (auto& e : MemPool)
         Platform::Free(e.First);
     MemPool.Clear();
@@ -181,15 +181,13 @@ int32 JobSystemThread::Run()
     while (Platform::AtomicRead(&ExitFlag) == 0)
     {
         // Try to get a job
-        JobsLocker.Lock();
-        if (Jobs.Count() != 0)
+        if (Jobs.try_dequeue(data))
         {
-            data = Jobs.PeekFront();
-            Jobs.PopFront();
+            JobsLocker.Lock();
             const JobContext& context = ((const Dictionary<int64, JobContext>&)JobContexts).At(data.JobKey);
             job = context.Job;
+            JobsLocker.Unlock();
         }
-        JobsLocker.Unlock();
 
         if (job.IsBinded())
         {
@@ -221,7 +219,7 @@ int32 JobSystemThread::Run()
                         JobData dependantData;
                         dependantData.JobKey = dependant;
                         for (dependantData.Index = 0; dependantData.Index < dependantContext.JobsLeft; dependantData.Index++)
-                            Jobs.PushBack(dependantData);
+                            Jobs.enqueue(dependantData);
                     }
                 }
 
@@ -287,7 +285,7 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, int32 jobCount)
     JobsLocker.Lock();
     JobContexts.Add(label, MoveTemp(context));
     for (data.Index = 0; data.Index < jobCount; data.Index++)
-        Jobs.PushBack(data);
+        Jobs.enqueue(data);
     JobsLocker.Unlock();
 
     if (JobStartingOnDispatch)
@@ -336,7 +334,7 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, Span<int64> dependen
     {
         // No dependencies left to complete so dispatch now
         for (data.Index = 0; data.Index < jobCount; data.Index++)
-            Jobs.PushBack(data);
+            Jobs.enqueue(data);
     }
     JobsLocker.Unlock();
 
@@ -408,9 +406,7 @@ void JobSystem::SetJobStartingOnDispatch(bool value)
     JobStartingOnDispatch = value;
     if (value)
     {
-        JobsLocker.Lock();
-        const int32 count = Jobs.Count();
-        JobsLocker.Unlock();
+        const int32 count = Jobs.size_approx();
         if (count == 1)
             JobsSignal.NotifyOne();
         else if (count != 0)
