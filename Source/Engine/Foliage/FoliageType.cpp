@@ -5,10 +5,6 @@
 #include "Engine/Core/Templates.h"
 #include "Engine/Core/Random.h"
 #include "Engine/Serialization/Serialization.h"
-#include "Engine/Graphics/GPUDevice.h"
-#include "Engine/Graphics/Models/Mesh.h"
-#include "Engine/Content/Assets/MaterialBase.h"
-#include "Engine/Threading/Threading.h"
 #include "Foliage.h"
 
 FoliageType::FoliageType()
@@ -68,6 +64,7 @@ Array<MaterialBase*> FoliageType::GetMaterials() const
 
 void FoliageType::SetMaterials(const Array<MaterialBase*>& value)
 {
+    PROFILE_MEM(LevelFoliage);
     CHECK(value.Count() == Entries.Count());
     for (int32 i = 0; i < value.Count(); i++)
         Entries[i].Material = value[i];
@@ -238,6 +235,8 @@ void FoliageType::OnModelChanged()
 
 void FoliageType::OnModelLoaded()
 {
+    PROFILE_MEM(LevelFoliage);
+
     // Now it's ready
     _isReady = 1;
 
@@ -294,6 +293,7 @@ void FoliageType::Serialize(SerializeStream& stream, const void* otherObj)
 
 void FoliageType::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
 {
+    PROFILE_MEM(LevelFoliage);
     DESERIALIZE(Model);
 
     const auto member = stream.FindMember("Materials");

@@ -6,6 +6,7 @@
 #include "FoliageInstance.h"
 #include "FoliageCluster.h"
 #include "FoliageType.h"
+#include "Engine/Core/Memory/ArenaAllocation.h"
 #include "Engine/Level/Actor.h"
 #include "Engine/Renderer/RendererAllocation.h"
 #include "Engine/Renderer/RenderList.h"
@@ -203,13 +204,10 @@ public:
         }
     };
 
-private:
-    typedef Array<BatchedDrawCall, InlinedAllocation<8, RendererAllocation>> DrawCallsList;
-    typedef Dictionary<DrawKey, BatchedDrawCall, RendererAllocation> BatchedDrawCalls;
-    typedef Array<DrawKey, RendererAllocation> BatchedDrawCallKeys;
-
-    void DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches) const;
-    void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches) const;
+    typedef Array<struct BatchedDrawCall, InlinedAllocation<8>> DrawCallsList;
+    typedef Dictionary<DrawKey, struct BatchedDrawCall, class RendererAllocation> BatchedDrawCalls;
+    void DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
+    void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
 #else
     void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, Mesh::DrawInfo& draw);
 #endif

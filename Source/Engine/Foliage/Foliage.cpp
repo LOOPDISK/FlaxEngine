@@ -174,26 +174,20 @@ void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instan
     for (int32 meshIndex = 0; meshIndex < meshes.Count(); meshIndex++)
     {
         auto& drawCall = drawCallsLists[lod][meshIndex];
-        if (!drawCall.DrawCall.Material)
+        if (!drawCall.Material)
             continue;
         if (!cachedMeshes.IsValidIndex(meshIndex))
             continue;
 
         DrawKey key;
-        key.Mat = drawCall.DrawCall.Material;
+        key.Mat = drawCall.Material;
         key.Geo = &meshes.Get()[meshIndex];
         key.Lightmap = instance.Lightmap.TextureIndex;
         const auto& cachedMesh = cachedMeshes[meshIndex];
         BatchedDrawCall* batch = result.TryGet(key);
         if (!batch)
         {
-            BatchedDrawCall& newBatch = result.At(key);
-            newBatch.DrawCall = {};
-            newBatch.ObjectsStartIndex = 0;
-            newBatch.Instances.Clear();
-            newBatch.Instances.EnsureCapacity(64); // Pre-allocate to avoid lock contention during rendering
-            activeBatches.Add(key);
-
+            e = &result[key];
             ASSERT_LOW_LAYER(key.Mat);
             newBatch.DrawCall.Material = key.Mat;
             newBatch.DrawCall.Surface.Lightmap = EnumHasAnyFlags(_staticFlags, StaticFlags::Lightmap) && _scene ? _scene->LightmapsData.GetReadyLightmap(key.Lightmap) : nullptr;
@@ -208,7 +202,7 @@ void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instan
         const Float3 translation = transform.Translation - renderContext.View.Origin;
         Matrix::Transformation(transform.Scale, transform.Orientation, translation, world);
         constexpr float worldDeterminantSign = 1.0f;
-        instanceData.Store(world, world, instance.Lightmap.UVsArea, drawCall.DrawCall.Surface.GeometrySize, instance.Random, worldDeterminantSign, lodDitherFactor);
+        instanceData.Store(world, world, instance.Lightmap.UVsArea, drawCall.Surface.GeometrySize, instance.Random, worldDeterminantSign, lodDitherFactor);
     }
 }
 
@@ -412,6 +406,7 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
                 draw.Bounds = sphere;
                 draw.PerInstanceRandom = instance.Random;
                 draw.DrawModes = type._drawModes;
+                draw.SetStencilValue(_layer);
                 type.Model->Draw(renderContext, draw);
 
                 //DebugDraw::DrawSphere(instance.Bounds, Color::YellowGreen);
@@ -495,6 +490,7 @@ void Foliage::DrawClusterGlobalSA(GlobalSurfaceAtlasPass* globalSA, const Vector
 void Foliage::DrawFoliageJob(int32 i)
 {
     PROFILE_CPU();
+    PROFILE_MEM(Graphics);
     const FoliageType& type = FoliageTypes[i];
     if (type.IsReady() && type.Model->CanBeRendered())
     {
@@ -533,7 +529,10 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
         {
             auto& drawCall = drawCallsList.Get()[meshIndex];
             drawCall.DrawCall.Material = nullptr;
-            if (!cachedMeshes.IsValidIndex(meshIndex))
+
+            // Check entry visibility
+            const auto& entry = type.Entries[mesh.GetMaterialSlotIndex()];
+            if (!entry.Visible || !mesh.IsInitialized())
                 continue;
 
             const auto& cache = cachedMeshes[meshIndex];
@@ -544,16 +543,14 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
             if (drawModes == DrawPass::None)
                 continue;
 
-            drawCall.DrawCall.Material = cache.Material;
-            drawCall.DrawCall.Surface.GeometrySize = cache.GeometrySize;
+            drawCall.DrawCall.Material = material;
+            drawCall.DrawCall.Surface.GeometrySize = mesh.GetBox().GetSize();
         }
     }
 
     // Draw instances of the foliage type
-    thread_local BatchedDrawCalls batchedDrawCalls;
-    thread_local BatchedDrawCallKeys activeBatchedBuckets;
-    activeBatchedBuckets.Clear();
-    DrawCluster(renderContext, type.Root, type, drawCallsLists, batchedDrawCalls, activeBatchedBuckets);
+    BatchedDrawCalls result;
+    DrawCluster(renderContext, type.Root, type, drawCallsLists, result);
 
     // Submit draw calls with valid instances added
     for (const DrawKey& activeKey : activeBatchedBuckets)
@@ -652,6 +649,7 @@ FoliageType* Foliage::GetFoliageType(int32 index)
 void Foliage::AddFoliageType(Model* model)
 {
     PROFILE_CPU();
+    PROFILE_MEM(LevelFoliage);
 
     // Ensure to have unique model
     CHECK(model);
@@ -730,6 +728,7 @@ int32 Foliage::GetFoliageTypeInstancesCount(int32 index) const
 
 void Foliage::AddInstance(const FoliageInstance& instance)
 {
+    PROFILE_MEM(LevelFoliage);
     ASSERT(instance.Type >= 0 && instance.Type < FoliageTypes.Count());
     auto type = &FoliageTypes[instance.Type];
 
@@ -806,6 +805,7 @@ void Foliage::OnFoliageTypeModelLoaded(int32 index)
     if (_disableFoliageTypeEvents)
         return;
     PROFILE_CPU();
+    PROFILE_MEM(LevelFoliage);
     auto& type = FoliageTypes[index];
     ASSERT(type.IsReady());
 
@@ -904,6 +904,7 @@ void Foliage::OnFoliageTypeModelLoaded(int32 index)
 void Foliage::RebuildClusters()
 {
     PROFILE_CPU();
+    PROFILE_MEM(LevelFoliage);
 
     // Faster path if foliage is empty or no types is ready
     bool anyTypeReady = false;
@@ -1298,6 +1299,7 @@ void Foliage::Draw(RenderContext& renderContext)
         draw.Bounds = instance.Bounds;
         draw.PerInstanceRandom = instance.Random;
         draw.DrawModes = type.DrawModes & view.Pass & view.GetShadowsDrawPassMask(type.ShadowsMode);
+        draw.SetStencilValue(_layer);
         type.Model->Draw(renderContext, draw);
         return;
     }
@@ -1349,7 +1351,7 @@ void Foliage::Draw(RenderContextBatch& renderContextBatch)
         _renderContextBatch = &renderContextBatch;
         Function<void(int32)> func;
         func.Bind<Foliage, &Foliage::DrawFoliageJob>(this);
-        const uint64 waitLabel = JobSystem::Dispatch(func, FoliageTypes.Count());
+        const int64 waitLabel = JobSystem::Dispatch(func, FoliageTypes.Count());
         renderContextBatch.WaitLabels.Add(waitLabel);
         return;
     }
@@ -1455,6 +1457,7 @@ void Foliage::Deserialize(DeserializeStream& stream, ISerializeModifier* modifie
     Actor::Deserialize(stream, modifier);
 
     PROFILE_CPU();
+    PROFILE_MEM(LevelFoliage);
 
     // Clear
 #if FOLIAGE_USE_SINGLE_QUAD_TREE

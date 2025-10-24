@@ -469,12 +469,73 @@ Array<Actor*> Actor::GetChildren(const MClass* type) const
 
 void Actor::DestroyChildren(float timeLeft)
 {
+    if (Children.IsEmpty())
+        return;
     PROFILE_CPU();
+
+    // Actors system doesn't support editing scene hierarchy from multiple threads
+    if (!IsInMainThread() && IsDuringPlay())
+    {
+        LOG(Error, "Editing scene hierarchy is only allowed on a main thread.");
+        return;
+    }
+
+    // Get all actors
     Array<Actor*> children = Children;
+
+#if USE_EDITOR
+    // Inform Editor beforehand
+    Level::callActorEvent(Level::ActorEventType::OnActorDestroyChildren, this, nullptr);
+#endif
+
+    if (_scene && IsActiveInHierarchy())
+    {
+        // Disable children
+        for (Actor* child : children)
+        {
+            if (child->IsActiveInHierarchy())
+            {
+                child->OnDisableInHierarchy();
+            }
+        }
+    }
+
+    Level::ScenesLock.Lock();
+
+    // Remove children all at once
+    Children.Clear();
+    _isHierarchyDirty = true;
+
+    // Unlink children from scene hierarchy
+    for (Actor* child : children)
+    {
+        child->_parent = nullptr;
+        if (!_isActiveInHierarchy)
+            child->_isActive = false; // Force keep children deactivated to reduce overhead during destruction
+        if (_scene)
+            child->SetSceneInHierarchy(nullptr);
+    }
+
+    Level::ScenesLock.Unlock();
+
+    // Inform actors about this
+    for (Actor* child : children)
+    {
+        child->OnParentChanged();
+    }
+
+    // Unlink children for hierarchy
+    for (Actor* child : children)
+    {
+        //child->EndPlay();
+
+        //child->SetParent(nullptr, false, false);
+    }
+
+    // Delete objects
     const bool useGameTime = timeLeft > ZeroTolerance;
     for (Actor* child : children)
     {
-        child->SetParent(nullptr, false, false);
         child->DeleteObject(timeLeft, useGameTime);
     }
 }
@@ -1189,9 +1250,10 @@ void Actor::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
             }
             else if (!parent && parentId.IsValid())
             {
+                Guid tmpId;
                 if (_prefabObjectID.IsValid())
                     LOG(Warning, "Missing parent actor {0} for \'{1}\', prefab object {2}", parentId, ToString(), _prefabObjectID);
-                else
+                else if (!modifier->IdsMapping.TryGet(parentId, tmpId) || tmpId.IsValid()) // Skip warning if object was mapped to empty id (intentionally ignored)
                     LOG(Warning, "Missing parent actor {0} for \'{1}\'", parentId, ToString());
             }
         }
@@ -1342,7 +1404,6 @@ void Actor::OnActiveChanged()
     if (wasActiveInTree != IsActiveInHierarchy())
         OnActiveInTreeChanged();
 
-    //if (GetScene())
     Level::callActorEvent(Level::ActorEventType::OnActorActiveChanged, this, nullptr);
 }
 
@@ -1373,7 +1434,6 @@ void Actor::OnActiveInTreeChanged()
 
 void Actor::OnOrderInParentChanged()
 {
-    //if (GetScene())
     Level::callActorEvent(Level::ActorEventType::OnActorOrderInParentChanged, this, nullptr);
 }
 
@@ -1760,7 +1820,7 @@ bool Actor::ToBytes(const Array<Actor*>& actors, MemoryWriteStream& output)
     }
 
     // Collect object ids that exist in the serialized data to allow references mapping later
-    Array<Guid> ids(Math::RoundUpToPowerOf2(actors.Count() * 2));
+    Array<Guid> ids(actors.Count());
     for (int32 i = 0; i < actors.Count(); i++)
     {
         // By default we collect actors and scripts (they are ManagedObjects recognized by the id)
@@ -2063,18 +2123,26 @@ Actor* Actor::Clone()
 
     // Remap object ids into a new ones
     auto modifier = Cache::ISerializeModifier.Get();
-    for (int32 i = 0; i < actors->Count(); i++)
+    for (const Actor* actor : *actors.Value)
     {
-        auto actor = actors->At(i);
         if (!actor)
             continue;
         modifier->IdsMapping.Add(actor->GetID(), Guid::New());
-        for (int32 j = 0; j < actor->Scripts.Count(); j++)
+        for (const Script* script : actor->Scripts)
         {
-            const auto script = actor->Scripts[j];
             if (script)
                 modifier->IdsMapping.Add(script->GetID(), Guid::New());
         }
+    }
+    if (HasPrefabLink() && HasParent() && !IsPrefabRoot())
+    {
+        // When cloning actor that is part of prefab (but not as whole), ignore the prefab hierarchy
+        Actor* parent = GetParent();
+        do
+        {
+            modifier->IdsMapping.Add(parent->GetPrefabObjectID(), Guid::Empty);
+            parent = parent->GetParent();
+        } while (parent && !parent->IsPrefabRoot());
     }
 
     // Deserialize objects
