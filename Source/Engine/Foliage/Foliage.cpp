@@ -191,6 +191,7 @@ void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instan
             newBatch.DrawCall = {};
             newBatch.ObjectsStartIndex = 0;
             newBatch.Instances.Clear();
+            newBatch.Instances.EnsureCapacity(64); // Pre-allocate to avoid lock contention during rendering
             activeBatches.Add(key);
 
             ASSERT_LOW_LAYER(key.Mat);
@@ -617,7 +618,10 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
             renderContext.List->DrawCallsLists[(int32)DrawCallsListType::MotionVectors].PreBatchedDrawCalls.Add(batchIndex);
         }
     }
-    batchedDrawCalls.Clear();
+    // Only remove entries that were actually used - avoids full Clear() iterating all buckets
+    // Note: MoveTemp above already emptied Instances, but we need to remove entries for proper reinitialization
+    for (const DrawKey& key : activeBatchedBuckets)
+        batchedDrawCalls.Remove(key);
     activeBatchedBuckets.Clear();
 #else
     DrawCluster(renderContext, type.Root, draw);
