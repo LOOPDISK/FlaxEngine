@@ -1,6 +1,7 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 #include "JobSystem.h"
+#include <atomic>
 #include "IRunnable.h"
 #include "Engine/Platform/CPUInfo.h"
 #include "Engine/Platform/Thread.h"
@@ -46,20 +47,46 @@ struct JobData
 {
     int32 Index;
     int64 JobKey;
-};
-
-template<>
-struct TIsPODType<JobData>
-{
-    enum { Value = true };
+    Function<void(int32)> Job;
 };
 
 struct JobContext
 {
-    volatile int64 JobsLeft;
-    int32 DependenciesLeft;
+    std::atomic<int64> JobsLeft;
+    std::atomic<int32> DependenciesLeft;
     Function<void(int32)> Job;
     Array<int64, JobSystemAllocation> Dependants;
+
+    // Default constructor
+    JobContext() = default;
+
+    // Move constructor
+    JobContext(JobContext&& other) noexcept
+        : JobsLeft(other.JobsLeft.load()),
+          DependenciesLeft(other.DependenciesLeft.load()),
+          Job(std::move(other.Job)),
+          Dependants(std::move(other.Dependants))
+    {
+    }
+
+    // Delete copy constructor
+    JobContext(const JobContext& other) = delete;
+
+    // Move assignment operator
+    JobContext& operator=(JobContext&& other) noexcept
+    {
+        if (this != &other)
+        {
+            JobsLeft.store(other.JobsLeft.load());
+            DependenciesLeft.store(other.DependenciesLeft.load());
+            Job = std::move(other.Job);
+            Dependants = std::move(other.Dependants);
+        }
+        return *this;
+    }
+
+    // Delete copy assignment operator
+    JobContext& operator=(const JobContext& other) = delete;
 };
 
 template<>
@@ -95,8 +122,8 @@ namespace
     Thread* Threads[PLATFORM_THREADS_LIMIT / 2] = {};
     int32 ThreadsCount = 0;
     bool JobStartingOnDispatch = true;
-    volatile int64 ExitFlag = 0;
-    volatile int64 JobLabel = 0;
+    std::atomic<int64> ExitFlag = 0;
+    std::atomic<int64> JobLabel = 0;
     Dictionary<int64, JobContext, JobSystemAllocation> JobContexts;
     ConditionVariable JobsSignal;
     CriticalSection JobsMutex;
@@ -145,13 +172,13 @@ bool JobSystemService::Init()
 
 void JobSystemService::BeforeExit()
 {
-    Platform::AtomicStore(&ExitFlag, 1);
+    ExitFlag.store(1);
     JobsSignal.NotifyAll();
 }
 
 void JobSystemService::Dispose()
 {
-    Platform::AtomicStore(&ExitFlag, 1);
+    ExitFlag.store(1);
     JobsSignal.NotifyAll();
     Platform::Sleep(1);
 
@@ -173,23 +200,15 @@ void JobSystemService::Dispose()
 
 int32 JobSystemThread::Run()
 {
-    Platform::SetThreadAffinityMask(1ull << Index);
+    // Thread affinity disabled to allow OS load balancing and reduce lock contention
+    // Platform::SetThreadAffinityMask(1ull << Index);
 
     JobData data;
-    Function<void(int32)> job;
     bool attachCSharpThread = true;
-    while (Platform::AtomicRead(&ExitFlag) == 0)
+    while (ExitFlag.load() == 0)
     {
         // Try to get a job
         if (Jobs.try_dequeue(data))
-        {
-            JobsLocker.Lock();
-            const JobContext& context = ((const Dictionary<int64, JobContext>&)JobContexts).At(data.JobKey);
-            job = context.Job;
-            JobsLocker.Unlock();
-        }
-
-        if (job.IsBinded())
         {
 #if USE_CSHARP
             // Ensure to have C# thread attached to this thead (late init due to MCore being initialized after Job System)
@@ -200,26 +219,29 @@ int32 JobSystemThread::Run()
             }
 #endif
 
-            // Run job
-            job(data.Index);
+            // Run job (job function is already stored in JobData, no dictionary lookup needed!)
+            data.Job(data.Index);
 
             // Move forward with the job queue
             bool notifyWaiting = false;
             JobsLocker.Lock();
-            JobContext& context = JobContexts.At(data.JobKey);
-            if (Platform::InterlockedDecrement(&context.JobsLeft) <= 0)
+            JobContext* context = JobContexts.TryGet(data.JobKey);
+            if (context && context->JobsLeft.fetch_sub(1) <= 1)
             {
                 // Update any dependant jobs
-                for (int64 dependant : context.Dependants)
+                for (int64 dependant : context->Dependants)
                 {
-                    JobContext& dependantContext = JobContexts.At(dependant);
-                    if (--dependantContext.DependenciesLeft <= 0)
+                    if (JobContext* dependantContext = JobContexts.TryGet(dependant))
                     {
-                        // Dispatch dependency when it's ready
-                        JobData dependantData;
-                        dependantData.JobKey = dependant;
-                        for (dependantData.Index = 0; dependantData.Index < dependantContext.JobsLeft; dependantData.Index++)
-                            Jobs.enqueue(dependantData);
+                        if (dependantContext->DependenciesLeft.fetch_sub(1) <= 1)
+                        {
+                            // Dispatch dependency when it's ready
+                            JobData dependantData;
+                            dependantData.JobKey = dependant;
+                            dependantData.Job = dependantContext->Job;
+                            for (dependantData.Index = 0; dependantData.Index < dependantContext->JobsLeft; dependantData.Index++)
+                                Jobs.enqueue(dependantData);
+                        }
                     }
                 }
 
@@ -230,8 +252,6 @@ int32 JobSystemThread::Run()
             JobsLocker.Unlock();
             if (notifyWaiting)
                 WaitSignal.NotifyAll();
-
-            job.Unbind();
         }
         else
         {
@@ -272,21 +292,22 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, int32 jobCount)
         return 0;
     PROFILE_CPU();
 #if JOB_SYSTEM_ENABLED
-    const auto label = Platform::InterlockedAdd(&JobLabel, (int64)jobCount) + jobCount;
+    const auto label = JobLabel.fetch_add(jobCount) + jobCount;
 
     JobData data;
-    data.JobKey = label;
+            data.JobKey = label;
+            data.Job = job;
+    
+            JobContext context;
+            context.Job = job;
+            context.JobsLeft.store(jobCount);
+            context.DependenciesLeft.store(0);
+    
+            JobsLocker.Lock();
+            JobContexts.Add(label, MoveTemp(context));    JobsLocker.Unlock();
 
-    JobContext context;
-    context.Job = job;
-    context.JobsLeft = jobCount;
-    context.DependenciesLeft = 0;
-
-    JobsLocker.Lock();
-    JobContexts.Add(label, MoveTemp(context));
     for (data.Index = 0; data.Index < jobCount; data.Index++)
         Jobs.enqueue(data);
-    JobsLocker.Unlock();
 
     if (JobStartingOnDispatch)
     {
@@ -310,22 +331,23 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, Span<int64> dependen
         return 0;
     PROFILE_CPU();
 #if JOB_SYSTEM_ENABLED
-    const auto label = Platform::InterlockedAdd(&JobLabel, (int64)jobCount) + jobCount;
+    const auto label = JobLabel.fetch_add(jobCount) + jobCount;
 
     JobData data;
     data.JobKey = label;
+    data.Job = job;
 
     JobContext context;
     context.Job = job;
-    context.JobsLeft = jobCount;
-    context.DependenciesLeft = 0;
+    context.JobsLeft.store(jobCount);
+    context.DependenciesLeft.store(0);
 
     JobsLocker.Lock();
     for (int64 dependency : dependencies)
     {
         if (JobContext* dependencyContext = JobContexts.TryGet(dependency))
         {
-            context.DependenciesLeft++;
+            context.DependenciesLeft.fetch_add(1);
             dependencyContext->Dependants.Add(label);
         }
     }
@@ -379,7 +401,7 @@ void JobSystem::Wait(int64 label)
 #if JOB_SYSTEM_ENABLED
     PROFILE_CPU();
 
-    while (Platform::AtomicRead(&ExitFlag) == 0)
+    while (ExitFlag.load() == 0)
     {
         JobsLocker.Lock();
         const JobContext* context = JobContexts.TryGet(label);
