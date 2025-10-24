@@ -16,6 +16,7 @@ struct PostProcessSettings;
 struct RenderContext;
 struct RenderContextBatch;
 struct RenderView;
+struct HZBData;
 
 /// <summary>
 /// Interface for actors that can override the default rendering settings (eg. PostFxVolume actor).

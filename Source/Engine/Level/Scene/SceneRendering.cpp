@@ -5,11 +5,29 @@
 #include "SceneRendering.h"
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/RenderView.h"
+#include "Engine/Graphics/Graphics.h"
 #include "Engine/Renderer/RenderList.h"
+#include "Engine/Renderer/HierarchialZBufferPass.h"
 #include "Engine/Threading/JobSystem.h"
+#include "Engine/Threading/Threading.h"
 #include "Engine/Physics/Actors/IPhysicsDebug.h"
 #include "Engine/Profiler/ProfilerCPU.h"
-#include "Engine/Physics/Actors/IPhysicsDebug.h"
+#include "Engine/Profiler/ProfilerMemory.h"
+#if !BUILD_RELEASE
+#include "Engine/Graphics/GPUDevice.h"
+#include "Engine/Core/Log.h"
+#endif
+
+#if BUILD_RELEASE
+#define CHECK_SCENE_EDIT_ACCESS()
+#else
+#define CHECK_SCENE_EDIT_ACCESS() \
+    if (_isRendering && IsInMainThread() && GPUDevice::Instance && GPUDevice::Instance->IsRendering()) \
+    { \
+        LOG(Error, "Adding/removing actors during rendering is not supported ({}, '{}').", a->ToString(), a->GetNamePath()); \
+        return; \
+    }
+#endif
 
 ISceneRenderingListener::~ISceneRenderingListener()
 {

@@ -164,7 +164,7 @@ void Foliage::AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_S
 
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE && FOLIAGE_USE_DRAW_CALLS_BATCHING
 
-void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches) const
+void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const
 {
     const auto& meshes = model->LODs.Get()[lod].Meshes;
     const auto& cachedDrawSetup = type.GetCachedDrawSetup();
@@ -187,11 +187,11 @@ void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instan
         BatchedDrawCall* batch = result.TryGet(key);
         if (!batch)
         {
-            e = &result[key];
+            auto* e = result.Add(key, BatchedDrawCall(renderContext.List));
+            batch = &e->Value;
             ASSERT_LOW_LAYER(key.Mat);
-            newBatch.DrawCall.Material = key.Mat;
-            newBatch.DrawCall.Surface.Lightmap = EnumHasAnyFlags(_staticFlags, StaticFlags::Lightmap) && _scene ? _scene->LightmapsData.GetReadyLightmap(key.Lightmap) : nullptr;
-            batch = &newBatch;
+            batch->DrawCall.Material = key.Mat;
+            batch->DrawCall.Surface.Lightmap = EnumHasAnyFlags(_staticFlags, StaticFlags::Lightmap) && _scene ? _scene->LightmapsData.GetReadyLightmap(key.Lightmap) : nullptr;
         }
         batch->DrawCall.Surface.GeometrySize = cachedMesh.GeometrySize;
 
@@ -202,11 +202,11 @@ void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instan
         const Float3 translation = transform.Translation - renderContext.View.Origin;
         Matrix::Transformation(transform.Scale, transform.Orientation, translation, world);
         constexpr float worldDeterminantSign = 1.0f;
-        instanceData.Store(world, world, instance.Lightmap.UVsArea, drawCall.Surface.GeometrySize, instance.Random, worldDeterminantSign, lodDitherFactor);
+        instanceData.Store(world, world, instance.Lightmap.UVsArea, cachedMesh.GeometrySize, instance.Random, worldDeterminantSign, lodDitherFactor);
     }
 }
 
-void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, BatchedDrawCallKeys& activeBatches) const
+void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const
 {
     // Skip clusters that around too far from view
     const auto lodView = (renderContext.LodProxyView ? renderContext.LodProxyView : &renderContext.View);
@@ -233,7 +233,7 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
             box.Minimum -= viewOrigin;
             box.Maximum -= viewOrigin;
             if (renderContext.View.CullingFrustum.Intersects(box))
-                DrawCluster(renderContext, child, type, drawCallsLists, result, activeBatches);
+                DrawCluster(renderContext, child, type, drawCallsLists, result);
         }
     }
     else
@@ -278,7 +278,7 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
                         {
                             const auto prevLOD = model->ClampLODIndex(instance.DrawState.PrevLOD);
                             const float normalizedProgress = static_cast<float>(instance.DrawState.LODTransition) * (1.0f / 255.0f);
-                            DrawInstance(renderContext, instance, type, model, prevLOD, normalizedProgress, drawCallsLists, result, activeBatches);
+                            DrawInstance(renderContext, instance, type, model, prevLOD, normalizedProgress, drawCallsLists, result);
                         }
                     }
                     instance.DrawState.PrevFrame = frame;
@@ -315,19 +315,19 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
                 // Draw
                 if (instance.DrawState.PrevLOD == lodIndex)
                 {
-                    DrawInstance(renderContext, instance, type, model, lodIndex, 0.0f, drawCallsLists, result, activeBatches);
+                    DrawInstance(renderContext, instance, type, model, lodIndex, 0.0f, drawCallsLists, result);
                 }
                 else if (instance.DrawState.PrevLOD == -1)
                 {
                     const float normalizedProgress = static_cast<float>(instance.DrawState.LODTransition) * (1.0f / 255.0f);
-                    DrawInstance(renderContext, instance, type, model, lodIndex, 1.0f - normalizedProgress, drawCallsLists, result, activeBatches);
+                    DrawInstance(renderContext, instance, type, model, lodIndex, 1.0f - normalizedProgress, drawCallsLists, result);
                 }
                 else
                 {
                     const auto prevLOD = model->ClampLODIndex(instance.DrawState.PrevLOD);
                     const float normalizedProgress = static_cast<float>(instance.DrawState.LODTransition) * (1.0f / 255.0f);
-                    DrawInstance(renderContext, instance, type, model, prevLOD, normalizedProgress, drawCallsLists, result, activeBatches);
-                    DrawInstance(renderContext, instance, type, model, lodIndex, normalizedProgress - 1.0f, drawCallsLists, result, activeBatches);
+                    DrawInstance(renderContext, instance, type, model, prevLOD, normalizedProgress, drawCallsLists, result);
+                    DrawInstance(renderContext, instance, type, model, lodIndex, normalizedProgress - 1.0f, drawCallsLists, result);
                 }
 
                 //DebugDraw::DrawSphere(instance.Bounds, Color::YellowGreen);
@@ -528,11 +528,8 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
         for (int32 meshIndex = 0; meshIndex < meshes.Count(); meshIndex++)
         {
             auto& drawCall = drawCallsList.Get()[meshIndex];
-            drawCall.DrawCall.Material = nullptr;
-
-            // Check entry visibility
-            const auto& entry = type.Entries[mesh.GetMaterialSlotIndex()];
-            if (!entry.Visible || !mesh.IsInitialized())
+            drawCall.Material = nullptr;
+            if (!cachedMeshes.IsValidIndex(meshIndex))
                 continue;
 
             const auto& cache = cachedMeshes[meshIndex];
@@ -543,25 +540,22 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
             if (drawModes == DrawPass::None)
                 continue;
 
-            drawCall.DrawCall.Material = material;
-            drawCall.DrawCall.Surface.GeometrySize = mesh.GetBox().GetSize();
+            drawCall.Material = cache.Material;
+            drawCall.Surface.GeometrySize = cache.GeometrySize;
         }
     }
 
     // Draw instances of the foliage type
-    BatchedDrawCalls result;
+    BatchedDrawCalls result(&renderContext.List->Memory);
     DrawCluster(renderContext, type.Root, type, drawCallsLists, result);
 
     // Submit draw calls with valid instances added
-    for (const DrawKey& activeKey : activeBatchedBuckets)
+    for (auto i = result.Begin(); i.IsNotEnd(); ++i)
     {
-        auto* batchPtr = batchedDrawCalls.TryGet(activeKey);
-        if (!batchPtr)
-            continue;
-        auto& batch = *batchPtr;
+        auto& batch = i->Value;
         if (batch.Instances.IsEmpty())
             continue;
-        const auto& mesh = *activeKey.Geo;
+        const auto& mesh = *i->Key.Geo;
         const auto* cachedMesh = type.GetCachedMeshSlot(&mesh);
         if (!cachedMesh || !cachedMesh->Visible)
             continue;
@@ -615,11 +609,6 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Dr
             renderContext.List->DrawCallsLists[(int32)DrawCallsListType::MotionVectors].PreBatchedDrawCalls.Add(batchIndex);
         }
     }
-    // Only remove entries that were actually used - avoids full Clear() iterating all buckets
-    // Note: MoveTemp above already emptied Instances, but we need to remove entries for proper reinitialization
-    for (const DrawKey& key : activeBatchedBuckets)
-        batchedDrawCalls.Remove(key);
-    activeBatchedBuckets.Clear();
 #else
     DrawCluster(renderContext, type.Root, draw);
 #endif

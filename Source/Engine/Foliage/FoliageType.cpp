@@ -1,11 +1,16 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 #include "FoliageType.h"
+#include "Foliage.h"
 #include "Engine/Core/Collections/ArrayExtensions.h"
 #include "Engine/Core/Templates.h"
 #include "Engine/Core/Random.h"
 #include "Engine/Serialization/Serialization.h"
-#include "Foliage.h"
+#include "Engine/Graphics/GPUDevice.h"
+#include "Engine/Graphics/Models/Mesh.h"
+#include "Engine/Content/Assets/MaterialBase.h"
+#include "Engine/Threading/Threading.h"
+#include "Engine/Profiler/ProfilerMemory.h"
 
 FoliageType::FoliageType()
     : ScriptingObject(SpawnParams(Guid::New(), TypeInitializer))

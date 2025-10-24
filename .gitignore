@@ -156,3 +156,4 @@ obj/
 .idea/
 *.code-workspace
 omnisharp.json
+/.claude/settings.local.json
