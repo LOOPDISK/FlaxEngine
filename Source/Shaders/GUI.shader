@@ -91,12 +91,14 @@ float4 PS_Font(VS2PS input) : SV_Target0
 {
 	PerformClipping(input);
 
-	float4 color = input.Color;
-    float sd = Image.Sample(SamplerLinearClamp, input.TexCoord).r;
+	// float4 color = input.Color;
+    // float sd = Image.Sample(SamplerLinearClamp, input.TexCoord).r;
     // color.a *= sd;
     // return color;
-
-    float pxRange = 32.0;
+    
+	float4 color = input.Color;
+    float sd = Image.Sample(SamplerLinearClamp, input.TexCoord).r;
+    float pxRange = 16.0;
     uint w, h;
     Image.GetDimensions(w, h);
     float2 unitRange = float2(pxRange / w, pxRange / h);
