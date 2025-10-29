@@ -12,6 +12,7 @@
 #include "IncludeFreeType.h"
 #include <ThirdParty/freetype/ftsynth.h>
 #include <ThirdParty/freetype/ftbitmap.h>
+#include <ThirdParty/freetype/ftlcdfil.h>
 #include <ThirdParty/freetype/internal/ftdrv.h>
 
 namespace FontManagerImpl
@@ -85,6 +86,7 @@ bool FontManagerService::Init()
     // Log version info
     FT_Int major, minor, patch;
     FT_Library_Version(Library, &major, &minor, &patch);
+    FT_Library_SetLcdFilter(Library, FT_LCD_FILTER_DEFAULT);
     LOG(Info, "FreeType initialized, version: {0}.{1}.{2}", major, minor, patch);
 
     return false;
@@ -187,7 +189,7 @@ bool FontManager::AddNewEntry(Font* font, Char c, FontCharacterEntry& entry)
 
     // Render glyph to the bitmap
     FT_GlyphSlot glyph = face->glyph;
-    FT_Render_Glyph(glyph, useAA ? FT_RENDER_MODE_NORMAL : FT_RENDER_MODE_MONO);
+    FT_Render_Glyph(glyph, useAA ? FT_RENDER_MODE_SDF : FT_RENDER_MODE_MONO);
 
     FT_Bitmap* bitmap = &glyph->bitmap;
     FT_Bitmap tmpBitmap;

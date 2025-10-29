@@ -91,9 +91,26 @@ float4 PS_Font(VS2PS input) : SV_Target0
 {
 	PerformClipping(input);
 
+	// float4 color = input.Color;
+    // float sd = Image.Sample(SamplerLinearClamp, input.TexCoord).r;
+    // color.a *= sd;
+    // return color;
+    
 	float4 color = input.Color;
-	color.a *= Image.Sample(SamplerLinearClamp, input.TexCoord).r;
-	return color;
+    float sd = Image.Sample(SamplerLinearClamp, input.TexCoord).r;
+    float pxRange = 16.0;
+    uint w, h;
+    Image.GetDimensions(w, h);
+    float2 unitRange = float2(pxRange / w, pxRange / h);
+    float2 fw = fwidth(input.TexCoord);
+    float2 screenTexSize = float2(1.0 / fw);
+    float screenPxRange = max(0.5*dot(unitRange, screenTexSize), 1.0);
+
+    float screenPxDistance = screenPxRange*(sd - 0.5);
+    float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+    color.a = opacity;
+
+    return color;
 }
 
 float4 GetSample(float weight, float offset, float2 uv)
