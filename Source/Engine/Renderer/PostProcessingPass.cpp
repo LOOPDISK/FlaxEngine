@@ -809,6 +809,7 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
             context->BindSR(0, upscaleBuffer->View(0, mip + 1));
             context->BindSR(1, scatteringColorBuffer->View(0, mip + 1));
+            context->BindSR(3, input->View());
             context->BindSR(10, depthMipBuffer->View());
             context->SetState(_psDepthHazeDualFilterUpsample);
             context->DrawFullscreenTriangle();

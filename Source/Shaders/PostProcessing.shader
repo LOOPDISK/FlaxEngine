@@ -691,10 +691,16 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     uint width, height;
     Input0.GetDimensions(width, height);
     float2 texelSize = 1.0 / float2(width, height);
-
+    
     // Get center depth for comparison
     float centerDepth = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
     float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo);
+    
+    BRANCH
+    if (centerLinearDepth < DepthHazeNearDistance)
+    {
+        return Input0.Sample(SamplerLinearClamp, input.TexCoord);
+    }
 
     // Maintain fixed scale through mip chain
     float baseOffset = 1.0;
@@ -718,7 +724,8 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
         float2(0, offsetScale),
         float2(0, -offsetScale)
     };
-
+    
+    int closeEdgeFound = 0;
     UNROLL
     for (int i = 0; i < 4; i++)
     {
@@ -730,6 +737,7 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
         float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
         float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
         float depthWeight = exp(-depthDiff / depthThreshold);
+        closeEdgeFound += sampleLinearDepth < DepthHazeNearDistance;
 
         float weight = 2.0 * depthWeight;
         color += sampleColor.rgb * weight;
@@ -756,24 +764,31 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
         float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
         float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
         float depthWeight = exp(-depthDiff / depthThreshold);
+        closeEdgeFound += sampleLinearDepth < DepthHazeNearDistance;
 
         float weight = 1.0 * depthWeight;
         color += sampleColor.rgb * weight;
         totalWeight += weight;
     }
-
+    
     color /= totalWeight;
-
-    uint width1, height1;
-    Input1.GetDimensions(width1, height1);
-
+    
     // Calculate mip fade factor (0 = smallest mip, 1 = largest mip)
     float mipFade = BloomLayer / (BloomMipCount - 1);
-
+    
     // Use consistent intensity scaling with depth haze characteristics
     // Keep atmospheric layers more uniform compared to bloom
     float mipIntensity = lerp(0.8, 0.8, mipFade); // More uniform than bloom
     color *= mipIntensity;
+
+    BRANCH
+    if (closeEdgeFound > 0)
+    {
+        return Input3.Sample(SamplerLinearClamp, input.TexCoord) * mipIntensity;
+    }
+
+    uint width1, height1;
+    Input1.GetDimensions(width1, height1);
 
     BRANCH
     if (width1 > 0)
