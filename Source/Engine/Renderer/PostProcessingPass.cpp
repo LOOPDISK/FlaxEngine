@@ -321,6 +321,13 @@ int32 CalculateBloomMipCount(int32 width, int32 height)
     return mipCount;
 }
 
+static int32 mipSize(const int32 baseSize, int32 mip, float dispersion)
+{
+    //return baseSize >> mip;
+    float factor = 0.5f +dispersion * 0.001;
+    return baseSize * Math::Pow(factor, mip);
+}
+
 void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input, GPUTexture* output, GPUTexture* colorGradingLUT)
 {
     PROFILE_GPU_CPU("Post Processing");
@@ -380,6 +387,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     Data data;
     float time = Time::Draw.UnscaledTime.GetTotalSeconds();
     data.Time = Math::Fractional(time);
+    float dispersion = 0;
     if (useCameraArtifacts)
     {
         data.VignetteColor = settings.CameraArtifacts.VignetteColor;
@@ -407,6 +415,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.DepthHazeMaxMipLevel = settings.DepthHaze.MaxMipLevel;
         data.DepthHazeChromaticDispersion = settings.DepthHaze.ChromaticDispersion;
         data.DepthHazeMipCount = (float)bloomMipCount;
+        dispersion = settings.DepthHaze.ChromaticDispersion;
     }
     else
     {
@@ -505,8 +514,8 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         // Progressive downsamples
         for (int32 mip = 1; mip < bloomMipCount; mip++)
         {
-            const int32 mipWidth = w2 >> mip;
-            const int32 mipHeight = h2 >> mip;
+            const int32 mipWidth = mipSize(w2, mip, dispersion);// w2 >> mip;
+            const int32 mipHeight = mipSize(h2, mip, dispersion);// h2 >> mip;
 
             context->SetRenderTarget(bloomBuffer1->View(0, mip));
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
@@ -525,8 +534,8 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
                 // If it's the first, copy the chain over
                 upscaleBuffer = bloomBuffer1;
             }
-            const int32 mipWidth = w2 >> mip;
-            const int32 mipHeight = h2 >> mip;
+            const int32 mipWidth = mipSize(w2, mip, dispersion);// w2 >> mip;
+            const int32 mipHeight = mipSize(h2, mip, dispersion);// h2 >> mip;
 
             data.BloomLayer = static_cast<float>(mip);
             context->UpdateCB(cb0, &data);
@@ -712,6 +721,7 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
     data.DepthHazeMaxMipLevel = settings.DepthHaze.MaxMipLevel;
     data.DepthHazeChromaticDispersion = settings.DepthHaze.ChromaticDispersion;
     data.DepthHazeMipCount = (float)bloomMipCount;
+    float dispersion = settings.DepthHaze.ChromaticDispersion;
 
     // Bloom settings (needed for BloomLayer in upsample shader)
     data.BloomMipCount = (float)bloomMipCount;
@@ -760,8 +770,8 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
         // Generate depth mip chain with simple box blur
         for (int32 mip = 0; mip < bloomMipCount; mip++)
         {
-            const int32 mipWidth = w2 >> mip;
-            const int32 mipHeight = h2 >> mip;
+            const int32 mipWidth = mipSize(w2, mip, dispersion);// w2 >> mip;
+            const int32 mipHeight = mipSize(h2, mip, dispersion);// h2 >> mip;
 
             context->SetRenderTarget(depthMipBuffer->View(0, mip));
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
@@ -774,8 +784,8 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
         // Progressive downsamples for color chain with depth-aware bilateral filtering
         for (int32 mip = 1; mip < bloomMipCount; mip++)
         {
-            const int32 mipWidth = w2 >> mip;
-            const int32 mipHeight = h2 >> mip;
+            const int32 mipWidth = mipSize(w2, mip, dispersion);// w2 >> mip;
+            const int32 mipHeight = mipSize(h2, mip, dispersion);// h2 >> mip;
 
             context->SetRenderTarget(scatteringColorBuffer->View(0, mip));
             context->SetViewportAndScissors((float)mipWidth, (float)mipHeight);
@@ -800,8 +810,8 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
             {
                 upscaleBuffer = scatteringColorBuffer;
             }
-            const int32 mipWidth = w2 >> mip;
-            const int32 mipHeight = h2 >> mip;
+            const int32 mipWidth = mipSize(w2, mip, dispersion);// w2 >> mip;
+            const int32 mipHeight = mipSize(h2, mip, dispersion);// h2 >> mip;
 
             data.BloomLayer = static_cast<float>(mip);
             context->UpdateCB(cb0, &data);

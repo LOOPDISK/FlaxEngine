@@ -696,8 +696,9 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     float centerDepth = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
     float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo);
     
+    float nearDistance = DepthHazeNearDistance * 0.8;
     BRANCH
-    if (centerLinearDepth < DepthHazeNearDistance)
+    if (centerLinearDepth < nearDistance)
     {
         return Input0.Sample(SamplerLinearClamp, input.TexCoord);
     }
@@ -737,7 +738,7 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
         float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
         float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
         float depthWeight = exp(-depthDiff / depthThreshold);
-        closeEdgeFound += sampleLinearDepth < DepthHazeNearDistance;
+        closeEdgeFound += sampleLinearDepth < nearDistance;
 
         float weight = 2.0 * depthWeight;
         color += sampleColor.rgb * weight;
@@ -764,7 +765,7 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
         float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
         float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
         float depthWeight = exp(-depthDiff / depthThreshold);
-        closeEdgeFound += sampleLinearDepth < DepthHazeNearDistance;
+        closeEdgeFound += sampleLinearDepth < nearDistance;
 
         float weight = 1.0 * depthWeight;
         color += sampleColor.rgb * weight;
@@ -778,7 +779,7 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     
     // Use consistent intensity scaling with depth haze characteristics
     // Keep atmospheric layers more uniform compared to bloom
-    float mipIntensity = lerp(0.8, 0.8, mipFade); // More uniform than bloom
+    float mipIntensity = lerp(1.0, 1.0, mipFade); // More uniform than bloom
     color *= mipIntensity;
 
     BRANCH
@@ -1159,10 +1160,10 @@ float4 PS_DepthHazeComposite(Quad_VS2PS input) : SV_Target
 
         // Wavelength-dependent chromatic dispersion for Mie scattering
         // Red light scatters less (sharper), blue light scatters more (blurrier)
-        float redMipOffset = -DepthHazeChromaticDispersion;
+        float redMipOffset = -DepthHazeChromaticDispersion * 0.5f;
         float greenMipOffset = 0.0;
         float blueMipOffset = DepthHazeChromaticDispersion;
-
+        
         // Sample each channel at different mip levels from the upsampled buffer
         float redMipLevel = clamp(targetMipFloat + redMipOffset, 0.0, effectiveMaxMip);
         float greenMipLevel = clamp(targetMipFloat + greenMipOffset, 0.0, effectiveMaxMip);
