@@ -1,5 +1,5 @@
 @0// Weapon FOV Override: Defines
-#define USE_WEAPON_FOV_OVERRIDE 0
+#define USE_WEAPON_FOV_OVERRIDE 1
 
 @1// Weapon FOV Override: Includes
 // Inline shader utilities for weapon FOV override
