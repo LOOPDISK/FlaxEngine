@@ -77,6 +77,10 @@ void GraphicsSettings::Apply()
     Graphics::OcclusionCulling = UseOcclusionCulling;
     Graphics::PostProcessSettings = ::PostProcessSettings();
     Graphics::PostProcessSettings.BlendWith(PostProcessSettings, 1.0f);
+
+    // DEBUG: Log DepthHaze settings after applying graphics settings
+    LOG(Info, "Graphics::Apply DEBUG - DepthHaze.Enabled: {0}, DepthHaze.Intensity: {1}",
+        Graphics::PostProcessSettings.DepthHaze.Enabled, Graphics::PostProcessSettings.DepthHaze.Intensity);
 #if !USE_EDITOR // OptionsModule handles fallback fonts in Editor
     Font::FallbackFonts = FallbackFonts;
 #endif

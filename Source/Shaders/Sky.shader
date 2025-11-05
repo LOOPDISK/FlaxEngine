@@ -12,7 +12,12 @@ float3 ViewOffset;
 float Padding;
 GBufferData GBuffer;
 AtmosphericFogData AtmosphericFog;
+float3 HorizonColor;
+float Padding2;
+float3 ZenithColor;
+float Padding3;
 META_CB_END
+
 
 DECLARE_GBUFFERDATA_ACCESS(GBuffer)
 
@@ -54,6 +59,31 @@ GBufferOutput PS_Sky(MaterialInput input)
 	float3 wsPos = mul(float4(vsPos, 1), gBufferData.InvViewMatrix).xyz;
 	float3 viewVector = wsPos - gBufferData.ViewPos;
 	float4 color = GetAtmosphericFog(AtmosphericFog, gBufferData.ViewFar, wsPos + ViewOffset, gBufferData.ViewPos + ViewOffset);
+
+	// TEMP: Always use fallback gradient until atmospheric fog is working properly
+	float3 viewDir = normalize(viewVector);
+	float skyGradient = saturate(viewDir.y * 0.5 + 0.5);
+
+	// Use colors from Sky actor if set, otherwise use defaults
+	float3 horizonColor = HorizonColor;
+	float3 zenithColor = ZenithColor;
+
+	// DEBUG: Always use defaults to see if shader is even running
+	horizonColor = float3(0x2C / 255.0, 0x2C / 255.0, 0x2C / 255.0); // 0x2C2C2CFF
+	zenithColor = float3(0xAE / 255.0, 0x9F / 255.0, 0x9A / 255.0);  // 0xAE9F9AFF
+
+	color.rgb = lerp(horizonColor, zenithColor, skyGradient);
+	color.a = 1.0;
+
+	// Add sun disk (matching original GetSunColor implementation)
+	float sunDiscScale = AtmosphericFog.AtmosphericFogSunDiscScale;
+	if (sunDiscScale > 0.0)
+	{
+		float3 sunDir = AtmosphericFog.AtmosphericFogSunDirection;
+		float sunIntensity = step(cos(PI * sunDiscScale / 180.0), dot(viewDir, sunDir));
+		float3 sunColor = AtmosphericFog.AtmosphericFogSunColor * AtmosphericFog.AtmosphericFogSunPower;
+		color.rgb += sunColor * sunIntensity;
+	}
 
 	// Pack GBuffer
 	output.Light = color;

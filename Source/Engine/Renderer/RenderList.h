@@ -56,6 +56,7 @@ struct RenderLightData
     float ScreenSize;
     uint32 ShadowsBufferAddress;
 
+    uint32 WeaponShadowsBufferAddress;
     float ShadowsUpdateRate;
     float ShadowsUpdateRateAtDistance;
     uint32 ShadowFrame;
@@ -73,6 +74,13 @@ struct RenderDirectionalLightData : RenderLightData
 
     PartitionMode PartitionMode;
     int32 CascadeCount;
+
+    bool EnableDistantShadows;
+    float DistantShadowSize;
+    int32 DistantShadowUpdateRate;
+    int32 DistantShadowResolution;
+    float DistantShadowDepthBias;
+    float DistantShadowNormalBiasScale;
 
     RenderDirectionalLightData()
     {

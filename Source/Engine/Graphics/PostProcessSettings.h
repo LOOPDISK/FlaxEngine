@@ -514,6 +514,123 @@ public:
 /// <summary>
 /// The structure members override flags.
 /// </summary>
+API_ENUM(Attributes="Flags") enum class DepthHazeSettingsOverride : int32
+{
+    /// <summary>
+    /// None properties.
+    /// </summary>
+    None = 0,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.Enabled"/> property.
+    /// </summary>
+    Enabled = 1 << 0,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.Intensity"/> property.
+    /// </summary>
+    Intensity = 1 << 1,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.NearDistance"/> property.
+    /// </summary>
+    NearDistance = 1 << 2,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.FarDistance"/> property.
+    /// </summary>
+    FarDistance = 1 << 3,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.Power"/> property.
+    /// </summary>
+    Power = 1 << 4,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.MaxMipLevel"/> property.
+    /// </summary>
+    MaxMipLevel = 1 << 5,
+
+    /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.ChromaticDispersion"/> property.
+    /// </summary>
+    ChromaticDispersion = 1 << 6,
+
+    /// <summary>
+    /// All properties.
+    /// </summary>
+    All = Enabled | Intensity | NearDistance | FarDistance | Power | MaxMipLevel | ChromaticDispersion,
+};
+
+/// <summary>
+/// Contains settings for Depth Haze effect rendering.
+/// </summary>
+API_STRUCT() struct FLAXENGINE_API DepthHazeSettings : ISerializable
+{
+    API_AUTO_SERIALIZATION();
+    DECLARE_SCRIPTING_TYPE_NO_SPAWN(DepthHazeSettings);
+    typedef DepthHazeSettingsOverride Override;
+
+    /// <summary>
+    /// The flags for overriden properties.
+    /// </summary>
+    API_FIELD(Attributes="HideInEditor")
+    DepthHazeSettingsOverride OverrideFlags = Override::None;
+
+    /// <summary>
+    /// If checked, depth haze effect will be rendered.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(0), PostProcessSetting((int)DepthHazeSettingsOverride.Enabled)")
+    bool Enabled = false;
+
+    /// <summary>
+    /// Overall depth haze effect strength. Higher values create a stronger haze effect.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 100.0f, 0.001f), EditorOrder(1), PostProcessSetting((int)DepthHazeSettingsOverride.Intensity)")
+    float Intensity = 0.5f;
+
+    /// <summary>
+    /// Distance where atmospheric scattering begins (in world units/cm).
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 100000.0f, 10.0f), EditorOrder(2), PostProcessSetting((int)DepthHazeSettingsOverride.NearDistance)")
+    float NearDistance = 500.0f;
+
+    /// <summary>
+    /// Distance where atmospheric scattering reaches maximum effect (in world units/cm).
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 1000000.0f, 10.0f), EditorOrder(3), PostProcessSetting((int)DepthHazeSettingsOverride.FarDistance)")
+    float FarDistance = 5000.0f;
+
+    /// <summary>
+    /// Power curve for atmospheric scattering falloff. Higher values create sharper transitions.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0.1f, 4.0f, 0.01f), EditorOrder(4), PostProcessSetting((int)DepthHazeSettingsOverride.Power)")
+    float Power = 1.0f;
+
+    /// <summary>
+    /// Maximum mip level to use for depth haze blur (limits blur ceiling). Lower values prevent extreme blur.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 8, 0.1f), EditorOrder(5), PostProcessSetting((int)DepthHazeSettingsOverride.MaxMipLevel)")
+    float MaxMipLevel = 6.0f;
+
+    /// <summary>
+    /// Chromatic dispersion strength for wavelength-dependent scattering. Higher values create more color separation (red sharper, blue blurrier).
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 2.0f, 0.01f), EditorOrder(6), PostProcessSetting((int)DepthHazeSettingsOverride.ChromaticDispersion)")
+    float ChromaticDispersion = 0.4f;
+
+public:
+    /// <summary>
+    /// Blends the settings using given weight.
+    /// </summary>
+    /// <param name="other">The other settings.</param>
+    /// <param name="weight">The blend weight.</param>
+    void BlendWith(DepthHazeSettings& other, float weight);
+};
+
+/// <summary>
+/// The structure members override flags.
+/// </summary>
 API_ENUM(Attributes ="Flags") enum class ToneMappingSettingsOverride : int32
 {
     /// <summary>
@@ -2035,6 +2152,12 @@ API_STRUCT() struct FLAXENGINE_API PostProcessSettings : ISerializable
     /// </summary>
     API_FIELD(Attributes="EditorDisplay(\"Global Illumination\"), EditorOrder(150), JsonProperty(\"GI\")")
     GlobalIlluminationSettings GlobalIllumination;
+
+    /// <summary>
+    /// The depth haze effect settings.
+    /// </summary>
+    API_FIELD(Attributes="EditorDisplay(\"Depth Haze\"), EditorOrder(190)")
+    DepthHazeSettings DepthHaze;
 
     /// <summary>
     /// The bloom effect settings.

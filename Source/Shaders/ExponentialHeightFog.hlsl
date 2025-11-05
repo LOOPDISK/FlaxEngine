@@ -6,9 +6,9 @@
 #include "./Flax/Common.hlsl"
 #include "./Flax/Math.hlsl"
 
-// Environment cube texture for fog coloring
-TextureCube EnvironmentTexture : register(t15);
-SamplerState EnvironmentSampler : register(s15);
+// 2D gradient texture for fog coloring (U = sun angle, V = height)
+Texture2D FogGradientTexture : register(t15);
+SamplerState FogGradientSampler : register(s15);
 
 // Structure that contains information about exponential height fog
 struct ExponentialHeightFogData
@@ -32,8 +32,8 @@ struct ExponentialHeightFogData
     float DirectionalInscatteringStartDistance;
     float StartDistance;
 
-    float EnvironmentInfluence;
-    float EnvironmentMipLevel;
+    float GradientInfluence;
+    float GradientHeightRange;
     float2 Padding;
 };
 
@@ -49,8 +49,7 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     float rayLength = cameraToPosLen;
     float rayDirectionY = cameraToPos.y;
 
-    // Apply start distance offset
-    skipDistance = max(skipDistance, exponentialHeightFog.StartDistance);
+    // Apply volumetric fog skip distance (hard cutoff for performance only)
     if (skipDistance > 0)
     {
         float excludeIntersectionTime = skipDistance * cameraToPosLenInv;
@@ -67,7 +66,32 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     float lineIntegral = (1.0f - exp2(-falloff)) / falloff;
     float lineIntegralTaylor = log(2.0f) - (0.5f * Pow2(log(2.0f))) * falloff;
     float exponentialHeightLineIntegralCalc = rayOriginTerms * (abs(falloff) > 0.01f ? lineIntegral : lineIntegralTaylor);
-    float exponentialHeightLineIntegral = exponentialHeightLineIntegralCalc * rayLength;
+
+    // Apply gradual buildup to height falloff (matching depth math)
+    float heightBuildupScale = 0.1;
+    float heightBuildupPower = 0.2;
+    float heightT = saturate(exponentialHeightLineIntegralCalc * rayLength * heightBuildupScale);
+    float heightGradualCurve = pow(heightT, heightBuildupPower);
+
+    float exponentialHeightLineIntegral = exponentialHeightLineIntegralCalc * rayLength * heightGradualCurve;
+
+    // Apply distance-based fog density ramping (core physics integration)
+    float startDist = max(exponentialHeightFog.StartDistance, 0.1f);
+    if (cameraToPosLen <= startDist)
+    {
+        // Ray is entirely within ramp-up zone: average density = (distance/startDist) * 0.5
+        float avgDensityFactor = (cameraToPosLen / startDist) * 0.5f;
+        exponentialHeightLineIntegral *= avgDensityFactor;
+    }
+    else
+    {
+        // Ray extends beyond ramp zone: weighted average of ramp and full density regions
+        float rampZoneContribution = startDist * 0.5f; // ramp zone average = 0.5
+        float fullZoneContribution = cameraToPosLen - startDist; // full density = 1.0
+        float totalContribution = rampZoneContribution + fullZoneContribution;
+        float avgDensityFactor = totalContribution / cameraToPosLen;
+        exponentialHeightLineIntegral *= avgDensityFactor;
+    }
 
     // Calculate the light that went through the fog using gradual buildup
     float buildupScale = 0.1;      // TWEAK: Lower = more gradual buildup, Higher = faster buildup
@@ -77,15 +101,28 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     float gradualCurve = pow(t, buildupPower);
     float expFogFactor = max(1.0 - gradualCurve, exponentialHeightFog.FogMinOpacity);
 
-    // Calculate the directional light inscattering
+    // Calculate the fog inscattering color
     float3 inscatteringColor = exponentialHeightFog.FogInscatteringColor;
-    
-    // Sample environment texture if influence is enabled
+
+    // Sample 2D gradient texture if influence is enabled
     BRANCH
-    if (exponentialHeightFog.EnvironmentInfluence > 0.0f)
+    if (exponentialHeightFog.GradientInfluence > 0.0f)
     {
-        float3 environmentColor = EnvironmentTexture.SampleLevel(EnvironmentSampler, cameraToReceiverNorm, exponentialHeightFog.EnvironmentMipLevel).rgb;
-        inscatteringColor = lerp(inscatteringColor, environmentColor * inscatteringColor, exponentialHeightFog.EnvironmentInfluence);
+        // Calculate height coordinate (V axis)
+        float heightRange = max(1.0f, exponentialHeightFog.GradientHeightRange);
+        float heightNormalized = saturate((posWS.y - exponentialHeightFog.FogHeight) / heightRange);
+
+        // Calculate sun angle coordinate (U axis)
+        // dot(viewDir, sunDir) gives -1 (away from sun) to +1 (toward sun)
+        float sunAngle = dot(cameraToReceiverNorm, exponentialHeightFog.InscatteringLightDirection);
+        float sunAngleNormalized = sunAngle * 0.5f + 0.5f; // Remap to 0-1
+
+        // Sample gradient texture with bicubic filtering
+        float2 gradientUV = float2(sunAngleNormalized, heightNormalized);
+        float3 gradientColor = FogGradientTexture.SampleLevel(FogGradientSampler, gradientUV, 0).rgb;
+
+        // Blend gradient with base fog color
+        inscatteringColor = lerp(inscatteringColor, gradientColor, exponentialHeightFog.GradientInfluence);
     }
     
     float3 directionalInscattering = 0;

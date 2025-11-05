@@ -48,6 +48,19 @@ void BloomSettings::BlendWith(BloomSettings& other, float weight)
     BLEND_FLOAT(HighMix);
 }
 
+void DepthHazeSettings::BlendWith(DepthHazeSettings& other, float weight)
+{
+    const bool isHalf = weight >= 0.5f;
+
+    BLEND_BOOL(Enabled);
+    BLEND_FLOAT(Intensity);
+    BLEND_FLOAT(NearDistance);
+    BLEND_FLOAT(FarDistance);
+    BLEND_FLOAT(Power);
+    BLEND_FLOAT(MaxMipLevel);
+    BLEND_FLOAT(ChromaticDispersion);
+}
+
 void ToneMappingSettings::BlendWith(ToneMappingSettings& other, float weight)
 {
     const bool isHalf = weight >= 0.5f;
@@ -227,6 +240,7 @@ void PostProcessSettings::BlendWith(PostProcessSettings& other, float weight)
 {
     AmbientOcclusion.BlendWith(other.AmbientOcclusion, weight);
     GlobalIllumination.BlendWith(other.GlobalIllumination, weight);
+    DepthHaze.BlendWith(other.DepthHaze, weight);
     Bloom.BlendWith(other.Bloom, weight);
     ToneMapping.BlendWith(other.ToneMapping, weight);
     ColorGrading.BlendWith(other.ColorGrading, weight);
@@ -273,6 +287,9 @@ void PostProcessSettings::Serialize(SerializeStream& stream, const void* otherOb
     stream.JKEY("GI");
     stream.Object(&GlobalIllumination, other ? &other->GlobalIllumination : nullptr);
 
+    stream.JKEY("DepthHaze");
+    stream.Object(&DepthHaze, other ? &other->DepthHaze : nullptr);
+
     stream.JKEY("Bloom");
     stream.Object(&Bloom, other ? &other->Bloom : nullptr);
 
@@ -311,6 +328,7 @@ void PostProcessSettings::Deserialize(DeserializeStream& stream, ISerializeModif
 {
     AmbientOcclusion.DeserializeIfExists(stream, "AO", modifier);
     GlobalIllumination.DeserializeIfExists(stream, "GI", modifier);
+    DepthHaze.DeserializeIfExists(stream, "DepthHaze", modifier);
     Bloom.DeserializeIfExists(stream, "Bloom", modifier);
     ToneMapping.DeserializeIfExists(stream, "ToneMapping", modifier);
     ColorGrading.DeserializeIfExists(stream, "ColorGrading", modifier);

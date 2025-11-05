@@ -244,6 +244,12 @@ bool SortPostFx(PostProcessEffect* const& a, PostProcessEffect* const& b)
 
 void SceneRenderTask::OnCollectDrawCalls(RenderContextBatch& renderContextBatch, byte category)
 {
+    // Debug weapon shadow collection
+    if (renderContextBatch.Contexts.Count() > 0 && renderContextBatch.Contexts[0].View.Pass == DrawPass::WeaponDepth)
+    {
+        
+    }
+
     // Setup PostFx in the render list
     if (category == SceneRendering::DrawCategory::PreRender)
     {

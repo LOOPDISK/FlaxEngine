@@ -269,7 +269,23 @@ void Mesh::Draw(const RenderContext& renderContext, const DrawInfo& info, float 
 
     // Check if skip rendering
     const auto shadowsMode = entry.ShadowsMode & slot.ShadowsMode;
-    const auto drawModes = info.DrawModes & renderContext.View.Pass & renderContext.View.GetShadowsDrawPassMask(shadowsMode) & material->GetDrawModes();
+    const auto materialDrawModes = material->GetDrawModes();
+    auto shadowsDrawPassMask = renderContext.View.GetShadowsDrawPassMask(shadowsMode);
+
+    // Special case: WeaponDepth pass should allow weapons to cast shadows even if ShadowsCastingMode::None
+    if (renderContext.View.Pass == DrawPass::WeaponDepth && EnumHasAnyFlags(materialDrawModes, DrawPass::WeaponDepth))
+    {
+        shadowsDrawPassMask = shadowsDrawPassMask | DrawPass::WeaponDepth;
+    }
+
+    const auto drawModes = info.DrawModes & renderContext.View.Pass & shadowsDrawPassMask & materialDrawModes;
+
+    // Debug weapon shadow collection
+    if (renderContext.View.Pass == DrawPass::WeaponDepth)
+    {
+
+    }
+
     if (drawModes == DrawPass::None)
         return;
 

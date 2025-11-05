@@ -757,6 +757,11 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     GlobalSurfaceAtlas = 1 << 6,
 
     /// <summary>
+    /// The weapon-only depth rendering to the depth buffer (used for weapon self-shadowing with FOV override). Objects in this pass don't cast shadows on the world.
+    /// </summary>
+    WeaponDepth = 1 << 7,
+
+    /// <summary>
     /// The debug quad overdraw rendering (editor-only).
     /// </summary>
     API_ENUM(Attributes="HideInEditor")
@@ -766,7 +771,7 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     /// The default set of draw passes for the scene objects.
     /// </summary>
     API_ENUM(Attributes="HideInEditor")
-    Default = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas,
+    Default = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | WeaponDepth,
 
     /// <summary>
     /// The all draw passes combined into a single mask.
@@ -1069,19 +1074,24 @@ API_ENUM(Attributes="Flags") enum class ViewFlags : uint64
     Sky = 1 << 26,
 
     /// <summary>
+    /// Shows/hides depth haze effect
+    /// </summary>
+    DepthHaze = 1 << 27,
+
+    /// <summary>
     /// Shows/hides light debug shapes.
     /// </summary>
-    LightsDebug = 1 << 27,
+    LightsDebug = 1 << 28,
 
     /// <summary>
     /// Default flags for Game.
     /// </summary>
-    DefaultGame = Reflections | DepthOfField | Fog | Decals | MotionBlur | SSR | AO | GI | DirectionalLights | PointLights | SpotLights | SkyLights | Shadows | SpecularLight | AntiAliasing | CustomPostProcess | Bloom | ToneMapping | EyeAdaptation | CameraArtifacts | LensFlares | ContactShadows | GlobalSDF | Sky,
+    DefaultGame = Reflections | DepthOfField | Fog | Decals | MotionBlur | SSR | AO | GI | DirectionalLights | PointLights | SpotLights | SkyLights | Shadows | SpecularLight | AntiAliasing | CustomPostProcess | DepthHaze | Bloom | ToneMapping | EyeAdaptation | CameraArtifacts | LensFlares | ContactShadows | GlobalSDF | Sky,
 
     /// <summary>
     /// Default flags for Editor.
     /// </summary>
-    DefaultEditor = Reflections | Fog | Decals | DebugDraw | SSR | AO | GI | DirectionalLights | PointLights | SpotLights | SkyLights | Shadows | SpecularLight | AntiAliasing | CustomPostProcess | Bloom | ToneMapping | EyeAdaptation | CameraArtifacts | LensFlares | EditorSprites | ContactShadows | GlobalSDF | Sky,
+    DefaultEditor = Reflections | Fog | Decals | DebugDraw | SSR | AO | GI | DirectionalLights | PointLights | SpotLights | SkyLights | Shadows | SpecularLight | AntiAliasing | CustomPostProcess | DepthHaze | Bloom | ToneMapping | EyeAdaptation | CameraArtifacts | LensFlares | EditorSprites | ContactShadows | GlobalSDF | Sky,
 
     /// <summary>
     /// Default flags for materials/models previews generating.

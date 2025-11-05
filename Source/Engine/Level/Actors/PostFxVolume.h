@@ -33,6 +33,12 @@ public:
     GlobalIlluminationSettings GlobalIllumination;
 
     /// <summary>
+    /// The depth haze effect settings.
+    /// </summary>
+    API_FIELD(Attributes="EditorDisplay(\"Depth Haze\"), EditorOrder(190)")
+    DepthHazeSettings DepthHaze;
+
+    /// <summary>
     /// The bloom effect settings.
     /// </summary>
     API_FIELD(Attributes="EditorDisplay(\"Bloom\"), EditorOrder(200)")

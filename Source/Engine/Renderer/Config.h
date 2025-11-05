@@ -43,8 +43,8 @@ GPU_CB_STRUCT(ShaderExponentialHeightFogData {
     float DirectionalInscatteringStartDistance;
     float StartDistance;
 
-    float EnvironmentInfluence;
-    float EnvironmentMipLevel;
+    float GradientInfluence;
+    float GradientHeightRange;
     Float2 Padding;
     });
 
@@ -85,7 +85,7 @@ GPU_CB_STRUCT(ShaderLightData {
     float FalloffExponent;
     float InverseSquared;
     float RadiusInv;
-    float Dummy0;
+    uint32 WeaponShadowsBufferAddress;
     });
 
 /// <summary>

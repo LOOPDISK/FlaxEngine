@@ -323,6 +323,11 @@ bool StaticModel::HasContentLoaded() const
 
 void StaticModel::Draw(RenderContext& renderContext)
 {
+    // Debug weapon shadow collection - FIRST THING
+    if (renderContext.View.Pass == DrawPass::WeaponDepth)
+    {
+            }
+
     if (!Model || !Model->IsLoaded() || !Model->CanBeRendered())
         return;
     if (renderContext.View.Pass == DrawPass::GlobalSDF)
@@ -370,9 +375,17 @@ void StaticModel::Draw(RenderContext& renderContext)
 
 void StaticModel::Draw(RenderContextBatch& renderContextBatch)
 {
+    const RenderContext& renderContext = renderContextBatch.GetMainContext();
+
+    // Debug weapon shadow collection - FIRST THING
+    if (renderContext.View.Pass == DrawPass::WeaponDepth)
+    {
+
+    }
+
     if (!Model || !Model->IsLoaded())
         return;
-    const RenderContext& renderContext = renderContextBatch.GetMainContext();
+
     ACTOR_GET_WORLD_MATRIX(this, view, world);
     GEOMETRY_DRAW_STATE_EVENT_BEGIN(_drawState, world);
     if (_vertexColorsDirty)

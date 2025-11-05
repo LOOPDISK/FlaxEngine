@@ -121,3 +121,11 @@ struct MotionVectorsFeature : MaterialShaderFeature
     static void Generate(GeneratorData& data);
 #endif
 };
+
+// Material shader feature that adds weapon FOV override functionality in vertex shader.
+struct WeaponFOVOverrideFeature : MaterialShaderFeature
+{
+#if USE_EDITOR
+    static void Generate(GeneratorData& data);
+#endif
+};

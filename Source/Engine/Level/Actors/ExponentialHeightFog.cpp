@@ -77,6 +77,9 @@ void ExponentialHeightFog::Serialize(SerializeStream& stream, const void* otherO
     SERIALIZE(FogDensity);
     SERIALIZE(FogHeightFalloff);
     SERIALIZE(FogInscatteringColor);
+    SERIALIZE(FogGradientTexture);
+    SERIALIZE(GradientInfluence);
+    SERIALIZE(GradientHeightRange);
     SERIALIZE(FogMaxOpacity);
     SERIALIZE(StartDistance);
     SERIALIZE(FogCutoffDistance);
@@ -102,6 +105,9 @@ void ExponentialHeightFog::Deserialize(DeserializeStream& stream, ISerializeModi
     DESERIALIZE(FogDensity);
     DESERIALIZE(FogHeightFalloff);
     DESERIALIZE(FogInscatteringColor);
+    DESERIALIZE(FogGradientTexture);
+    DESERIALIZE(GradientInfluence);
+    DESERIALIZE(GradientHeightRange);
     DESERIALIZE(FogMaxOpacity);
     DESERIALIZE(StartDistance);
     DESERIALIZE(FogCutoffDistance);
@@ -177,8 +183,8 @@ void ExponentialHeightFog::GetExponentialHeightFogData(const RenderView& view, S
     }
     result.ApplyDirectionalInscattering = useDirectionalLightInscattering ? 1.0f : 0.0f;
     result.VolumetricFogMaxDistance = VolumetricFogDistance;
-    result.EnvironmentInfluence = EnvironmentInfluence;
-    result.EnvironmentMipLevel = EnvironmentMipLevel;
+    result.GradientInfluence = GradientInfluence;
+    result.GradientHeightRange = GradientHeightRange;
 }
 
 GPU_CB_STRUCT(Data {
@@ -202,10 +208,10 @@ void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderCon
     context->BindSR(0, renderContext.Buffers->DepthBuffer);
     context->BindSR(1, integratedLightScattering ? integratedLightScattering->ViewVolume() : nullptr);
     
-    // Bind environment texture for fog coloring if available
-    if (EnvironmentTexture && EnvironmentTexture->IsLoaded())
+    // Bind gradient texture for fog coloring if available
+    if (FogGradientTexture && FogGradientTexture->IsLoaded())
     {
-        context->BindSR(15, EnvironmentTexture->GetTexture());
+        context->BindSR(15, FogGradientTexture->GetTexture());
     }
     else
     {

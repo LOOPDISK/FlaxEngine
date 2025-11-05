@@ -27,6 +27,12 @@
 #define GB_RADIUS 6
 #define GB_KERNEL_SIZE (GB_RADIUS * 2 + 1)
 
+// Linearize raw device depth
+float LinearizeZ(float depth, float4 viewInfo)
+{
+    return viewInfo.w / (depth - viewInfo.z);
+}
+
 #ifndef NO_GRADING_LUT
 #define NO_GRADING_LUT 0
 #endif
@@ -36,14 +42,24 @@
 
 META_CB_BEGIN(0, Data)
 
-float BloomIntensity;             
-float BloomClamp;                 
-float BloomThreshold;             
-float BloomThresholdKnee;         
+float DepthHazeIntensity;
+float DepthHazeNearDistance;
+float DepthHazeFarDistance;
+float DepthHazePower;
 
-float BloomBaseMix;               
-float BloomHighMix;               
-float BloomMipCount;              
+float DepthHazeMaxMipLevel;
+float DepthHazeChromaticDispersion;
+float DepthHazeMipCount;
+float DepthHazePadding0;
+
+float BloomIntensity;
+float BloomClamp;
+float BloomThreshold;
+float BloomThresholdKnee;
+
+float BloomBaseMix;
+float BloomHighMix;
+float BloomMipCount;
 float BloomLayer;               
 
 float3 VignetteColor;
@@ -80,6 +96,8 @@ float4 ScreenFadeColor;
 
 float4x4 LensFlareStarMat;
 
+float4 ViewInfo;
+
 META_CB_END
 
 META_CB_BEGIN(1, GaussianBlurData)
@@ -103,6 +121,8 @@ Texture2D Input3 : register(t3);
 Texture2D LensDirt : register(t4);
 Texture2D LensStar : register(t5);
 Texture2D LensColor : register(t6);
+Texture2D DepthHaze : register(t8);
+Texture2D DepthMips : register(t10);
 #if USE_VOLUME_LUT
 Texture3D ColorGradingLUT : register(t7);
 #else
@@ -475,11 +495,308 @@ float4 PS_BloomDualFilterUpsample(Quad_VS2PS input) : SV_Target
     float mipIntensity = lerp(BloomBaseMix, BloomHighMix, mipFade);
     color *= mipIntensity;
 
+
     BRANCH
     if (width1 > 0)
     {
         float3 previousMip = Input1.Sample(SamplerLinearClamp, input.TexCoord).rgb;
         color += previousMip;
+    }
+
+    return float4(color, 1.0);
+}
+
+// Improved initial downsample for depth haze with proper anti-aliasing
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthHazeImprovedCopy(Quad_VS2PS input) : SV_Target
+{
+    // Get dimensions for precise texel calculations
+    uint width, height;
+    Input0.GetDimensions(width, height);
+    float2 texelSize = 1.0 / float2(width, height);
+
+    // Use 13-tap sample pattern for anti-aliased downsampling
+    float3 color = 0;
+    float totalWeight = 0;
+
+    // Center sample with high weight for energy preservation
+    float3 center = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+    float centerWeight = 4.0;
+    color += center * centerWeight;
+    totalWeight += centerWeight;
+
+    // Inner ring - fixed offset at 1.0 texel distance
+    UNROLL
+    for (int i = 0; i < 4; i++)
+    {
+        float angle = i * (PI / 2.0);
+        float2 offset = float2(cos(angle), sin(angle)) * texelSize;
+        float3 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).rgb;
+
+        float weight = 2.0;
+        color += sampleColor * weight;
+        totalWeight += weight;
+    }
+
+    // Outer ring - fixed offset at 1.4142 texel distance (diagonal)
+    UNROLL
+    for (int j = 0; j < 8; j++)
+    {
+        float angle = j * (PI / 4.0);
+        float2 offset = float2(cos(angle), sin(angle)) * texelSize * 1.4142;
+        float3 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).rgb;
+
+        float weight = 1.0;
+        color += sampleColor * weight;
+        totalWeight += weight;
+    }
+
+    color /= totalWeight;
+    return float4(color, 1.0);
+}
+
+//MZ: why the hell are we converting the depth to a float 3
+// Depth copy shader - handles depth buffer properly
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthCopy(Quad_VS2PS input) : SV_Target
+{
+    // Sample depth and convert to single channel
+    float depth = Input0.Sample(SamplerLinearClamp, input.TexCoord).r;
+
+    return float4(depth, depth, depth, 1.0);
+}
+
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthFrequencySeparation(Quad_VS2PS input) : SV_Target
+{
+    // Simple box blur for depth downsampling
+    uint width, height;
+    Input0.GetDimensions(width, height);
+    float2 texelSize = 1.0 / float2(width, height);
+
+    float color = 0.0;
+    float totalWeight = 0.0;
+
+    // 3x3 box filter
+    UNROLL
+    for (int y = -1; y <= 1; y++)
+    {
+        UNROLL
+        for (int x = -1; x <= 1; x++)
+        {
+            float2 offset = float2(x, y) * texelSize;
+            float sampleDepth = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).r;
+
+            // Simple spatial weight
+            float spatialWeight = 1.0;
+            if (x == 0 && y == 0)
+                spatialWeight = 4.0; // Center
+            else if (x == 0 || y == 0)
+                spatialWeight = 2.0; // Cross
+            else
+                spatialWeight = 1.0; // Corners
+
+            color += sampleDepth * spatialWeight;
+            totalWeight += spatialWeight;
+        }
+    }
+
+    return (color / totalWeight).xxxx;
+}
+
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
+{
+    // Depth-aware bilateral tent filter downsampling
+    // Input0: Previous color mip level
+    // DepthMips: Depth mip chain for depth-aware filtering
+
+    uint width, height;
+    Input0.GetDimensions(width, height);
+    float2 texelSize = 1.0 / float2(width, height);
+
+    // Get center depth for comparison
+    float centerDepth = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
+    float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo);
+
+    // 9-tap tent filter with fixed spatial weights
+    float3 color = 0;
+    float totalWeight = 0;
+
+    // Sample offsets (fixed)
+    const float2 offsets[9] =
+    {
+        float2( 0,  0),    // Center
+        float2(-1, -1),    // Corners
+        float2( 1, -1),
+        float2(-1,  1),
+        float2( 1,  1),
+        float2( 0, -1),    // Cross
+        float2(-1,  0),
+        float2( 1,  0),
+        float2( 0,  1)
+    };
+
+    // Spatial weights (fixed)
+    const float spatialWeights[9] =
+    {
+        4.0,    // Center
+        1.0,    // Corners
+        1.0,
+        1.0,
+        1.0,
+        2.0,    // Cross
+        2.0,
+        2.0,
+        2.0
+    };
+
+    // Bilateral depth threshold - how much depth difference we tolerate
+    // Adaptive based on center depth (more tolerance for far objects)
+    float depthThreshold = max(centerLinearDepth * 0.1, 1.0);
+
+    UNROLL
+    for (int i = 0; i < 9; i++)
+    {
+        float2 sampleUV = input.TexCoord + offsets[i] * texelSize;
+        float3 sampleColor = Input0.Sample(SamplerLinearClamp, sampleUV).rgb;
+
+        // Sample depth at this location
+        float sampleDepth = DepthMips.SampleLevel(SamplerLinearClamp, sampleUV, 0).r;
+        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
+
+        // Calculate depth similarity weight (bilateral weight)
+        float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
+        float depthWeight = exp(-depthDiff / depthThreshold);
+
+        // Combine spatial and depth weights
+        float finalWeight = spatialWeights[i] * depthWeight;
+
+        color += sampleColor * finalWeight;
+        totalWeight += finalWeight;
+    }
+
+    return float4(color / totalWeight, 1.0);
+}
+
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
+{
+    // Depth-aware dual filter upsampling for depth haze
+    // Input0: Blurrier upsampled mip from previous iteration
+    // Input1: Current downsampled mip for accumulation
+    // DepthMips: Depth mip chain for depth-aware blending
+
+    float anisotropy = 1.0;
+    uint width, height;
+    Input0.GetDimensions(width, height);
+    float2 texelSize = 1.0 / float2(width, height);
+    
+    // Get center depth for comparison
+    float centerDepth = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
+    float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo);
+    
+    float nearDistance = DepthHazeNearDistance * 0.8;
+    BRANCH
+    if (centerLinearDepth < nearDistance)
+    {
+        return Input0.Sample(SamplerLinearClamp, input.TexCoord);
+    }
+
+    // Maintain fixed scale through mip chain
+    float baseOffset = 1.0;
+    float offsetScale = (1.0) * baseOffset;
+    float3 color = 0;
+    float totalWeight = 0;
+
+    // Bilateral depth threshold - adaptive based on depth
+    float depthThreshold = max(centerLinearDepth * 0.1, 1.0);
+
+    // Center
+    float4 center = Input0.Sample(SamplerLinearClamp, input.TexCoord);
+    float centerWeight = 4.0;
+    color += center.rgb * centerWeight;
+    totalWeight += centerWeight;
+
+    // Cross - fixed distance samples with depth awareness
+    float2 crossOffsets[4] = {
+        float2(offsetScale * anisotropy, 0),
+        float2(-offsetScale * anisotropy, 0),
+        float2(0, offsetScale),
+        float2(0, -offsetScale)
+    };
+    
+    int closeEdgeFound = 0;
+    UNROLL
+    for (int i = 0; i < 4; i++)
+    {
+        float2 sampleUV = input.TexCoord + crossOffsets[i] * texelSize;
+        float4 sampleColor = Input0.Sample(SamplerLinearClamp, sampleUV);
+
+        // Sample depth and calculate bilateral weight
+        float sampleDepth = DepthMips.SampleLevel(SamplerLinearClamp, sampleUV, 0).r;
+        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
+        float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
+        float depthWeight = exp(-depthDiff / depthThreshold);
+        closeEdgeFound += sampleLinearDepth < nearDistance;
+
+        float weight = 2.0 * depthWeight;
+        color += sampleColor.rgb * weight;
+        totalWeight += weight;
+    }
+
+    // Corners - fixed distance samples with depth awareness
+    float2 cornerOffsets[4] =
+    {
+        float2(offsetScale * anisotropy, offsetScale),
+        float2(-offsetScale * anisotropy, offsetScale),
+        float2(offsetScale * anisotropy, -offsetScale),
+        float2(-offsetScale * anisotropy, -offsetScale)
+    };
+
+    UNROLL
+    for (int j = 0; j < 4; j++)
+    {
+        float2 sampleUV = input.TexCoord + cornerOffsets[j] * texelSize;
+        float4 sampleColor = Input0.Sample(SamplerLinearClamp, sampleUV);
+
+        // Sample depth and calculate bilateral weight
+        float sampleDepth = DepthMips.SampleLevel(SamplerLinearClamp, sampleUV, 0).r;
+        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
+        float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
+        float depthWeight = exp(-depthDiff / depthThreshold);
+        closeEdgeFound += sampleLinearDepth < nearDistance;
+
+        float weight = 1.0 * depthWeight;
+        color += sampleColor.rgb * weight;
+        totalWeight += weight;
+    }
+    
+    color /= totalWeight;
+    
+    // Calculate mip fade factor (0 = smallest mip, 1 = largest mip)
+    float mipFade = BloomLayer / (BloomMipCount - 1);
+    
+    // Use consistent intensity scaling with depth haze characteristics
+    // Keep atmospheric layers more uniform compared to bloom
+    float mipIntensity = lerp(1.0, 1.0, mipFade); // More uniform than bloom
+    color *= mipIntensity;
+
+    BRANCH
+    if (closeEdgeFound > 0)
+    {
+        return Input3.Sample(SamplerLinearClamp, input.TexCoord) * mipIntensity;
+    }
+
+    uint width1, height1;
+    Input1.GetDimensions(width1, height1);
+
+    BRANCH
+    if (width1 > 0)
+    {
+        float3 previousMip = Input1.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+        // Blend instead of add to preserve energy
+        color = lerp(previousMip, color, 0.5);
     }
 
     return float4(color, 1.0);
@@ -614,119 +931,257 @@ META_PERMUTATION_1(USE_VOLUME_LUT=1)
 META_PERMUTATION_1(USE_VOLUME_LUT=0)
 float4 PS_Composite(Quad_VS2PS input) : SV_Target
 {
-	float2 uv = input.TexCoord;
-	float3 lensLight = 0;
-	float4 color;
+    float2 screenPos = input.TexCoord;
 
-	// Chromatic Abberation
-	if (ChromaticDistortion > 0)
-	{
-		const float MAX_DIST_PX = 24.0;
-		float max_distort_px = MAX_DIST_PX * ChromaticDistortion;
-		float2 max_distort = InvInputSize * max_distort_px;
-		float2 min_distort = 0.5 * max_distort;
+    // DEBUG STRIP: Top-middle area for debug visualization (20% width, top 15% height)
+    float debugWidth = 0.2;
+    float debugHeight = 0.15;
+    float debugCenterX = 0.5;
 
-		float2 oversiz = distort(float2(1.0, 1.0), 1.0, min_distort, max_distort);
-		uv = remap(uv, 1.0 - oversiz, oversiz);
+    bool inDebugArea = (screenPos.y < debugHeight) &&
+                      (screenPos.x > (debugCenterX - debugWidth * 0.5)) &&
+                      (screenPos.x < (debugCenterX + debugWidth * 0.5));
 
-		int iterations = (int)lerp(3, 10, ChromaticDistortion);
-		float stepsiz = 1.0 / (float(iterations) - 1.0);
-		float rnd = nrand(uv + Time);
-		float t = rnd * stepsiz;
-
-		float4 sumcol = 0;
-		float4 sumw = 0;
-		for (int i = 0; i < iterations; i++)
-		{
-			float4 w = float4(spectrum_offset(t), 1);
-			sumw += w;
-			float2 uvd = distort(uv, t, min_distort, max_distort);
-			sumcol += Input0.Sample(SamplerLinearClamp, uvd) * w;
-			t += stepsiz;
-		}
-		sumcol /= sumw;
-		color = sumcol + (rnd / 255.0);
-	}
-	else
-	{
-		color = Input0.Sample(SamplerLinearClamp, uv);
-	}
-
-	// Lens Flares
-	BRANCH
-	if (LensFlareIntensity > 0)
-	{
-		// Get lens flare color
-		float3 lensFlares = Input3.Sample(SamplerLinearClamp, uv).rgb * LensFlareIntensity;
-
-		// Get lens star color and mix it with lens flares
-		float2 lensStarTexcoord = uv - 0.5;
-		lensStarTexcoord = mul(lensStarTexcoord, (float2x2)LensFlareStarMat).xy;
-		lensStarTexcoord += 0.5;
-		float3 lensStar = LensStar.Sample(SamplerLinearClamp, lensStarTexcoord).rgb;
-		lensFlares *= lensStar * 2 + 0.5;
-
-		// Accumulate final lens flares lght
-		lensLight += lensFlares * 1.5f;
-		color.rgb += lensFlares;
-	}
-
-    // Bloom
-    BRANCH
-    if (BloomIntensity > 0)
+    /*
+    if (inDebugArea)
     {
-        // Sample the final bloom result
-        float3 bloom = Input2.Sample(SamplerLinearClamp, input.TexCoord).rgb;
-        bloom = bloom * BloomIntensity;
-        lensLight += max(0, bloom * 3.0f + (-1.0f * 3.0f));
-        color.rgb += bloom;
+        // Map screen position to debug area local coordinates
+        float2 debugLocalPos = float2(
+            (screenPos.x - (debugCenterX - debugWidth * 0.5)) / debugWidth,
+            screenPos.y / debugHeight
+        );
+
+        float mipCount = DepthHazeMipCount;
+        float mipHeight = 1.0 / mipCount;
+
+        // Left half: Color mips, Right half: Depth mips
+        if (debugLocalPos.x < 0.5)
+        {
+            // Color mips (left half of debug area)
+            int mipLevel = (int)(debugLocalPos.y / mipHeight);
+            mipLevel = min(mipLevel, (int)mipCount - 1);
+            float2 mipUV = float2(debugLocalPos.x * 2.0, fmod(debugLocalPos.y, mipHeight) / mipHeight);
+            float3 mipSample = DepthHaze.SampleLevel(SamplerLinearClamp, mipUV, (float)mipLevel).rgb;
+            return float4(mipSample, 1.0);
+        }
+        else
+        {
+            // Depth mips (right half of debug area)
+            int mipLevel = (int)(debugLocalPos.y / mipHeight);
+            mipLevel = min(mipLevel, (int)mipCount - 1);
+            float2 mipUV = float2((debugLocalPos.x - 0.5) * 2.0, fmod(debugLocalPos.y, mipHeight) / mipHeight);
+            float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, mipUV, (float)mipLevel).r;
+            float linearDepth = LinearizeZ(depthValue, ViewInfo);
+            float depthVisualized = saturate((linearDepth - DepthHazeNearDistance) / (DepthHazeFarDistance - DepthHazeNearDistance));
+            return float4(depthVisualized, depthVisualized, depthVisualized, 1.0);
+        }
+    }
+    */
+
+    // Focal Plane Mask Visualization (commented out - use for advanced debugging)
+    /*
+    // 1. Define alternating colors for visualization
+    float3 colors[8];
+    colors[0] = float3(1, 0, 0); // Red
+    colors[1] = float3(0, 1, 0); // Green
+    colors[2] = float3(0, 0, 1); // Blue
+    colors[3] = float3(1, 1, 0); // Yellow
+    colors[4] = float3(0, 1, 1); // Cyan
+    colors[5] = float3(1, 0, 1); // Magenta
+    colors[6] = float3(1, 0.5, 0); // Orange
+    colors[7] = float3(0.5, 0.2, 1); // Purple
+
+    // 2. Define depth area boundaries
+    int numAreas = (int)DepthHazeMipCount;
+    float sliceWidth = (DepthHazeFarDistance - DepthHazeNearDistance) / numAreas;
+    float transitionWidth = sliceWidth * 0.5; // Transition width is half a slice
+
+    float3 finalColor = float3(0, 0, 0);
+    float totalMask = 0;
+
+    // 3. Calculate and blend masks
+    for (int i = 0; i < numAreas; i++)
+    {
+        // A. Get the blurred depth from the CORRECT mip for this area
+        float blurredDepthValue = DepthMips.SampleLevel(SamplerLinearClamp, screenPos, i).r;
+        float linearDepth = LinearizeZ(blurredDepthValue, ViewInfo);
+
+        // B. Define the boundaries for this specific area
+        float areaStart = DepthHazeNearDistance + i * sliceWidth;
+        float areaEnd = areaStart + sliceWidth;
+
+        // C. Calculate the mask for this area (a smooth "box" filter)
+        float mask = smoothstep(areaStart - transitionWidth, areaStart + transitionWidth, linearDepth) - smoothstep(areaEnd - transitionWidth, areaEnd + transitionWidth, linearDepth);
+
+        // D. Add this area's color to the final output, weighted by its mask
+        finalColor += mask * colors[i % 8];
+        totalMask += mask;
     }
 
-	// Lens Dirt
-	float3 lensDirt = LensDirt.SampleLevel(SamplerLinearClamp, uv, 0).rgb;
-	color.rgb += lensDirt * (lensLight * LensDirtIntensity);
+    // (Optional but good practice) Normalize the color in case masks overlap/underlap slightly
+    if (totalMask > 0)
+    {
+        finalColor /= totalMask;
+    }
 
-	// Eye Adaptation post exposure
-	color.rgb *= PostExposure;
+    return float4(finalColor, 1.0);
+    */
 
-	// Color Grading and Tone Mapping
+    // ====================================================================
+    // ACTUAL SCENE COMPOSITION (not debug visualization)
+    // ====================================================================
+
+    // Sample base scene color (Input0)
+    float3 sceneColor = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+
+    // Apply post-exposure
+    sceneColor *= PostExposure;
+
+    // Add depth haze effect with depth-based mip selection and chromatic dispersion
+    if (DepthHazeIntensity > 0.0)
+    {
+        // Get depth for mip selection and blending
+        float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
+        float pixelDepth = LinearizeZ(depthValue, ViewInfo);
+
+        // Calculate depth-based mip level for sampling from upsampled buffer
+        float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
+        float normalizedDepth = saturate((pixelDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
+
+        // Apply power curve for artistic control
+        float targetMipFloat = pow(normalizedDepth, DepthHazePower) * (DepthHazeMipCount - 1);
+
+        // Apply max mip level limit to prevent excessive blur
+        float effectiveMaxMip = min(DepthHazeMaxMipLevel, DepthHazeMipCount - 1);
+        targetMipFloat = min(targetMipFloat, effectiveMaxMip);
+
+        // Wavelength-dependent chromatic dispersion for Mie scattering
+        // Red light scatters less (sharper), blue light scatters more (blurrier)
+        float redMipOffset = -DepthHazeChromaticDispersion;
+        float greenMipOffset = 0.0;
+        float blueMipOffset = DepthHazeChromaticDispersion;
+
+        // Sample each channel at different mip levels from the upsampled buffer
+        float redMipLevel = clamp(targetMipFloat + redMipOffset, 0.0, effectiveMaxMip);
+        float greenMipLevel = clamp(targetMipFloat + greenMipOffset, 0.0, effectiveMaxMip);
+        float blueMipLevel = clamp(targetMipFloat + blueMipOffset, 0.0, effectiveMaxMip);
+
+        float3 scatteredColor = float3(
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, redMipLevel).r,
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, greenMipLevel).g,
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, blueMipLevel).b
+        );
+
+        // Create smooth scattering mask based on distance
+        float scatteringMask = smoothstep(DepthHazeNearDistance * 0.8, DepthHazeNearDistance * 1.2, pixelDepth);
+
+        // Apply atmospheric scattering with intensity
+        float finalMask = scatteringMask * DepthHazeIntensity;
+        sceneColor = lerp(sceneColor, scatteredColor, finalMask);
+    }
+
+    // Add bloom effect (Input2)
+    if (BloomIntensity > 0.0)
+    {
+        float3 bloomContribution = Input2.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+        sceneColor += bloomContribution * BloomIntensity;
+    }
+
+    // Add lens flares (Input3)
+    if (LensFlareIntensity > 0.0)
+    {
+        float3 lensFlareContribution = Input3.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+        sceneColor += lensFlareContribution * LensFlareIntensity;
+    }
+
+
 #if !NO_GRADING_LUT
-	color.rgb = ColorLookupTable(color.rgb);
+    // Apply color grading and tone mapping
+    sceneColor = ColorLookupTable(sceneColor);
 #endif
 
-	// Film Grain
-	BRANCH
-	if (GrainAmount > 0)
-	{
-		// Calculate noise
-		float2 rotCoordsR = coordRot(uv, GrainTime);
-		float noise = pnoise2D(rotCoordsR * (InputSize / GrainParticleSize), GrainTime);
+    // Apply camera artifacts (vignette, grain, chromatic aberration)
+    if (VignetteIntensity > 0.0)
+    {
+        float2 d = abs(input.TexCoord - 0.5) * VignetteShapeFactor;
+        float vignette = pow(saturate(1.0 - dot(d, d)), VignetteIntensity);
+        sceneColor *= lerp(VignetteColor, float3(1, 1, 1), vignette);
+    }
 
-		// Noisiness response curve based on scene luminance
-		float luminance = Luminance(saturate(color.rgb));
-		luminance += smoothstep(0.2, 0.0, luminance);
+    if (GrainAmount > 0.0)
+    {
+        float grain = pnoise3D(float3(input.TexCoord * InputSize / GrainParticleSize, 0), GrainTime) * GrainAmount;
+        sceneColor += grain;
+    }
 
-		// Add noise to the final color
-		noise = lerp(noise, 0, min(pow(luminance, 4.0), 100));
-		color.rgb += noise * GrainAmount;
-	}
+    if (ChromaticDistortion > 0.0)
+    {
+        float2 coords = (input.TexCoord - 0.5) * 2.0;
+        float2 end = input.TexCoord - coords * dot(coords, coords) * ChromaticDistortion;
+        float2 delta = (end - input.TexCoord) / 3.0;
 
-	// Vignette
-	BRANCH
-	if (VignetteIntensity > 0)
-	{
-		float2 uvCircle = uv * (1 - uv);
-		float uvCircleScale = uvCircle.x * uvCircle.y * 16.0f;
-		float mask = lerp(1, pow(uvCircleScale, VignetteShapeFactor), VignetteIntensity);
-		color.rgb = lerp(VignetteColor, color.rgb, mask);
-	}
+        sceneColor.r = Input0.Sample(SamplerLinearClamp, input.TexCoord).r;
+        sceneColor.g = Input0.Sample(SamplerLinearClamp, input.TexCoord + delta).g;
+        sceneColor.b = Input0.Sample(SamplerLinearClamp, input.TexCoord + delta * 2.0).b;
+    }
 
-	// Screen fade
-	color.rgb = lerp(color.rgb, ScreenFadeColor.rgb, ScreenFadeColor.a);
+    // Apply screen fade
+    sceneColor = lerp(sceneColor, ScreenFadeColor.rgb, ScreenFadeColor.a);
 
-	// Saturate color since it will be rendered to the screen
-	color.rgb = saturate(color.rgb);
+    return float4(sceneColor, 1.0);
+}
 
-	// Return final pixel color (preserve input alpha)
-	return color;
+// Standalone depth haze composition pass (applied after forward pass, before UI)
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthHazeComposite(Quad_VS2PS input) : SV_Target
+{
+    float2 screenPos = input.TexCoord;
+
+    // Sample base scene color (Input0)
+    float3 sceneColor = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+
+    // Add depth haze effect with depth-based mip selection and chromatic dispersion
+    if (DepthHazeIntensity > 0.0)
+    {
+        // Get depth for mip selection and blending
+        float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
+        float pixelDepth = LinearizeZ(depthValue, ViewInfo);
+
+        // Calculate depth-based mip level for sampling from upsampled buffer
+        float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
+        float normalizedDepth = saturate((pixelDepth - DepthHazeNearDistance) / max(depthRange, 1.0));
+
+        // Apply power curve for artistic control
+        float targetMipFloat = pow(normalizedDepth, DepthHazePower) * (DepthHazeMipCount - 1);
+
+        // Apply max mip level limit to prevent excessive blur
+        float effectiveMaxMip = min(DepthHazeMaxMipLevel, DepthHazeMipCount - 1);
+        targetMipFloat = min(targetMipFloat, effectiveMaxMip);
+
+        // Wavelength-dependent chromatic dispersion for Mie scattering
+        // Red light scatters less (sharper), blue light scatters more (blurrier)
+        float redMipOffset = -DepthHazeChromaticDispersion * 0.5f;
+        float greenMipOffset = 0.0;
+        float blueMipOffset = DepthHazeChromaticDispersion;
+        
+        // Sample each channel at different mip levels from the upsampled buffer
+        float redMipLevel = clamp(targetMipFloat + redMipOffset, 0.0, effectiveMaxMip);
+        float greenMipLevel = clamp(targetMipFloat + greenMipOffset, 0.0, effectiveMaxMip);
+        float blueMipLevel = clamp(targetMipFloat + blueMipOffset, 0.0, effectiveMaxMip);
+
+        float3 scatteredColor = float3(
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, redMipLevel).r,
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, greenMipLevel).g,
+            DepthHaze.SampleLevel(SamplerLinearClamp, input.TexCoord, blueMipLevel).b
+        );
+
+        // Create smooth scattering mask based on distance
+        float scatteringMask = smoothstep(DepthHazeNearDistance * 0.8, DepthHazeNearDistance * 1.2, pixelDepth);
+
+        // Apply atmospheric scattering with intensity
+        float finalMask = scatteringMask * DepthHazeIntensity;
+        sceneColor = lerp(sceneColor, scatteredColor, finalMask);
+    }
+
+    return float4(sceneColor, 1.0);
 }

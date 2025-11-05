@@ -418,6 +418,7 @@ float3 GetInscatteredLight(AtmosphericFogData atmosphericFog, in float3 viewPosi
     return inscatteredLight;
 }
 
+
 float4 GetAtmosphericFog(AtmosphericFogData atmosphericFog, float viewFar, float3 viewPosition, float3 viewVector, float sceneDepth, float3 sceneColor)
 {
     float4 result = float4(1, 0, 0, 1);
@@ -510,7 +511,7 @@ float4 GetAtmosphericFog(AtmosphericFogData atmosphericFog, float viewFar, float
         T = max(sceneDepth + atmosphericFog.AtmosphericFogDistanceOffset, 1.0f);
 
         // TODO: fog for scene objects
-        return 0;
+        //return 0;
         //return float4(0, 1, 0, 1);
     }
 

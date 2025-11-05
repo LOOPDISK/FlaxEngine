@@ -128,6 +128,12 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
     _drawBatch = &renderContextBatch;
     _drawCategory = category;
 
+    // Debug weapon shadow collection
+    if (view.Pass == DrawPass::WeaponDepth)
+    {
+        
+    }
+
     // Setup frustum data
     const int32 frustumsCount = renderContextBatch.Contexts.Count();
     _drawFrustumsData.Resize(frustumsCount);
@@ -283,6 +289,12 @@ void SceneRendering::DrawActorsJob(int32)
     auto& mainContext = _drawBatch->GetMainContext();
     const auto& view = mainContext.View;
     HZBData* hzb = mainContext.Task->OcclusionInfo;
+
+    // Debug weapon shadow collection
+    int32 weaponCheckedActors = 0;
+    int32 weaponCulledByLayer = 0;
+    int32 weaponCulledByFrustum = 0;
+    int32 weaponDrawnActors = 0;
     
     // bypass occlusion culling from Graphics Settings
     if (!Graphics::OcclusionCulling) hzb = nullptr;
@@ -308,6 +320,11 @@ void SceneRendering::DrawActorsJob(int32)
     }
     skipOcclusion = false;
     
+    if (view.Pass == DrawPass::WeaponDepth)
+    {
+
+    }
+
     if (view.StaticFlagsMask != StaticFlags::None)
     {
         // Static-flags culling
@@ -327,6 +344,7 @@ void SceneRendering::DrawActorsJob(int32)
             {
                 DRAW_ACTOR(mainContext);
             }
+
         }
     }
     else if (view.Origin.IsZero())

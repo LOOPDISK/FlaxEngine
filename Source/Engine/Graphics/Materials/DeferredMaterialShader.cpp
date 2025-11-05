@@ -18,7 +18,17 @@
 
 DrawPass DeferredMaterialShader::GetDrawModes() const
 {
-    return DrawPass::Depth | DrawPass::GBuffer | DrawPass::GlobalSurfaceAtlas | DrawPass::MotionVectors | DrawPass::QuadOverdraw;
+    // Use WeaponDepth instead of Depth for weapon FOV override materials (no world shadow casting)
+    const bool useWeaponFOV = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride);
+    const DrawPass depthPass = useWeaponFOV ? DrawPass::WeaponDepth : DrawPass::Depth;
+    auto result = depthPass | DrawPass::GBuffer | DrawPass::GlobalSurfaceAtlas | DrawPass::MotionVectors | DrawPass::QuadOverdraw;
+
+    if (useWeaponFOV)
+    {
+        
+    }
+
+    return result;
 }
 
 bool DeferredMaterialShader::CanUseLightmap() const
@@ -78,7 +88,8 @@ void DeferredMaterialShader::Bind(BindParameters& params)
 
     // Select pipeline state based on current pass and render mode
     const bool wireframe = (_info.FeaturesFlags & MaterialFeaturesFlags::Wireframe) != MaterialFeaturesFlags::None || view.Mode == ViewMode::Wireframe;
-    CullMode cullMode = view.Pass == DrawPass::Depth ? CullMode::TwoSided : _info.CullMode;
+    const bool isDepthPass = view.Pass == DrawPass::Depth || view.Pass == DrawPass::WeaponDepth;
+    CullMode cullMode = isDepthPass ? CullMode::TwoSided : _info.CullMode;
 #if USE_EDITOR
     if (IsRunningRadiancePass)
         cullMode = CullMode::TwoSided;

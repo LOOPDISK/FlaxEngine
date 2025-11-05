@@ -26,6 +26,10 @@ GPU_CB_STRUCT(Data {
     float Padding;
     ShaderGBufferData GBuffer;
     ShaderAtmosphericFogData Fog;
+    Float3 HorizonColor;
+    float Padding2;
+    Float3 ZenithColor;
+    float Padding3;
     });
 
 Sky::Sky(const SpawnParams& params)
@@ -148,6 +152,8 @@ void Sky::Serialize(SerializeStream& stream, const void* otherObj)
     SERIALIZE(SunDiscScale);
     SERIALIZE(SunPower);
     SERIALIZE(IndirectLightingIntensity);
+    SERIALIZE(HorizonColor);
+    SERIALIZE(ZenithColor);
 }
 
 void Sky::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
@@ -159,6 +165,8 @@ void Sky::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
     DESERIALIZE(SunDiscScale);
     DESERIALIZE(SunPower);
     DESERIALIZE(IndirectLightingIntensity);
+    DESERIALIZE(HorizonColor);
+    DESERIALIZE(ZenithColor);
 }
 
 bool Sky::HasContentLoaded() const
@@ -230,12 +238,14 @@ void Sky::ApplySky(GPUContext* context, RenderContext& renderContext, const Matr
 
     // Setup constants data
     Matrix m;
-    Data data;
+    Data data = {};  // Zero-initialize to avoid garbage in padding
     Matrix::Multiply(world, renderContext.View.Frustum.GetMatrix(), m);
     Matrix::Transpose(m, data.WVP);
     GBufferPass::SetInputs(renderContext.View, data.GBuffer);
     data.ViewOffset = renderContext.View.Origin + GetPosition();
     InitConfig(data.Fog);
+    data.HorizonColor = HorizonColor.ToFloat3();
+    data.ZenithColor = ZenithColor.ToFloat3();
     //data.Fog.AtmosphericFogSunPower *= SunLight ? SunLight->Brightness : 1.0f;
     bool useSpecularLight = EnumHasAnyFlags(renderContext.View.Flags, ViewFlags::SpecularLight);
     if (!useSpecularLight)

@@ -151,6 +151,25 @@ namespace FlaxEditor.CustomEditors.Dedicated
     }
 
     /// <summary>
+    /// Editor for <see cref="DepthHazeSettings"/> type.
+    /// </summary>
+    [CustomEditor(typeof(DepthHazeSettings)), DefaultEditor]
+    sealed class DepthHazeSettingsEditor : PostProcessSettingsEditor
+    {
+        /// <inheritdoc />
+        protected override int OverrideFlags
+        {
+            get => (int)((DepthHazeSettings)Values[0]).OverrideFlags;
+            set
+            {
+                var settings = (DepthHazeSettings)Values[0];
+                settings.OverrideFlags = (DepthHazeSettingsOverride)value;
+                SetValue(settings);
+            }
+        }
+    }
+
+    /// <summary>
     /// Editor for <see cref="ToneMappingSettings"/> type.
     /// </summary>
     [CustomEditor(typeof(ToneMappingSettings)), DefaultEditor]

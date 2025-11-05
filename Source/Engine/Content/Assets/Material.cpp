@@ -440,6 +440,7 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
     options.Macros.Add({ "USE_VERTEX_COLOR", Numbers[EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseVertexColor) ? 1 : 0] });
     options.Macros.Add({ "USE_DISPLACEMENT", Numbers[EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseDisplacement) ? 1 : 0] });
     options.Macros.Add({ "USE_DITHERED_LOD_TRANSITION", Numbers[EnumHasAnyFlags(info.FeaturesFlags, MaterialFeaturesFlags::DitheredLODTransition) ? 1 : 0] });
+    options.Macros.Add({ "USE_WEAPON_FOV_OVERRIDE", Numbers[EnumHasAnyFlags(info.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride) ? 1 : 0] });
     options.Macros.Add({ "USE_GBUFFER_CUSTOM_DATA", Numbers[useCustomData ? 1 : 0] });
     options.Macros.Add({ "USE_REFLECTIONS", Numbers[EnumHasAnyFlags(info.FeaturesFlags, MaterialFeaturesFlags::DisableReflections) ? 0 : 1] });
     if (!(info.FeaturesFlags & MaterialFeaturesFlags::DisableReflections) && EnumHasAnyFlags(info.FeaturesFlags, MaterialFeaturesFlags::ScreenSpaceReflections))
