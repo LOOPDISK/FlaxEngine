@@ -63,6 +63,13 @@ void PS_GBuffer(
 	RT3 = float4(material.SubsurfaceColor, material.Opacity);
 #elif MATERIAL_SHADING_MODEL == SHADING_MODEL_FOLIAGE
 	RT3 = float4(material.SubsurfaceColor, material.Opacity);
+#elif MATERIAL_SHADING_MODEL == SHADING_MODEL_WEAPON
+	// Store linear world position for weapon FOV override shadow sampling
+	// Pack world position into RGB channels (use 16-bit precision per component)
+	// World position range: [-1000, 1000] units approximately
+	// Normalize to [0, 1] range for storage
+	float3 normalizedWorldPos = (materialInput.WorldPosition + 1000.0) / 2000.0;
+	RT3 = float4(normalizedWorldPos, 1.0); // Alpha = 1.0 to indicate valid world position
 #else
 	RT3 = float4(0, 0, 0, 0);
 #endif

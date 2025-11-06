@@ -108,11 +108,7 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
     result.Normal = DecodeNormal(gBuffer1.rgb);
     result.ShadingModel = (int)(gBuffer1.a * 3.999);
 
-    // Calculate view space and world space positions
-    result.ViewPos = GetViewPos(gBuffer, uv);
-    result.WorldPos = mul(float4(result.ViewPos, 1), gBuffer.InvViewMatrix).xyz;
-
-    // Decode GBuffer data
+    // Decode GBuffer data first
     result.Color = gBuffer0.rgb;
     result.AO = gBuffer0.a;
     result.Roughness = gBuffer2.r;
@@ -120,6 +116,29 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
     result.Specular = gBuffer2.b;
 #if defined(USE_GBUFFER_CUSTOM_DATA)
 	result.CustomData = gBuffer3;
+#endif
+
+    // Calculate view space and world space positions
+#if defined(USE_GBUFFER_CUSTOM_DATA)
+    // Check if GBuffer3 contains a valid linear world position (alpha == 1.0)
+    if (abs(gBuffer3.a - 1.0) < 0.01)
+    {
+        // Unpack linear world position from GBuffer3
+        // Reverse the normalization: [-1000, 1000] range
+        result.WorldPos = gBuffer3.rgb * 2000.0 - 1000.0;
+        // Calculate view position from world position
+        result.ViewPos = mul(float4(result.WorldPos, 1), gBuffer.InvViewMatrix).xyz;
+    }
+    else
+    {
+        // Fall back to depth reconstruction for non-weapon geometry
+        result.ViewPos = GetViewPos(gBuffer, uv);
+        result.WorldPos = mul(float4(result.ViewPos, 1), gBuffer.InvViewMatrix).xyz;
+    }
+#else
+    // Standard depth reconstruction when no custom G-buffer data
+    result.ViewPos = GetViewPos(gBuffer, uv);
+    result.WorldPos = mul(float4(result.ViewPos, 1), gBuffer.InvViewMatrix).xyz;
 #endif
 
     return result;
@@ -137,9 +156,29 @@ GBufferSample SampleGBufferFast(GBufferData gBuffer, float2 uv)
     result.Normal = DecodeNormal(gBuffer1.rgb);
     result.ShadingModel = (int)(gBuffer1.a * 3.999);
 
-    // Calculate view space position
+    // Calculate view space and world space positions
+#if defined(USE_GBUFFER_CUSTOM_DATA)
+    // Sample custom data to check for stored world position
+    float4 gBuffer3 = SAMPLE_RT(GBuffer3, uv);
+
+    // Check if GBuffer3 contains a valid linear world position (alpha == 1.0)
+    if (abs(gBuffer3.a - 1.0) < 0.01)
+    {
+        // Unpack linear world position from GBuffer3
+        result.WorldPos = gBuffer3.rgb * 2000.0 - 1000.0;
+        result.ViewPos = mul(float4(result.WorldPos, 1), gBuffer.InvViewMatrix).xyz;
+    }
+    else
+    {
+        // Fall back to depth reconstruction for non-weapon geometry
+        result.ViewPos = GetViewPos(gBuffer, uv);
+        result.WorldPos = mul(float4(result.ViewPos, 1), gBuffer.InvViewMatrix).xyz;
+    }
+#else
+    // Standard depth reconstruction when no custom G-buffer data
     result.ViewPos = GetViewPos(gBuffer, uv);
     result.WorldPos = mul(float4(result.ViewPos, 1), gBuffer.InvViewMatrix).xyz;
+#endif
 
     return result;
 }

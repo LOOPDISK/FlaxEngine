@@ -285,75 +285,38 @@ float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantSha
 }
 
 // Samples weapon shadow for the given directional light (simple single shadow map, no cascades)
-// PROPER FIX: Handle FOV override by detecting perspective vs orthographic projection
 float SampleWeaponShadow(LightData light, Buffer<float4> weaponShadowsBuffer, Texture2D<float> weaponShadowMap, float3 worldPosition, float3 cameraPosition)
 {
     // Check if weapon shadows are enabled
     if (light.WeaponShadowsBufferAddress == 0)
         return 1.0; // No weapon shadow
 
-    // PROPER APPROACH: Detect if we're dealing with a weapon rendered with FOV override
-    // by checking if the current projection is perspective (weapon) vs orthographic (shadow generation)
-
-    #if USE_WEAPON_FOV_OVERRIDE
-    // Check projection type by examining ViewInfo values
-    // Perspective projection (weapon FOV): ViewInfo.x != ViewInfo.y typically
-    // Orthographic projection (shadow gen): ViewInfo.x == ViewInfo.y for uniform scale
-    bool isPerspectiveProjection = abs(ViewInfo.x - ViewInfo.y) > 0.001f;
-
-    float shadowSampleBias = 0.001f; // Default bias
-    float3 samplePosition = worldPosition;
-
-    if (isPerspectiveProjection)
-    {
-        // This is a weapon with FOV override - we need to adjust the sampling position
-        // to account for the perspective projection difference
-
-        // SIMPLIFIED: Use standard bias since the scale mismatch has been fixed
-        float distanceFromCamera = length(worldPosition - cameraPosition);
-        shadowSampleBias = lerp(0.001f, 0.01f, saturate(1.0f - distanceFromCamera / 200.0f)); // Standard bias for close objects
-    }
-    #else
-    float shadowSampleBias = 0.001f; // Standard bias when no FOV override
-    float3 samplePosition = worldPosition;
-    #endif
-
     // Load weapon shadow matrix from buffer (single 4x4 matrix)
-    // This matrix already includes: ViewProjection * ClipToUV * AtlasTransform
     float4x4 weaponWorldToShadow;
     weaponWorldToShadow[0] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 0];
     weaponWorldToShadow[1] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 1];
     weaponWorldToShadow[2] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 2];
     weaponWorldToShadow[3] = weaponShadowsBuffer[light.WeaponShadowsBufferAddress + 3];
 
-    // STEP 1: Transform to shadow space (EXACTLY like CSM line 57)
-    float4 shadowPos = mul(float4(samplePosition, 1.0), weaponWorldToShadow);
+    // Use standard shadow bias for weapons
+    float distanceFromCamera = length(worldPosition - cameraPosition);
+    float shadowBias = lerp(0.001f, 0.01f, saturate(1.0f - distanceFromCamera / 200.0f));
 
-    // STEP 2: Apply bias BEFORE perspective divide (EXACTLY like CSM line 58)
-    shadowPos.z -= shadowSampleBias;
+    // Transform world position to shadow atlas space (EXACTLY like CSM)
+    float4 shadowPos = mul(float4(worldPosition, 1.0), weaponWorldToShadow);
 
-    // STEP 3: Perspective divide (EXACTLY like CSM line 59)
+    // Apply bias BEFORE perspective divide (EXACTLY like CSM)
+    shadowPos.z -= shadowBias;
+
+    // Perspective divide (EXACTLY like CSM)
     shadowPos.xyz /= shadowPos.w;
 
-    // STEP 4: Check bounds (atlas UVs should be [0,1])
+    // Check bounds (atlas UVs should be [0,1])
     if (any(shadowPos.xy < 0.0) || any(shadowPos.xy > 1.0))
         return 1.0; // Outside weapon shadow coverage, fully lit
 
-    // STEP 5: Sample with PCF (EXACTLY like CSM)
+    // Sample with PCF (EXACTLY like CSM)
     float weaponShadow = SampleShadowMapOptimizedPCF(weaponShadowMap, shadowPos.xy, shadowPos.z);
-
-    // DEBUG OPTIONS (uncomment one at a time to diagnose):
-    // return shadowMapDepth; // Visualize stored depth in shadow map (0=near, 1=far)
-    // return shadowPos.z; // Visualize receiver depth after transform
-    // float shadowMapDepth = weaponShadowMap.SampleLevel(SamplerLinearClamp, shadowPos.xy, 0).r;
-    // return (shadowPos.z < shadowMapDepth) ? 0.0 : 1.0; // Manual depth comparison (0=shadow, 1=lit)
-    // #if USE_WEAPON_FOV_OVERRIDE
-    // return isPerspectiveProjection ? 0.3 : 0.7; // Debug: show projection detection
-    // return shadowSampleBias * 20.0; // Debug: visualize bias amount
-    // return length(samplePosition - worldPosition) * 10.0; // Debug: visualize receiver bias
-    // #else
-    // return 0.5; // Debug: show this path executes
-    // #endif
 
     return weaponShadow;
 }
