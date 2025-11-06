@@ -1879,13 +1879,35 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // Create view matrix (position light behind the weapon bounds)
             Matrix::LookAt(weaponCenter + dirLight->Direction * minExtents.Z, weaponCenter, Float3::Up, weaponShadowView_);
 
-            // Create projection matrix (near=0, far=depth of bounding volume)
-            Matrix::OrthoOffCenter(minExtents.X, maxExtents.X, minExtents.Y, maxExtents.Y, 0.0f, cascadeExtents.Z, weaponShadowProjection);
+            // REVISED APPROACH: Generate light-space shadows but account for perspective projection differences
+            // The key insight is that we need to match the depth precision and distribution between
+            // shadow generation (orthographic) and weapon rendering (perspective)
 
-            LOG(Info, "Weapon Shadow Setup - weaponCenter=({0},{1},{2}), radius={3}, cascadeDepth={4}",
-                weaponCenter.X, weaponCenter.Y, weaponCenter.Z, weaponRadius, cascadeExtents.Z);
-            LOG(Info, "  minExtents=({0},{1},{2}), maxExtents=({3},{4},{5})",
-                minExtents.X, minExtents.Y, minExtents.Z, maxExtents.X, maxExtents.Y, maxExtents.Z);
+            const float nearPlane = 1.0f;  // Near plane for shadow generation
+            const float farPlane = cascadeExtents.Z;  // Far plane based on weapon bounds
+
+            // CORRECTED APPROACH: Use proper bounds that match the weapon's visual FOV
+            // Calculate the actual visible area at the weapon distance using the weapon's 54° FOV
+            const float weaponFOV = 54.0f * PI / 180.0f;
+            const float aspect = 1.0f; // Square shadow map
+            const float distanceToWeapon = 100.0f; // Same distance used for weaponCenter
+
+            // Calculate the visible area at this distance with weapon FOV
+            // tan(FOV/2) gives the half-height of the view frustum at distance 1
+            const float halfHeightAtDistance = distanceToWeapon * tan(weaponFOV * 0.5f);
+            const float halfWidthAtDistance = halfHeightAtDistance * aspect;
+
+            // Add margin to ensure full weapon coverage
+            const float margin = 1.2f; // 20% margin
+            const Float2 shadowBounds = Float2(halfWidthAtDistance * margin, halfHeightAtDistance * margin);
+
+            // Create standard orthographic projection with perspective-adjusted bounds
+            Matrix::OrthoOffCenter(-shadowBounds.X, shadowBounds.X, -shadowBounds.Y, shadowBounds.Y, nearPlane, farPlane, weaponShadowProjection);
+
+            LOG(Info, "Weapon Shadow Setup - weaponCenter=({0},{1},{2}), radius={3}, farPlane={4}",
+                weaponCenter.X, weaponCenter.Y, weaponCenter.Z, weaponRadius, farPlane);
+            LOG(Info, "  Using FOV-matched orthographic projection: bounds=({0},{1}), FOV={2}°, distance={3}, near={4}, far={5}",
+                shadowBounds.X, shadowBounds.Y, 54.0f, distanceToWeapon, nearPlane, farPlane);
             LOG(Info, "  Light position: weaponCenter + dirLight->Direction * minExtents.Z");
             Float3 lightPos = weaponCenter + dirLight->Direction * minExtents.Z;
             LOG(Info, "    = ({0},{1},{2}) + ({3},{4},{5}) * {6}",
