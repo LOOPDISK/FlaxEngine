@@ -1980,14 +1980,19 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             Matrix weaponWorldToShadow;
             Matrix::Multiply(weaponShadowVP, ClipToUV, weaponWorldToShadow);
 
-            // Step 2: Apply atlas transform (scale and offset to correct tile position)
-            // For CSM, this is done via ShadowToAtlas in the shader, but for weapon shadows
-            // we bake it into the matrix since we only have one tile
+            // Step 2: CRITICAL FIX - Weapon shadows should use tile-local coordinates, not atlas scaling
+            // The problem: CSM atlas transform scales by 1/atlasResolution, crushing our values
+            // Solution: For weapon shadows, treat the tile as the full shadow map (no atlas scaling)
+
             const float weaponAtlasInv = 1.0f / weaponAtlasResolution;
             const float scaleX = tile->Width * weaponAtlasInv;
             const float scaleY = tile->Height * weaponAtlasInv;
             const float offsetX = tile->X * weaponAtlasInv;
             const float offsetY = tile->Y * weaponAtlasInv;
+
+            // DEBUG: Log atlas transform values
+            LOG(Info, "  Atlas transform: atlasRes={0}, tileSize=({1},{2}), scale=({3},{4}), offset=({5},{6})",
+                weaponAtlasResolution, tile->Width, tile->Height, scaleX, scaleY, offsetX, offsetY);
 
             Matrix atlasTransform(
                 scaleX, 0.0f, 0.0f, 0.0f,
