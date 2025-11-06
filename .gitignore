@@ -156,3 +156,4 @@ obj/
 .idea/
 *.code-workspace
 omnisharp.json
+/claude_code_zai_env.sh
