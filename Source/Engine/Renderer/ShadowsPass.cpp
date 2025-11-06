@@ -1867,7 +1867,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // Setup shadow view for weapons (use same logic as regular directional shadows)
             RenderView weaponShadowView;
             const Float3 weaponCenter = renderContext.View.Position + renderContext.View.Direction * 100.0f; // 1 meter (100cm) in front
-            const float weaponRadius = 100.0f; // 1 meter radius to cover weapon bounds
+            const float weaponRadius = 500.0f; // 1 meter radius to cover weapon bounds
 
             // Build shadow bounds around weapon sphere (same as cascade shadow logic)
             Float3 maxExtents = Float3(weaponRadius);
