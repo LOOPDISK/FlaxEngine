@@ -123,9 +123,8 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
     // Check if GBuffer3 contains a valid linear world position (alpha == 1.0)
     if (abs(gBuffer3.a - 1.0) < 0.01)
     {
-        // Unpack linear world position from GBuffer3
-        // Reverse the normalization: [-1000, 1000] range
-        result.WorldPos = gBuffer3.rgb * 2000.0 - 1000.0;
+        // GBuffer3 uses R16G16B16A16_Float format, so we can directly use the stored world position
+        result.WorldPos = gBuffer3.rgb;
         // Calculate view position from world position
         result.ViewPos = mul(float4(result.WorldPos, 1), gBuffer.InvViewMatrix).xyz;
     }
@@ -164,8 +163,8 @@ GBufferSample SampleGBufferFast(GBufferData gBuffer, float2 uv)
     // Check if GBuffer3 contains a valid linear world position (alpha == 1.0)
     if (abs(gBuffer3.a - 1.0) < 0.01)
     {
-        // Unpack linear world position from GBuffer3
-        result.WorldPos = gBuffer3.rgb * 2000.0 - 1000.0;
+        // GBuffer3 uses R16G16B16A16_Float format, so we can directly use the stored world position
+        result.WorldPos = gBuffer3.rgb;
         result.ViewPos = mul(float4(result.WorldPos, 1), gBuffer.InvViewMatrix).xyz;
     }
     else
