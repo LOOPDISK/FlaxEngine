@@ -123,8 +123,8 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
     // Check if GBuffer3 contains a valid linear world position (alpha == 1.0)
     if (abs(gBuffer3.a - 1.0) < 0.01)
     {
-        // GBuffer3 uses R16G16B16A16_Float format, so we can directly use the stored world position
-        result.WorldPos = gBuffer3.rgb;
+        // Scale world position back up by 1000x (stored scaled down to avoid shading bug)
+        result.WorldPos = gBuffer3.rgb * 1000.0;
         // Calculate view position from world position
         result.ViewPos = mul(float4(result.WorldPos, 1), gBuffer.InvViewMatrix).xyz;
     }
@@ -163,8 +163,8 @@ GBufferSample SampleGBufferFast(GBufferData gBuffer, float2 uv)
     // Check if GBuffer3 contains a valid linear world position (alpha == 1.0)
     if (abs(gBuffer3.a - 1.0) < 0.01)
     {
-        // GBuffer3 uses R16G16B16A16_Float format, so we can directly use the stored world position
-        result.WorldPos = gBuffer3.rgb;
+        // Scale world position back up by 1000x (stored scaled down to avoid shading bug)
+        result.WorldPos = gBuffer3.rgb * 1000.0;
         result.ViewPos = mul(float4(result.WorldPos, 1), gBuffer.InvViewMatrix).xyz;
     }
     else
