@@ -170,6 +170,23 @@ PhysicsScene* Physics::FindOrCreateScene(const StringView& name)
     return scene;
 }
 
+PhysicsScene* Physics::CreateGeneratorScene(const StringView& name)
+{
+    auto scene = New<PhysicsScene>();
+    auto settings = New<PhysicsSettings>();
+    settings->EnableEnhancedDeterminism = true;
+    settings->SolverType = PhysicsSolverType::TemporalGaussSeidelSolver;
+    if (scene->Init(name, *settings))
+    {
+        Delete(scene);
+        scene = nullptr;
+    }
+    else
+        Scenes.Add(scene);
+    Delete(settings);
+    return scene;
+}
+
 PhysicsScene* Physics::FindScene(const StringView& name)
 {
     for (PhysicsScene* scene : Scenes)
