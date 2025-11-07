@@ -15,6 +15,7 @@
 #include "Engine/Level/Scene/SceneRendering.h"
 #include "Engine/Scripting/Enums.h"
 #include "Engine/Utilities/RectPack.h"
+#include "Engine/Threading/JobSystem.h"
 #if USE_EDITOR
 #include "Engine/Renderer/Lightmaps.h"
 #endif
@@ -1942,6 +1943,12 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
 
             renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDraw);
             renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDrawAsync);
+
+            // CRITICAL: Wait for all async draw call collection jobs to complete before batch goes out of scope
+            for (const uint64 label : weaponBatch.WaitLabels)
+                JobSystem::Wait(label);
+            weaponBatch.WaitLabels.Clear();
+
             auto& weaponCtx = weaponBatch.Contexts[0];
 
             // Safety check after collection
