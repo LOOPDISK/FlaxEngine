@@ -300,7 +300,7 @@ float SampleWeaponShadow(LightData light, Buffer<float4> weaponShadowsBuffer, Te
 
     // Use standard shadow bias for weapons
     float distanceFromCamera = length(worldPosition - cameraPosition);
-    float shadowBias = lerp(0.001f, 0.01f, saturate(1.0f - distanceFromCamera / 200.0f));
+    float shadowBias = lerp(0.0001f, 0.001f, saturate(1.0f - distanceFromCamera / 200.0f));
 
     // Transform world position to shadow atlas space (EXACTLY like CSM)
     float4 shadowPos = mul(float4(worldPosition, 1.0), weaponWorldToShadow);
