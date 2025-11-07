@@ -1914,11 +1914,13 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // SetUp() stores the matrices, and we must use the EXACT same matrix that rendering uses
             weaponShadowVP = weaponShadowView.ViewProjection();
 
-            // Create render context for weapon shadows
-            RenderContext weaponShadowContext;
+            // Create render context for weapon shadows (zero-initialize first)
+            RenderContext weaponShadowContext = {};
             weaponShadowContext.Buffers = renderContext.Buffers;
             weaponShadowContext.Task = renderContext.Task;
             weaponShadowContext.List = RenderList::GetFromPool();
+            weaponShadowContext.List->Clear();
+            weaponShadowContext.LodProxyView = const_cast<RenderView*>(&renderContext.View);
             weaponShadowContext.View = weaponShadowView;
             weaponShadowContext.View.Origin = renderContext.View.Origin;
             // Don't overwrite CullingFrustum - SetUp() already configured it correctly
@@ -1930,11 +1932,25 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // CRITICAL: Must do them sequentially (not parallel) to avoid race condition with shared _drawListData
             RenderContextBatch weaponBatch;
             weaponBatch.Contexts.Add(weaponShadowContext);
+
+            // Safety check before collection
+            if (!renderContext.Task)
+            {
+                LOG(Warning, "Weapon shadows: renderContext.Task is null, skipping collection");
+                goto skip_weapon_shadows;
+            }
+
             renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDraw);
             renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDrawAsync);
             auto& weaponCtx = weaponBatch.Contexts[0];
 
-  
+            // Safety check after collection
+            if (!weaponCtx.List)
+            {
+                LOG(Warning, "Weapon shadows: weaponCtx.List is null after collection, skipping rendering");
+                goto skip_weapon_shadows;
+            }
+
             // Render weapon shadows
             if (shadowsMutable.ClearWeaponShadowMapAtlas)
                 context->ClearDepth(shadowsMutable.WeaponShadowMapAtlas->View());
@@ -1993,8 +2009,10 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadowTransposed.GetColumn4());
 
       
-            // Cleanup
+            // Cleanup - Return list to pool (it will be cleared automatically)
             RenderList::ReturnToPool(weaponCtx.List);
+            weaponCtx.List = nullptr; // Null out to prevent use-after-free
+            weaponShadowContext.List = nullptr; // Also null the original
             shadowsMutable.ClearWeaponShadowMapAtlas = false;
         }
     }

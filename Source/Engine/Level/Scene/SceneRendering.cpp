@@ -331,11 +331,6 @@ void SceneRendering::DrawActorsJob(int32)
     {
         // Fast path for no origin shifting with a single context
         FOR_EACH_BATCH_ACTOR
-            if (view.Pass == DrawPass::WeaponDepth)
-            {
-                bool layerPass = (view.RenderLayersMask.Mask & e.LayerMask) != 0;
-                bool frustumPass = CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum, hzb, skipOcclusion);
-            }
             if (CHECK_ACTOR_SINGLE_FRUSTUM)
             {
                 DRAW_ACTOR(mainContext);
