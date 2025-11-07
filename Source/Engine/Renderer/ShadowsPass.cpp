@@ -1839,7 +1839,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
         else
         {
             // Initialize weapon shadow atlas if needed
-            const int32 weaponAtlasResolution = 1024; // Fixed size for weapon shadows
+            const int32 weaponAtlasResolution = 2048; // Fixed size for weapon shadows
             if (shadowsMutable.WeaponAtlas.Width != weaponAtlasResolution)
             {
                 shadowsMutable.WeaponAtlas.Init(weaponAtlasResolution, weaponAtlasResolution);
@@ -1853,7 +1853,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             }
 
             // Allocate weapon shadow tile if needed
-            const uint16 weaponShadowRes = 512; // Single 512x512 shadow map for all weapon geometry
+            const uint16 weaponShadowRes = 1024; // Single 512x512 shadow map for all weapon geometry
             if (!shadowsMutable.WeaponDirectionalLightTile)
             {
                 shadowsMutable.WeaponDirectionalLightTile = shadowsMutable.WeaponAtlas.Insert(weaponShadowRes, weaponShadowRes, &shadowsMutable, false);
