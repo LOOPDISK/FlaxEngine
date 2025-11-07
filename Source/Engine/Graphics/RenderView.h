@@ -323,15 +323,15 @@ public:
         switch (shadowsMode)
         {
         case ShadowsCastingMode::All:
-            return DrawPass::All;
+            return DrawPass::Default;
         case ShadowsCastingMode::DynamicOnly:
-            return IsOfflinePass ? ~(DrawPass::Depth | DrawPass::WeaponDepth) : DrawPass::All;
+            return IsOfflinePass ? ~(DrawPass::Depth | DrawPass::WeaponDepth) : DrawPass::Default;
         case ShadowsCastingMode::StaticOnly:
-            return IsOfflinePass ? DrawPass::All : ~(DrawPass::Depth | DrawPass::WeaponDepth);
+            return IsOfflinePass ? DrawPass::Default : ~(DrawPass::Depth | DrawPass::WeaponDepth);
         case ShadowsCastingMode::None:
             return ~(DrawPass::Depth | DrawPass::WeaponDepth);
         default:
-            return DrawPass::All;
+            return DrawPass::Default;
         }
     }
 

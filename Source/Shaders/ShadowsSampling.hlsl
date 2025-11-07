@@ -285,8 +285,12 @@ float SampleDistantShadowMap(float4x4 worldToShadow, Texture2D<float> distantSha
 }
 
 // Samples weapon shadow for the given directional light (simple single shadow map, no cascades)
-float SampleWeaponShadow(LightData light, Buffer<float4> weaponShadowsBuffer, Texture2D<float> weaponShadowMap, float3 worldPosition, float3 cameraPosition)
+float SampleWeaponShadow(LightData light, Buffer<float4> weaponShadowsBuffer, Texture2D<float> weaponShadowMap, float3 worldPosition, float3 cameraPosition, int shadingModel)
 {
+    // Only apply weapon shadows to surfaces with weapon shading model (for self-shadowing)
+    if (shadingModel != SHADING_MODEL_WEAPON)
+        return 1.0; // Non-weapon surfaces don't receive weapon shadows
+
     // Check if weapon shadows are enabled
     if (light.WeaponShadowsBufferAddress == 0)
         return 1.0; // No weapon shadow

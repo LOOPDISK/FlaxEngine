@@ -173,8 +173,8 @@ float4 PS_DirLight(Quad_VS2PS input) : SV_Target0
 	shadow.SurfaceShadow *= RayCastScreenSpaceShadow(gBufferData, gBuffer, gBuffer.WorldPos, Light.Direction, ContactShadowsLength);
 #endif
 
-	// Sample and combine weapon self-shadow (multiplicative combine)
-	float weaponShadow = SampleWeaponShadow(Light, WeaponShadowsBuffer, WeaponShadowMap, gBuffer.WorldPos, gBufferData.ViewPos);
+	// Sample and combine weapon self-shadow (multiplicative combine, only for weapon shading model)
+	float weaponShadow = SampleWeaponShadow(Light, WeaponShadowsBuffer, WeaponShadowMap, gBuffer.WorldPos, gBufferData.ViewPos, gBuffer.ShadingModel);
 	shadow.SurfaceShadow *= weaponShadow;
 
 	return GetShadowMask(shadow);
