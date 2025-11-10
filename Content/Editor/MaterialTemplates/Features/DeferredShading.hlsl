@@ -60,13 +60,14 @@ void PS_GBuffer(
 	// Custom data
 #if USE_GBUFFER_CUSTOM_DATA
 #if MATERIAL_SHADING_MODEL == SHADING_MODEL_SUBSURFACE
+	
 	RT3 = float4(material.SubsurfaceColor, material.Opacity);
 #elif MATERIAL_SHADING_MODEL == SHADING_MODEL_FOLIAGE
 	RT3 = float4(material.SubsurfaceColor, material.Opacity);
 #elif MATERIAL_SHADING_MODEL == SHADING_MODEL_WEAPON
-	// Store scaled-down world position for weapon FOV override shadow sampling
-	// Scale down by 0.001 to avoid shading bug, will scale back up during shadow sampling
-	RT3 = float4(materialInput.WorldPosition * 0.001, 1.0); // Alpha = 1.0 to indicate valid world position
+	// Store camera-relative world position for weapon FOV override shadow sampling
+	// Camera-relative to avoid precision issues far from origin
+	RT3 = float4(materialInput.WorldPosition - ViewPos, 1.0); // Alpha = 1.0 to indicate valid world position
 #else
 	RT3 = float4(0, 0, 0, 0);
 #endif

@@ -120,13 +120,19 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
 
     // Calculate view space and world space positions
 #if defined(USE_GBUFFER_CUSTOM_DATA)
-    // Check if GBuffer3 contains a valid linear world position (alpha == 1.0)
+    // Check if GBuffer3 contains a valid camera-relative world position (alpha == 1.0)
     if (abs(gBuffer3.a - 1.0) < 0.01)
     {
-        // Scale world position back up by 1000x (stored scaled down to avoid shading bug)
-        result.WorldPos = gBuffer3.rgb * 1000.0;
-        // Calculate view position from world position
-        result.ViewPos = mul(float4(result.WorldPos, 1), gBuffer.InvViewMatrix).xyz;
+        // Reconstruct absolute world position from camera-relative position
+        // GBuffer3 stores (WorldPosition - ViewPos), where ViewPos is the camera's world position
+        // So add the camera's world position (gBuffer.ViewPos) back to get absolute world position
+        result.WorldPos = gBuffer3.rgb + gBuffer.ViewPos;
+
+        // Now convert world position back to view space
+        // This is the inverse of: worldPos = mul(float4(viewPos, 1), InvViewMatrix).xyz
+        // We need to apply the view matrix (inverse of InvViewMatrix)
+        // Since viewPos is in camera space, we can derive it from the world position
+        result.ViewPos = GetViewPos(gBuffer, uv); // Still use depth for view pos as it's more accurate
     }
     else
     {
@@ -160,12 +166,16 @@ GBufferSample SampleGBufferFast(GBufferData gBuffer, float2 uv)
     // Sample custom data to check for stored world position
     float4 gBuffer3 = SAMPLE_RT(GBuffer3, uv);
 
-    // Check if GBuffer3 contains a valid linear world position (alpha == 1.0)
+    // Check if GBuffer3 contains a valid camera-relative world position (alpha == 1.0)
     if (abs(gBuffer3.a - 1.0) < 0.01)
     {
-        // Scale world position back up by 1000x (stored scaled down to avoid shading bug)
-        result.WorldPos = gBuffer3.rgb * 1000.0;
-        result.ViewPos = mul(float4(result.WorldPos, 1), gBuffer.InvViewMatrix).xyz;
+        // Reconstruct absolute world position from camera-relative position
+        // GBuffer3 stores (WorldPosition - ViewPos), where ViewPos is the camera's world position
+        // So add the camera's world position (gBuffer.ViewPos) back to get absolute world position
+        result.WorldPos = gBuffer3.rgb + gBuffer.ViewPos;
+
+        // Still use depth for view pos as it's more accurate
+        result.ViewPos = GetViewPos(gBuffer, uv);
     }
     else
     {
