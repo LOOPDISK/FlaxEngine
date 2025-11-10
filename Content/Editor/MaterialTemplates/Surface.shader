@@ -337,16 +337,16 @@ VertexOutput VS(ModelInput input)
 #endif
 	ObjectData object = LoadObject(ObjectsBuffer, output.Geometry.ObjectIndex);
 
-	// Compute world space vertex position
+	// Compute world space vertex position (this stays as the true linear world position)
 	output.Geometry.WorldPosition = mul(float4(input.Position.xyz, 1), object.WorldMatrix).xyz;
 	output.Geometry.PrevWorldPosition = mul(float4(input.Position.xyz, 1), object.PrevWorldMatrix).xyz;
 
-	// Compute clip space position
-// #if USE_WEAPON_FOV_OVERRIDE
-// 	// Apply weapon FOV override if enabled
-// 	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
-// 	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
-// #else
+	// Compute clip space position - ONLY apply FOV override to final screen position
+#if USE_WEAPON_FOV_OVERRIDE
+	// Apply weapon FOV override ONLY to screen projection, not world position
+	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
+	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
+#else
 	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
 // #endif
 
@@ -526,7 +526,7 @@ VertexOutput VS_Skinned(ModelInput_Skinned input)
 	float3 position = SkinPosition(input, boneMatrix);
 	float3x3 tangentToLocal = SkinTangents(input, boneMatrix);
 	
-	// Compute world space vertex position
+	// Compute world space vertex position (this stays as the true linear world position)
 	output.Geometry.WorldPosition = mul(float4(position, 1), object.WorldMatrix).xyz;
 #if PER_BONE_MOTION_BLUR
 	float3 prevPosition = SkinPrevPosition(input);
@@ -535,12 +535,12 @@ VertexOutput VS_Skinned(ModelInput_Skinned input)
 	output.Geometry.PrevWorldPosition = mul(float4(position, 1), object.PrevWorldMatrix).xyz;
 #endif
 
-	// Compute clip space position
-// #if USE_WEAPON_FOV_OVERRIDE
-// 	// Apply weapon FOV override if enabled
-// 	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
-// 	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
-// #else
+	// Compute clip space position - ONLY apply FOV override to final screen position
+#if USE_WEAPON_FOV_OVERRIDE
+	// Apply weapon FOV override ONLY to screen projection, not world position
+	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
+	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
+#else
 	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
 // #endif
 
@@ -651,3 +651,6 @@ void PS_QuadOverdraw(float4 svPos : SV_Position, uint primId : SV_PrimitiveID)
 #endif
 
 @9
+
+
+

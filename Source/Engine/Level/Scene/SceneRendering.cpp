@@ -128,12 +128,7 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
     _drawBatch = &renderContextBatch;
     _drawCategory = category;
 
-    // Debug weapon shadow collection
-    if (view.Pass == DrawPass::WeaponDepth)
-    {
-        
-    }
-
+  
     // Setup frustum data
     const int32 frustumsCount = renderContextBatch.Contexts.Count();
     _drawFrustumsData.Resize(frustumsCount);
@@ -320,11 +315,7 @@ void SceneRendering::DrawActorsJob(int32)
     }
     skipOcclusion = false;
     
-    if (view.Pass == DrawPass::WeaponDepth)
-    {
-
-    }
-
+    
     if (view.StaticFlagsMask != StaticFlags::None)
     {
         // Static-flags culling

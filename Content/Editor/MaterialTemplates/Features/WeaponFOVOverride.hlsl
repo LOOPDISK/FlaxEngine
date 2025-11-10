@@ -40,6 +40,8 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     {
         // Shadow/depth pass with ortho projection - don't apply FOV override
         return mul(float4(worldPosition, 1.0), ViewProjectionMatrix);
+        
+
     }
     // Transform world position to view space first
     float4 viewPosition = mul(float4(worldPosition, 1.0), ViewMatrix);

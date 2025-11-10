@@ -103,6 +103,11 @@ API_ENUM() enum class MaterialShadingModel : byte
     /// The foliage material. Intended for foliage materials like leaves and grass that need light scattering to transport simulation through the thin object.
     /// </summary>
     Foliage = 3,
+
+    /// <summary>
+    /// The weapon material. Intended for weapon models that use FOV override for screen projection but need accurate shadow sampling.
+    /// </summary>
+    Weapon = 4,
 };
 
 /// <summary>

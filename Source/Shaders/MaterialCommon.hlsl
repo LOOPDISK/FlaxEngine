@@ -73,6 +73,9 @@
 #ifndef PER_BONE_MOTION_BLUR
 #define PER_BONE_MOTION_BLUR 0
 #endif
+#ifndef USE_WEAPON_FOV_OVERRIDE
+#define USE_WEAPON_FOV_OVERRIDE 0
+#endif
 
 // Object properties
 struct ObjectData
