@@ -31,6 +31,14 @@ void D6Joint::SetDrive(const D6JointDriveType index, const D6JointDrive& value)
         PhysicsBackend::SetD6JointDrive(_joint, index, value);
 }
 
+void D6Joint::SetProjection(bool useProjection, float linearTolerance, float angularTolerance)
+{
+    if (_joint)
+    {
+        PhysicsBackend::SetD6JointProjection(_joint, useProjection, linearTolerance, angularTolerance);
+    }
+}
+
 void D6Joint::SetLimitLinear(const LimitLinear& value)
 {
     if (value == _limitLinear)

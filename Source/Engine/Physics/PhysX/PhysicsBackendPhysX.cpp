@@ -3026,6 +3026,20 @@ void PhysicsBackend::SetSphericalJointLimit(void* joint, const LimitConeRange& v
     jointPhysX->setLimitCone(limit);
 }
 
+void PhysicsBackend::SetD6JointProjection(void* joint, bool useProjection, float linearProjection, float angularProjection)
+{
+    auto jointPhysX = (PxD6Joint*)joint;
+    if (linearProjection > 0)
+    {
+        jointPhysX->setProjectionLinearTolerance(linearProjection);
+    }
+    if (angularProjection > 0)
+    {
+        jointPhysX->setProjectionAngularTolerance(angularProjection);
+    }
+    jointPhysX->setConstraintFlag(PxConstraintFlag::ePROJECTION, useProjection);
+}
+
 void PhysicsBackend::SetD6JointMotion(void* joint, D6JointAxis axis, D6JointMotion value)
 {
     auto jointPhysX = (PxD6Joint*)joint;

@@ -292,6 +292,15 @@ public:
     /// </summary>
     API_PROPERTY() void SetDriveAngularVelocity(const Vector3& value);
 
+    /// <summary>
+    /// Turn on or off kinematic projection, which enforces joint constraints more strongly but less realistically.
+    /// </summary>
+    /// <param name="useProjection">Off by default.</param>
+    /// <param name="linearTolerance">The linear constraint limit to when the projection algorithm tries to correct things.</param>
+    /// <param name="angularTolerance">The angular constraint limit to when the projection algorithm tries to correct things.</param>
+    /// <returns></returns>
+    API_FUNCTION() void SetProjection(bool useProjection, float linearTolerance, float angularTolerance);
+
 public:
     /// <summary>
     /// Gets the twist angle of the joint (in the range (-2*Pi, 2*Pi]).

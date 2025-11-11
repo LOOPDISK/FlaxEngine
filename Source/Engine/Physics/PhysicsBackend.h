@@ -226,6 +226,7 @@ public:
     static float GetSliderJointVelocity(void* joint);
     static void SetSphericalJointFlags(void* joint, SphericalJointFlag value);
     static void SetSphericalJointLimit(void* joint, const LimitConeRange& value);
+    static void SetD6JointProjection(void* joint, bool useProjection, float linearProjection, float angularProjection);
     static void SetD6JointMotion(void* joint, D6JointAxis axis, D6JointMotion value);
     static void SetD6JointDrive(void* joint, const D6JointDriveType index, const D6JointDrive& value);
     static void SetD6JointLimitLinear(void* joint, const LimitLinear& value);
