@@ -23,11 +23,7 @@ DrawPass DeferredMaterialShader::GetDrawModes() const
     const DrawPass depthPass = useWeaponFOV ? DrawPass::WeaponDepth : DrawPass::Depth;
     auto result = depthPass | DrawPass::GBuffer | DrawPass::GlobalSurfaceAtlas | DrawPass::MotionVectors | DrawPass::QuadOverdraw;
 
-    if (useWeaponFOV)
-    {
-        
-    }
-
+    
     return result;
 }
 

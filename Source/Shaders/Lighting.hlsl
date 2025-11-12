@@ -78,6 +78,8 @@ LightSample SurfaceShading(GBufferSample gBuffer, float energy, float3 L, float3
         return SubsurfaceShading(gBuffer, energy, L, V, N);
     case SHADING_MODEL_FOLIAGE:
         return FoliageShading(gBuffer, energy, L, V, N);
+    case SHADING_MODEL_WEAPON:
+        return StandardShading(gBuffer, energy, L, V, N);
     default:
         return (LightSample)0;
     }

@@ -75,7 +75,8 @@ void ForwardMaterialShader::Bind(BindParameters& params)
 
     // Select pipeline state based on current pass and render mode
     const bool wireframe = (_info.FeaturesFlags & MaterialFeaturesFlags::Wireframe) != MaterialFeaturesFlags::None || view.Mode == ViewMode::Wireframe;
-    CullMode cullMode = view.Pass == DrawPass::Depth ? CullMode::TwoSided : _info.CullMode;
+    const bool isDepthPass = view.Pass == DrawPass::Depth || view.Pass == DrawPass::WeaponDepth;
+    CullMode cullMode = isDepthPass ? CullMode::TwoSided : _info.CullMode;
 #if USE_EDITOR
     if (IsRunningRadiancePass)
         cullMode = CullMode::TwoSided;
@@ -109,7 +110,10 @@ void ForwardMaterialShader::Unload()
 
 bool ForwardMaterialShader::Load()
 {
-    _drawModes = DrawPass::Depth | DrawPass::Forward | DrawPass::QuadOverdraw;
+    // Use WeaponDepth instead of Depth for weapon FOV override materials (no world shadow casting)
+    const bool useWeaponFOV = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride);
+    const DrawPass depthPass = useWeaponFOV ? DrawPass::WeaponDepth : DrawPass::Depth;
+    _drawModes = depthPass | DrawPass::Forward | DrawPass::QuadOverdraw;
 
     auto psDesc = GPUPipelineState::Description::Default;
     psDesc.DepthEnable = (_info.FeaturesFlags & MaterialFeaturesFlags::DisableDepthTest) == MaterialFeaturesFlags::None;
