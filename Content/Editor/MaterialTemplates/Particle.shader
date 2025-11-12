@@ -277,6 +277,7 @@ float3 TransformParticleVector(float3 input)
 #define USE_WEAPON_FOV_OVERRIDE 0
 #endif
 
+#if USE_WEAPON_FOV_OVERRIDE
 float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
 {
     // Detect if we're in a shadow/depth pass by checking if projection is ortho
@@ -292,9 +293,7 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     // Transform world position to view space first
     float4 viewPosition = mul(float4(worldPosition, 1.0), ViewMatrix);
 
-    // Create a custom projection matrix with narrower FOV for weapons
-    float weaponFovHalf = radians(20.0);  // 40° total FOV (narrower than typical 90° camera FOV)
-    float weaponProjectionScale = 1.0f / tan(weaponFovHalf);
+    const float weaponProjectionScale = 1.0f / tan(GetWeaponFOVRadians() * 0.5f);
 
     // Build custom projection matrix with narrower FOV but same depth behavior
     float4x4 projectionMatrix = (float4x4)0;
@@ -305,6 +304,7 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     projectionMatrix[3][2] = ViewInfo.w; // Same depth: (-Far*Near)/(Far-Near)
     return mul(viewPosition, projectionMatrix);
 }
+#endif
 
 @8
 

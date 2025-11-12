@@ -173,6 +173,11 @@ public:
     API_FIELD() DEPRECATED() float ShadowModelLODDistanceFactor = 1.0f;
 
     /// <summary>
+    /// Field of view in degrees used for weapon-only rendering overrides. Set to 0 to inherit the camera field of view.
+    /// </summary>
+    API_FIELD() float WeaponFOV = 54.0f;
+
+    /// <summary>
     /// Temporal Anti-Aliasing jitter frame index.
     /// </summary>
     API_FIELD() int32 TaaFrameIndex = 0;

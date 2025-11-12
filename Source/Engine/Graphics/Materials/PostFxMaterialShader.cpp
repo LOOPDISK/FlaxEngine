@@ -58,6 +58,7 @@ void PostFxMaterialShader::Bind(BindParameters& params)
         materialData->ViewInfo = view.ViewInfo;
         materialData->ScreenSize = view.ScreenSize;
         materialData->TemporalAAJitter = view.TemporalAAJitter;
+        materialData->ViewPadding0 = Float3(view.WeaponFOV, 0.0f, 0.0f);
     }
 
     // Bind constants

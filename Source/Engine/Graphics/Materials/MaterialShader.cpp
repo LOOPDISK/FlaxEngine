@@ -88,6 +88,7 @@ void IMaterial::BindParameters::BindViewData()
     cb.TemporalAAJitter = view.TemporalAAJitter;
     cb.LargeWorldsChunkIndex = LargeWorlds::Enable ? (Float3)Int3(view.Origin / LargeWorlds::ChunkSize) : Float3::Zero;
     cb.LargeWorldsChunkSize = LargeWorlds::ChunkSize;
+    cb.ViewPadding0 = Float3(view.WeaponFOV, 0.0f, 0.0f);
 
     // Update constants
     GPUContext->UpdateCB(PerViewConstants, &cb);
