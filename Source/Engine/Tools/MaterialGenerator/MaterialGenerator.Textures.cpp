@@ -961,6 +961,29 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         const auto rotationStrength = tryGetValue(node->TryGetBox(7), node->Values.Count() >= 7 ? node->Values[6] : 1.0f).AsFloat();
         const auto contrast = tryGetValue(node->TryGetBox(8), node->Values.Count() >= 8 ? node->Values[7] : 0.5f).AsFloat();
         const bool largeWorldStability = node->Values.Count() >= 9 ? node->Values[8].AsBool : false;
+        const auto customPositionBox = node->TryGetBox(9);
+        String positionExpression;
+        const bool hasCustomPosition = customPositionBox && customPositionBox->HasConnection();
+        if (hasCustomPosition)
+        {
+            positionExpression = tryGetValue(customPositionBox, Value::Zero).AsFloat3().Value;
+        }
+        else
+        {
+            positionExpression = local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition");
+        }
+        const auto customNormalBox = node->TryGetBox(10);
+        String normalExpression;
+        if (customNormalBox && customNormalBox->HasConnection())
+        {
+            normalExpression = tryGetValue(customNormalBox, Value::Zero).AsFloat3().Value;
+        }
+        else
+        {
+            normalExpression = local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]");
+        }
+        const bool useLargeWorldOffset = !hasCustomPosition || !local;
+        const Char* largeWorldOffsetExpr = useLargeWorldOffset ? TEXT(" + GetLargeWorldsTileOffset(1.0f / length(tiling))") : TEXT("");
 
         const Char* samplerName;
         const int32 samplerIndex = node->Values.Count() >= 4 ? node->Values[3].AsInt : LinearWrap;
@@ -996,7 +1019,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         {
             // Get world position and normal
             float3 tiling = %SCALE% * 0.001f;
-            float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
+            float3 position = ((%POSITION%)%LARGE_WORLD_OFFSET%) * tiling;
             float3 normal = normalize(%NORMAL%);
 
             // Compute triplanar blend weights using power distribution
@@ -1024,13 +1047,14 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 .Replace(TEXT("%BLEND%"), blend.Value)
 .Replace(TEXT("%OFFSET%"), offset.Value)
 .Replace(TEXT("%RESULT%"), result.Value)
-.Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-.Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+.Replace(TEXT("%POSITION%"), *positionExpression)
+.Replace(TEXT("%NORMAL%"), *normalExpression)
 .Replace(TEXT("%SAMPLER%"), samplerName)
 .Replace(TEXT("%ROT_STRENGTH%"), rotationStrength.Value)
 .Replace(TEXT("%CONTRAST%"), contrast.Value)
 .Replace(TEXT("%HEX_FUNCTION%"), largeWorldStability ? TEXT("hex2colTexRWS") : TEXT("hex2colTex"))
 .Replace(TEXT("%EXTRA_PARAMS%"), TEXT(""))
+.Replace(TEXT("%LARGE_WORLD_OFFSET%"), largeWorldOffsetExpr)
 .Build();
         }
         else
@@ -1041,7 +1065,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         {
             // Get world position and normal
             float3 tiling = %SCALE% * 0.001f;
-            float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
+            float3 position = ((%POSITION%)%LARGE_WORLD_OFFSET%) * tiling;
             float3 normal = normalize(%NORMAL%);
 
             // Compute triplanar blend weights using power distribution
@@ -1062,11 +1086,12 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 .Replace(TEXT("%BLEND%"), blend.Value)
 .Replace(TEXT("%OFFSET%"), offset.Value)
 .Replace(TEXT("%RESULT%"), result.Value)
-.Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-.Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+.Replace(TEXT("%POSITION%"), *positionExpression)
+.Replace(TEXT("%NORMAL%"), *normalExpression)
 .Replace(TEXT("%SAMPLER%"), samplerName)
 .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
 .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
+.Replace(TEXT("%LARGE_WORLD_OFFSET%"), largeWorldOffsetExpr)
 .Build();
         }
 
@@ -1111,6 +1136,32 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         const auto rotationStrength = tryGetValue(node->TryGetBox(7), node->Values.Count() >= 7 ? node->Values[6] : 1.0f).AsFloat();
         const auto contrast = tryGetValue(node->TryGetBox(8), node->Values.Count() >= 8 ? node->Values[7] : 0.5f).AsFloat();
         const bool largeWorldStability = node->Values.Count() >= 9 ? node->Values[8].AsBool : false;
+        const auto customPositionBox = node->TryGetBox(9);
+        String positionExpression;
+        const bool hasCustomPosition = customPositionBox && customPositionBox->HasConnection();
+        if (hasCustomPosition)
+        {
+            positionExpression = tryGetValue(customPositionBox, Value::Zero).AsFloat3().Value;
+        }
+        else
+        {
+            positionExpression = local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition");
+        }
+        const auto customNormalBox = node->TryGetBox(10);
+        String normalExpression;
+        String axisNormalExpression = TEXT("input.TBN[2]");
+        if (customNormalBox && customNormalBox->HasConnection())
+        {
+            normalExpression = tryGetValue(customNormalBox, Value::Zero).AsFloat3().Value;
+            axisNormalExpression = normalExpression;
+        }
+        else
+        {
+            normalExpression = local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]");
+            axisNormalExpression = TEXT("input.TBN[2]");
+        }
+        const bool useLargeWorldOffset = !hasCustomPosition || !local;
+        const Char* largeWorldOffsetExpr = useLargeWorldOffset ? TEXT(" + GetLargeWorldsTileOffset(1.0f / length(tiling))") : TEXT("");
 
         // Mark that hex tile functions are needed for this material
         if (hexTileEnabled)
@@ -1147,7 +1198,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             {
                 // Get world position and normal
                 float3 tiling = %SCALE% * 0.001f;
-                float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
+                float3 position = ((%POSITION%)%LARGE_WORLD_OFFSET%) * tiling;
                 float3 normal = normalize(%NORMAL%);
 
                 // Compute triplanar blend weights using power distribution
@@ -1160,11 +1211,11 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                 float3 tnormalZ = %HEXTILE_FUNC%(%TEXTURE%, %SAMPLER%, position.xy + %OFFSET%, %ROTATION_STRENGTH%, %CONTRAST%);
 
                 // Apply proper whiteout blend
-                normal = normalize(input.TBN[2]);
-                float3 axisSign = sign(normal);
-                float2 sumX = tnormalX.xy + normal.zy;
-                float2 sumY = tnormalY.xy + normal.xz;
-                float2 sumZ = tnormalZ.xy + normal.xy;
+                float3 axisNormal = normalize(%AXIS_NORMAL%);
+                float3 axisSign = sign(axisNormal);
+                float2 sumX = tnormalX.xy + axisNormal.zy;
+                float2 sumY = tnormalY.xy + axisNormal.xz;
+                float2 sumZ = tnormalZ.xy + axisNormal.xy;
                 tnormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
                 tnormalY = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
                 tnormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
@@ -1187,10 +1238,12 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 .Replace(TEXT("%ROTATION_STRENGTH%"), rotationStrength.Value)
 .Replace(TEXT("%CONTRAST%"), contrast.Value)
 .Replace(TEXT("%RESULT%"), result.Value)
-.Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-.Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+.Replace(TEXT("%POSITION%"), *positionExpression)
+.Replace(TEXT("%NORMAL%"), *normalExpression)
+.Replace(TEXT("%AXIS_NORMAL%"), *axisNormalExpression)
 .Replace(TEXT("%SAMPLER%"), samplerName)
 .Replace(TEXT("%HEXTILE_FUNC%"), hexTileFunction)
+.Replace(TEXT("%LARGE_WORLD_OFFSET%"), largeWorldOffsetExpr)
 .Build();
         }
         else
@@ -1201,7 +1254,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             {
                 // Get world position and normal
                 float3 tiling = %SCALE% * 0.001f;
-                float3 position = ((%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling))) * tiling;
+                float3 position = ((%POSITION%)%LARGE_WORLD_OFFSET%) * tiling;
                 float3 normal = normalize(%NORMAL%);
 
                 // Compute triplanar blend weights using power distribution
@@ -1214,11 +1267,11 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                 float3 tnormalZ = UnpackNormalMap(%TEXTURE%.%SAMPLE%(%SAMPLER%, position.xy + %OFFSET%%SAMPLE_ARGS%).rg);
 
                 // Apply proper whiteout blend
-                normal = normalize(input.TBN[2]);
-                float3 axisSign = sign(normal);
-                float2 sumX = tnormalX.xy + normal.zy;
-                float2 sumY = tnormalY.xy + normal.xz;
-                float2 sumZ = tnormalZ.xy + normal.xy;
+                float3 axisNormal = normalize(%AXIS_NORMAL%);
+                float3 axisSign = sign(axisNormal);
+                float2 sumX = tnormalX.xy + axisNormal.zy;
+                float2 sumY = tnormalY.xy + axisNormal.xz;
+                float2 sumZ = tnormalZ.xy + axisNormal.xy;
                 tnormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
                 tnormalY = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
                 tnormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
@@ -1239,11 +1292,13 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 .Replace(TEXT("%BLEND%"), blend.Value)
 .Replace(TEXT("%OFFSET%"), offset.Value)
 .Replace(TEXT("%RESULT%"), result.Value)
-.Replace(TEXT("%POSITION%"), local ? TEXT("TransformWorldVectorToLocal(input, input.WorldPosition - GetObjectPosition(input)) / GetObjectScale(input)") : TEXT("input.WorldPosition"))
-.Replace(TEXT("%NORMAL%"), local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]"))
+.Replace(TEXT("%POSITION%"), *positionExpression)
+.Replace(TEXT("%NORMAL%"), *normalExpression)
+.Replace(TEXT("%AXIS_NORMAL%"), *axisNormalExpression)
 .Replace(TEXT("%SAMPLER%"), samplerName)
 .Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
 .Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0")) // Sample mip0 when cannot get auto ddx/ddy in Vertex Shader
+.Replace(TEXT("%LARGE_WORLD_OFFSET%"), largeWorldOffsetExpr)
 .Build();
         }
 
