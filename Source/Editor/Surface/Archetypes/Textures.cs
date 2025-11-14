@@ -6,6 +6,19 @@ using FlaxEditor.GUI;
 using FlaxEditor.Scripting;
 using FlaxEngine;
 
+
+
+/// <summary>
+/// enum for the new env triplanar
+/// </summary>
+public enum AdvancedTriplanarScheme
+{
+    WorldAlignedTop = 0,
+    FourAxisBlend = 1,
+    SimpleCube = 2,
+}
+
+
 namespace FlaxEditor.Surface.Archetypes
 {
     /// <summary>
@@ -415,7 +428,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Triplanar Texture",
                 Description = "Projects a texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 240),
+                Size = new Float2(280, 240),  // Increased height for new inputs
                 DefaultValues = new object[]
                 {
                     Float3.One, // Scale
@@ -436,8 +449,8 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float2), 6, 2),
                     NodeElementArchetype.Factory.Input(4, "Rotation Strength", true, typeof(float), 7, 6),
                     NodeElementArchetype.Factory.Input(5, "Contrast", true, typeof(float), 8, 7),
-                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),
-                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),
+                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),  // New input
+                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),    // New input
                     NodeElementArchetype.Factory.Output(0, "Color", typeof(Float4), 3),
                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Sampler"),
                     NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 8 - 1, 100, 3, typeof(CommonSamplerType)),
@@ -510,7 +523,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Triplanar Normal Map",
                 Description = "Projects a normal map texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 240),
+                Size = new Float2(280, 240),  // Increased height for new inputs
                 DefaultValues = new object[]
                 {
                     Float3.One, // Scale
@@ -531,8 +544,8 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float2), 6, 2),
                     NodeElementArchetype.Factory.Input(4, "Rotation Strength", true, typeof(float), 7, 6),
                     NodeElementArchetype.Factory.Input(5, "Contrast", true, typeof(float), 8, 7),
-                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),
-                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),
+                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),  // New input
+                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),    // New input
                     NodeElementArchetype.Factory.Output(0, "Vector", typeof(Float3), 3),
                     NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Sampler"),
                     NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 8 - 1, 100, 3, typeof(CommonSamplerType)),
@@ -555,6 +568,110 @@ namespace FlaxEditor.Surface.Archetypes
                 {
                     NodeElementArchetype.Factory.Input(0, "Texture", true, typeof(FlaxEngine.Object), 0),
                     NodeElementArchetype.Factory.Output(0, "Size", typeof(Float3), 1),
+                }
+            },
+            new NodeArchetype
+            {
+                TypeID = 116,
+                Title = "Advanced Triplanar",
+                Description = "Projects textures using various triplanar schemes with optional heightmap blending.",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(300, 320),
+                DefaultValues = new object[]
+                {
+                    Float3.One, // Scale
+                    16.0f,      // Blend Sharpness
+                    Float2.Zero,// Offset
+                    2,          // Sampler (LinearWrap)
+                    false,      // Local Space
+                    0,          // Projection Scheme (WorldAlignedTop)
+                    false,      // Hard Edge Blend
+                    0.5f,       // Hard Edge Cutoff
+                },
+                Elements = new[]
+                {
+                    // === INPUTS ===
+                    // Texture Inputs
+                    NodeElementArchetype.Factory.Input(0, "Top Texture", true, typeof(FlaxEngine.Object), 0),
+                    NodeElementArchetype.Factory.Input(1, "Side Texture", true, typeof(FlaxEngine.Object), 1),
+                    NodeElementArchetype.Factory.Input(2, "Height Texture", true, typeof(FlaxEngine.Object), 2),
+                    // Parameter Inputs
+                    NodeElementArchetype.Factory.Input(3, "Scale", true, typeof(Float3), 3, 0),
+                    NodeElementArchetype.Factory.Input(4, "Blend Sharpness", true, typeof(float), 4, 1),
+                    NodeElementArchetype.Factory.Input(5, "Offset", true, typeof(Float2), 5, 2),
+                    // Optional World-Space Inputs
+                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),
+                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),
+                    NodeElementArchetype.Factory.Input(8, "Hard Edge Cutoff", true, typeof(float), 11, 7),
+
+                    // === OUTPUTS ===
+                    NodeElementArchetype.Factory.Output(0, "Color", typeof(Float4), 12),
+
+                    // === UI CONTROLS ===
+                    // Sampler
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 9, "Sampler"),
+                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 9 - 1, 100, 3, typeof(CommonSamplerType)),
+                    // Local Space Checkbox
+                    NodeElementArchetype.Factory.Text(155, Surface.Constants.LayoutOffsetY * 9, "Local"),
+                    NodeElementArchetype.Factory.Bool(190, Surface.Constants.LayoutOffsetY * 9, 4),
+                    // Projection Scheme Dropdown
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 10, "Scheme"),
+                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 10 - 1, 120, 5, typeof(AdvancedTriplanarScheme)),
+                    // Hard Edge Blend Checkbox
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 11, "Hard Edge Blend"),
+                    NodeElementArchetype.Factory.Bool(90, Surface.Constants.LayoutOffsetY * 11, 6),
+                }
+            },
+            new NodeArchetype
+            {
+                TypeID = 117,
+                Title = "Advanced Triplanar Normal Map",
+                Description = "Projects normal map textures using various triplanar schemes with optional heightmap blending.",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(300, 320),
+                DefaultValues = new object[]
+                {
+                    Float3.One, // Scale
+                    16.0f,      // Blend Sharpness
+                    Float2.Zero,// Offset
+                    2,          // Sampler (LinearWrap)
+                    false,      // Local Space
+                    0,          // Projection Scheme (WorldAlignedTop)
+                    false,      // Hard Edge Blend
+                    0.5f,       // Hard Edge Cutoff
+                },
+                Elements = new[]
+                {
+                    // === INPUTS ===
+                    // Normal Map Texture Inputs
+                    NodeElementArchetype.Factory.Input(0, "Top Normal Map", true, typeof(FlaxEngine.Object), 0),
+                    NodeElementArchetype.Factory.Input(1, "Side Normal Map", true, typeof(FlaxEngine.Object), 1),
+                    NodeElementArchetype.Factory.Input(2, "Height Texture", true, typeof(FlaxEngine.Object), 2),
+                    // Parameter Inputs
+                    NodeElementArchetype.Factory.Input(3, "Scale", true, typeof(Float3), 3, 0),
+                    NodeElementArchetype.Factory.Input(4, "Blend Sharpness", true, typeof(float), 4, 1),
+                    NodeElementArchetype.Factory.Input(5, "Offset", true, typeof(Float2), 5, 2),
+                    // Optional World-Space Inputs
+                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),
+                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),
+                    NodeElementArchetype.Factory.Input(8, "Hard Edge Cutoff", true, typeof(float), 11, 7),
+
+                    // === OUTPUTS ===
+                    NodeElementArchetype.Factory.Output(0, "Normal Vector", typeof(Float3), 12),
+
+                    // === UI CONTROLS ===
+                    // Sampler
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 9, "Sampler"),
+                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 9 - 1, 100, 3, typeof(CommonSamplerType)),
+                    // Local Space Checkbox
+                    NodeElementArchetype.Factory.Text(155, Surface.Constants.LayoutOffsetY * 9, "Local"),
+                    NodeElementArchetype.Factory.Bool(190, Surface.Constants.LayoutOffsetY * 9, 4),
+                    // Projection Scheme Dropdown
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 10, "Scheme"),
+                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 10 - 1, 120, 5, typeof(AdvancedTriplanarScheme)),
+                    // Hard Edge Blend Checkbox
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 11, "Hard Edge Blend"),
+                    NodeElementArchetype.Factory.Bool(90, Surface.Constants.LayoutOffsetY * 11, 6),
                 }
             },
         };
