@@ -28,6 +28,11 @@ API_CLASS(Static) class FLAXENGINE_API Physics
     API_FUNCTION() static PhysicsScene* FindOrCreateScene(const StringView& name);
 
     /// <summary>
+    /// Create a special scene tuned for procedural generation. Custom set for Derelict.
+    /// </summary>
+    API_FUNCTION() static PhysicsScene* CreateGeneratorScene(const StringView& name);
+
+    /// <summary>
     /// Finds an existing scene.
     /// </summary>
     API_FUNCTION() static PhysicsScene* FindScene(const StringView& name);
