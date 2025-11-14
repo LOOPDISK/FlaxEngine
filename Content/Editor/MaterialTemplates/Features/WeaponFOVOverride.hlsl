@@ -27,6 +27,12 @@ float4x4 CalculateWeaponProjectionMatrix(float fov, float aspect, float nearPlan
     return projMatrix;
 }
 
+float GetWeaponFOVProjectionScale()
+{
+    const float weaponFov = GetWeaponFOVRadians();
+    return 1.0f / tan(weaponFov * 0.5f);
+}
+
 // Apply weapon FOV override to world position using default settings
 float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
 {
@@ -40,6 +46,8 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     {
         // Shadow/depth pass with ortho projection - don't apply FOV override
         return mul(float4(worldPosition, 1.0), ViewProjectionMatrix);
+        
+
     }
     // Transform world position to view space first
     float4 viewPosition = mul(float4(worldPosition, 1.0), ViewMatrix);
@@ -51,8 +59,7 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     // Weapon Projection M11 = 1/tan(weaponFOV/2)/aspect
     // Since we want narrower FOV: weaponFOV < cameraFOV, so weapon M11 > camera M11
 
-    float weaponFovHalf = radians(20.0);  // 54° / 2 (narrower than typical 90° camera FOV)
-    float weaponProjectionScale = 1.0f / tan(weaponFovHalf);
+    const float weaponProjectionScale = GetWeaponFOVProjectionScale();
 
     // Build custom projection matrix with narrower FOV but same depth behavior
     // ViewInfo: x=1/P[0,0], y=1/P[1,1], z=Far/(Far-Near), w=(-Far*Near)/(Far-Near)

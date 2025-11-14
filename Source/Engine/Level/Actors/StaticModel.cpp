@@ -323,11 +323,7 @@ bool StaticModel::HasContentLoaded() const
 
 void StaticModel::Draw(RenderContext& renderContext)
 {
-    // Debug weapon shadow collection - FIRST THING
-    if (renderContext.View.Pass == DrawPass::WeaponDepth)
-    {
-            }
-
+    
     if (!Model || !Model->IsLoaded() || !Model->CanBeRendered())
         return;
     if (renderContext.View.Pass == DrawPass::GlobalSDF)
@@ -377,12 +373,7 @@ void StaticModel::Draw(RenderContextBatch& renderContextBatch)
 {
     const RenderContext& renderContext = renderContextBatch.GetMainContext();
 
-    // Debug weapon shadow collection - FIRST THING
-    if (renderContext.View.Pass == DrawPass::WeaponDepth)
-    {
-
-    }
-
+    
     if (!Model || !Model->IsLoaded())
         return;
 

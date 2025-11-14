@@ -272,6 +272,40 @@ float3 TransformParticleVector(float3 input)
 	return mul(float4(input, 0.0f), ToMatrix4x4(WorldMatrixInverseTransposed)).xyz;
 }
 
+// Weapon FOV Override support for particles (always available, controlled by material)
+#ifndef USE_WEAPON_FOV_OVERRIDE
+#define USE_WEAPON_FOV_OVERRIDE 0
+#endif
+
+#if USE_WEAPON_FOV_OVERRIDE
+float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
+{
+    // Detect if we're in a shadow/depth pass by checking if projection is ortho
+    float4x4 vp = ViewProjectionMatrix;
+    bool isOrtho = (abs(vp[2][3]) < 0.01 && abs(vp[3][3] - 1.0) < 0.01);
+
+    if (isOrtho)
+    {
+        // Shadow/depth pass with ortho projection - don't apply FOV override
+        return mul(float4(worldPosition, 1.0), ViewProjectionMatrix);
+    }
+
+    // Transform world position to view space first
+    float4 viewPosition = mul(float4(worldPosition, 1.0), ViewMatrix);
+
+    const float weaponProjectionScale = 1.0f / tan(GetWeaponFOVRadians() * 0.5f);
+
+    // Build custom projection matrix with narrower FOV but same depth behavior
+    float4x4 projectionMatrix = (float4x4)0;
+    projectionMatrix[0][0] = weaponProjectionScale / aspect;
+    projectionMatrix[1][1] = weaponProjectionScale;
+    projectionMatrix[2][2] = ViewInfo.z; // Same depth: Far/(Far-Near)
+    projectionMatrix[2][3] = 1.0f;
+    projectionMatrix[3][2] = ViewInfo.w; // Same depth: (-Far*Near)/(Far-Near)
+    return mul(viewPosition, projectionMatrix);
+}
+#endif
+
 @8
 
 // Get material properties function (for vertex shader)
@@ -511,7 +545,12 @@ VertexOutput VS_Model(ModelInput input, uint particleIndex : SV_InstanceID)
 	output.WorldPosition = mul(float4(input.Position, 1), world).xyz;
 
 	// Compute clip space position
+#if USE_WEAPON_FOV_OVERRIDE
+	float aspect = ScreenSize.x / ScreenSize.y;
+	output.Position = ApplyWeaponFOVOverride(output.WorldPosition, aspect);
+#else
 	output.Position = mul(float4(output.WorldPosition, 1), ViewProjectionMatrix);
+#endif
 
 	// Pass vertex attributes
 	output.TexCoord = input.TexCoord0;

@@ -15,6 +15,7 @@
 #include "Engine/Level/Scene/SceneRendering.h"
 #include "Engine/Scripting/Enums.h"
 #include "Engine/Utilities/RectPack.h"
+#include "Engine/Threading/JobSystem.h"
 #if USE_EDITOR
 #include "Engine/Renderer/Lightmaps.h"
 #endif
@@ -1835,11 +1836,12 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
         if (!dirLight)
         {
             
+            // No directional light found, skip weapon shadows
         }
         else
         {
             // Initialize weapon shadow atlas if needed
-            const int32 weaponAtlasResolution = 1024; // Fixed size for weapon shadows
+            const int32 weaponAtlasResolution = 2048; // Fixed size for weapon shadows
             if (shadowsMutable.WeaponAtlas.Width != weaponAtlasResolution)
             {
                 shadowsMutable.WeaponAtlas.Init(weaponAtlasResolution, weaponAtlasResolution);
@@ -1853,7 +1855,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             }
 
             // Allocate weapon shadow tile if needed
-            const uint16 weaponShadowRes = 512; // Single 512x512 shadow map for all weapon geometry
+            const uint16 weaponShadowRes = 1024; // Single 512x512 shadow map for all weapon geometry
             if (!shadowsMutable.WeaponDirectionalLightTile)
             {
                 shadowsMutable.WeaponDirectionalLightTile = shadowsMutable.WeaponAtlas.Insert(weaponShadowRes, weaponShadowRes, &shadowsMutable, false);
@@ -1867,7 +1869,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // Setup shadow view for weapons (use same logic as regular directional shadows)
             RenderView weaponShadowView;
             const Float3 weaponCenter = renderContext.View.Position + renderContext.View.Direction * 100.0f; // 1 meter (100cm) in front
-            const float weaponRadius = 100.0f; // 1 meter radius to cover weapon bounds
+            const float weaponRadius = 500.0f; // 1 meter radius to cover weapon bounds
 
             // Build shadow bounds around weapon sphere (same as cascade shadow logic)
             Float3 maxExtents = Float3(weaponRadius);
@@ -1879,11 +1881,33 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // Create view matrix (position light behind the weapon bounds)
             Matrix::LookAt(weaponCenter + dirLight->Direction * minExtents.Z, weaponCenter, Float3::Up, weaponShadowView_);
 
-            // Create projection matrix (near=0, far=depth of bounding volume)
-            Matrix::OrthoOffCenter(minExtents.X, maxExtents.X, minExtents.Y, maxExtents.Y, 0.0f, cascadeExtents.Z, weaponShadowProjection);
+            // REVISED APPROACH: Generate light-space shadows but account for perspective projection differences
+            // The key insight is that we need to match the depth precision and distribution between
+            // shadow generation (orthographic) and weapon rendering (perspective)
 
+            const float nearPlane = 1.0f;  // Near plane for shadow generation
+            const float farPlane = cascadeExtents.Z;  // Far plane based on weapon bounds
 
+            // CORRECTED APPROACH: Use proper bounds that match the weapon's visual FOV
+            // Calculate the actual visible area at the weapon distance using the configured weapon FOV
+            const float weaponFovDegrees = renderContext.View.WeaponFOV > 0.0f ? renderContext.View.WeaponFOV : 54.0f;
+            const float weaponFOV = weaponFovDegrees * PI / 180.0f;
+            const float aspect = 1.0f; // Square shadow map
+            const float distanceToWeapon = 100.0f; // Same distance used for weaponCenter
 
+            // Calculate the visible area at this distance with weapon FOV
+            // tan(FOV/2) gives the half-height of the view frustum at distance 1
+            const float halfHeightAtDistance = distanceToWeapon * tan(weaponFOV * 0.5f);
+            const float halfWidthAtDistance = halfHeightAtDistance * aspect;
+
+            // Add margin to ensure full weapon coverage
+            const float margin = 1.2f; // 20% margin
+            const Float2 shadowBounds = Float2(halfWidthAtDistance * margin, halfHeightAtDistance * margin);
+
+            // Create standard orthographic projection with perspective-adjusted bounds
+            Matrix::OrthoOffCenter(-shadowBounds.X, shadowBounds.X, -shadowBounds.Y, shadowBounds.Y, nearPlane, farPlane, weaponShadowProjection);
+
+  
             weaponShadowView.SetUp(weaponShadowView_, weaponShadowProjection);
             weaponShadowView.Pass = DrawPass::WeaponDepth;
             weaponShadowView.Flags = renderContext.View.Flags;
@@ -1893,8 +1917,8 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // SetUp() stores the matrices, and we must use the EXACT same matrix that rendering uses
             weaponShadowVP = weaponShadowView.ViewProjection();
 
-            // Create render context for weapon shadows
-            RenderContext weaponShadowContext;
+            // Create render context for weapon shadows (zero-initialize first)
+            RenderContext weaponShadowContext = {};
             weaponShadowContext.Buffers = renderContext.Buffers;
             weaponShadowContext.Task = renderContext.Task;
             weaponShadowContext.List = RenderList::GetFromPool();
@@ -1911,13 +1935,30 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // CRITICAL: Must do them sequentially (not parallel) to avoid race condition with shared _drawListData
             RenderContextBatch weaponBatch;
             weaponBatch.Contexts.Add(weaponShadowContext);
+
+            // Safety check before collection
+            if (!renderContext.Task)
+            {
+                LOG(Warning, "Weapon shadows: renderContext.Task is null, skipping collection");
+                goto skip_weapon_shadows;
+            }
+
             renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDraw);
-            renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDraw);
+            renderContext.Task->OnCollectDrawCalls(weaponBatch, SceneRendering::DrawCategory::SceneDrawAsync);
+
+            // CRITICAL: Wait for all async draw call collection jobs to complete before batch goes out of scope
+            for (const uint64 label : weaponBatch.WaitLabels)
+                JobSystem::Wait(label);
+            weaponBatch.WaitLabels.Clear();
+
             auto& weaponCtx = weaponBatch.Contexts[0];
 
-
-
-
+            // Safety check after collection
+            if (!weaponCtx.List)
+            {
+                LOG(Warning, "Weapon shadows: weaponCtx.List is null after collection, skipping rendering");
+                goto skip_weapon_shadows;
+            }
 
             // Render weapon shadows
             if (shadowsMutable.ClearWeaponShadowMapAtlas)
@@ -1943,15 +1984,17 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             Matrix weaponWorldToShadow;
             Matrix::Multiply(weaponShadowVP, ClipToUV, weaponWorldToShadow);
 
-            // Step 2: Apply atlas transform (scale and offset to correct tile position)
-            // For CSM, this is done via ShadowToAtlas in the shader, but for weapon shadows
-            // we bake it into the matrix since we only have one tile
+            // Step 2: CRITICAL FIX - Weapon shadows should use tile-local coordinates, not atlas scaling
+            // The problem: CSM atlas transform scales by 1/atlasResolution, crushing our values
+            // Solution: For weapon shadows, treat the tile as the full shadow map (no atlas scaling)
+
             const float weaponAtlasInv = 1.0f / weaponAtlasResolution;
             const float scaleX = tile->Width * weaponAtlasInv;
             const float scaleY = tile->Height * weaponAtlasInv;
             const float offsetX = tile->X * weaponAtlasInv;
             const float offsetY = tile->Y * weaponAtlasInv;
 
+    
             Matrix atlasTransform(
                 scaleX, 0.0f, 0.0f, 0.0f,
                 0.0f, scaleY, 0.0f, 0.0f,
@@ -1974,12 +2017,11 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadowTransposed.GetColumn3());
             shadowsMutable.WeaponShadowsBuffer.Write(weaponWorldToShadowTransposed.GetColumn4());
 
-
-
-
-
-            // Cleanup
+      
+            // Cleanup - Return list to pool (it will be cleared automatically)
             RenderList::ReturnToPool(weaponCtx.List);
+            weaponCtx.List = nullptr; // Null out to prevent use-after-free
+            weaponShadowContext.List = nullptr; // Also null the original
             shadowsMutable.ClearWeaponShadowMapAtlas = false;
         }
     }
@@ -2082,12 +2124,7 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
     context->BindSR(8, shadows.WeaponShadowsBufferView);
     context->BindSR(9, shadows.WeaponShadowMapAtlas);
 
-    // Debug logging for directional light weapon shadows
-    if (light.IsDirectionalLight)
-    {
-
-    }
-
+  
     const int32 permutationIndex = shadowQuality + (sperLight.ContactShadowsLength > ZeroTolerance ? 4 : 0);
     context->SetRenderTarget(shadowMask);
     if (light.IsPointLight)

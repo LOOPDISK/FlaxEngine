@@ -280,12 +280,7 @@ void Mesh::Draw(const RenderContext& renderContext, const DrawInfo& info, float 
 
     const auto drawModes = info.DrawModes & renderContext.View.Pass & shadowsDrawPassMask & materialDrawModes;
 
-    // Debug weapon shadow collection
-    if (renderContext.View.Pass == DrawPass::WeaponDepth)
-    {
-
-    }
-
+    
     if (drawModes == DrawPass::None)
         return;
 

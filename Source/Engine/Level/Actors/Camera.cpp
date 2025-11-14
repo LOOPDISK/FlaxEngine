@@ -37,6 +37,7 @@ Camera::Camera(const SpawnParams& params)
     : Actor(params)
     , _usePerspective(true)
     , _fov(60.0f)
+    , _weaponFov(54.0f)
     , _customAspectRatio(0.0f)
     , _near(10.0f)
     , _far(40000.0f)
@@ -73,6 +74,21 @@ void Camera::SetFieldOfView(float value)
     if (_fov != value)
     {
         _fov = value;
+        UpdateCache();
+    }
+}
+
+float Camera::GetWeaponFieldOfView() const
+{
+    return _weaponFov;
+}
+
+void Camera::SetWeaponFieldOfView(float value)
+{
+    value = value <= 0.0f ? 0.0f : Math::Clamp(value, 1.0f, 179.9f);
+    if (_weaponFov != value)
+    {
+        _weaponFov = value;
         UpdateCache();
     }
 }
@@ -450,6 +466,7 @@ void Camera::Serialize(SerializeStream& stream, const void* otherObj)
 
     SERIALIZE_MEMBER(UsePerspective, _usePerspective);
     SERIALIZE_MEMBER(FOV, _fov);
+    SERIALIZE_MEMBER(WeaponFOV, _weaponFov);
     SERIALIZE_MEMBER(CustomAspectRatio, _customAspectRatio);
     SERIALIZE_MEMBER(Near, _near);
     SERIALIZE_MEMBER(Far, _far);
@@ -466,6 +483,7 @@ void Camera::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier
 
     DESERIALIZE_MEMBER(UsePerspective, _usePerspective);
     DESERIALIZE_MEMBER(FOV, _fov);
+    DESERIALIZE_MEMBER(WeaponFOV, _weaponFov);
     DESERIALIZE_MEMBER(CustomAspectRatio, _customAspectRatio);
     DESERIALIZE_MEMBER(Near, _near);
     DESERIALIZE_MEMBER(Far, _far);

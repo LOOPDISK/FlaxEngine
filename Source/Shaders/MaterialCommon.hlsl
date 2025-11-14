@@ -73,6 +73,9 @@
 #ifndef PER_BONE_MOTION_BLUR
 #define PER_BONE_MOTION_BLUR 0
 #endif
+#ifndef USE_WEAPON_FOV_OVERRIDE
+#define USE_WEAPON_FOV_OVERRIDE 0
+#endif
 
 // Object properties
 struct ObjectData
@@ -179,6 +182,17 @@ cbuffer ViewData : register(b1)
     float3 ViewPadding0;
     float UnscaledTimeParam;
 };
+#endif
+
+#if USE_PER_VIEW_CONSTANTS
+float GetWeaponFOVRadians()
+{
+    const float overrideDegrees = ViewPadding0.x;
+    if (overrideDegrees > 0.0f)
+        return radians(overrideDegrees);
+    const float cameraHalfFov = atan(max(ViewInfo.y, 1e-4f));
+    return cameraHalfFov * 2.0f;
+}
 #endif
 
 // Draw pipeline constant buffer (with per-draw constants at slot 2)

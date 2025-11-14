@@ -54,15 +54,20 @@ void PS_GBuffer(
 
 	// Pack material properties to GBuffer
 	RT0 = float4(material.Color, material.AO);
-	RT1 = float4(material.WorldNormal * 0.5 + 0.5, MATERIAL_SHADING_MODEL * (1.0 / 3.0));
-	RT2 = float4(material.Roughness, material.Metalness, material.Specular, USE_WEAPON_FOV_OVERRIDE);
+	RT1 = float4(material.WorldNormal * 0.5 + 0.5, MATERIAL_SHADING_MODEL * (1.0 / 4.0));
+	RT2 = float4(material.Roughness, material.Metalness, material.Specular, 0);
 
 	// Custom data
 #if USE_GBUFFER_CUSTOM_DATA
 #if MATERIAL_SHADING_MODEL == SHADING_MODEL_SUBSURFACE
+	
 	RT3 = float4(material.SubsurfaceColor, material.Opacity);
 #elif MATERIAL_SHADING_MODEL == SHADING_MODEL_FOLIAGE
 	RT3 = float4(material.SubsurfaceColor, material.Opacity);
+#elif MATERIAL_SHADING_MODEL == SHADING_MODEL_WEAPON
+	// Store camera-relative world position for weapon FOV override shadow sampling
+	// Camera-relative to avoid precision issues far from origin
+	RT3 = float4(materialInput.WorldPosition - ViewPos, 1.0); // Alpha = 1.0 to indicate valid world position
 #else
 	RT3 = float4(0, 0, 0, 0);
 #endif

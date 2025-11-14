@@ -41,6 +41,7 @@ private:
     // Camera Settings
     bool _usePerspective;
     float _fov;
+    float _weaponFov;
     float _customAspectRatio;
     float _near;
     float _far;
@@ -85,6 +86,17 @@ public:
     /// Sets camera's field of view (in degrees).
     /// </summary>
     API_PROPERTY() void SetFieldOfView(float value);
+
+    /// <summary>
+    /// Gets the weapon-only field of view (in degrees). Used by weapon FOV override materials. Set to 0 to inherit the camera FOV.
+    /// </summary>
+    API_PROPERTY(Attributes="EditorOrder(25), DefaultValue(54.0f), Limit(0, 179), EditorDisplay(\"Camera\", \"Weapon Field Of View\"), VisibleIf(nameof(UsePerspective)), ValueCategory(Utils.ValueCategory.Angle)")
+    float GetWeaponFieldOfView() const;
+
+    /// <summary>
+    /// Sets the weapon-only field of view (in degrees).
+    /// </summary>
+    API_PROPERTY() void SetWeaponFieldOfView(float value);
 
     /// <summary>
     /// Gets the custom aspect ratio. 0 if not use custom value.
