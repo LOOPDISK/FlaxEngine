@@ -1889,8 +1889,9 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             const float farPlane = cascadeExtents.Z;  // Far plane based on weapon bounds
 
             // CORRECTED APPROACH: Use proper bounds that match the weapon's visual FOV
-            // Calculate the actual visible area at the weapon distance using the weapon's 54° FOV
-            const float weaponFOV = 54.0f * PI / 180.0f;
+            // Calculate the actual visible area at the weapon distance using the configured weapon FOV
+            const float weaponFovDegrees = renderContext.View.WeaponFOV > 0.0f ? renderContext.View.WeaponFOV : 54.0f;
+            const float weaponFOV = weaponFovDegrees * PI / 180.0f;
             const float aspect = 1.0f; // Square shadow map
             const float distanceToWeapon = 100.0f; // Same distance used for weaponCenter
 

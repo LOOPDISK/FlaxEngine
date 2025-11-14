@@ -208,6 +208,7 @@ void RenderView::CopyFrom(const Camera* camera, const Viewport* viewport)
     RenderLayersMask = camera->RenderLayersMask;
     Flags = camera->RenderFlags;
     Mode = camera->RenderMode;
+    WeaponFOV = camera->GetWeaponFieldOfView();
 }
 
 void RenderView::GetWorldMatrix(const Transform& transform, Matrix& world) const

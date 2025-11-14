@@ -12,6 +12,7 @@ namespace FlaxEngine
             MaxShadowsQuality = Quality.Ultra;
             ModelLODDistanceFactor = 1.0f;
             ModelLODDistanceFactorSqrt = 1.0f;
+            WeaponFOV = 54.0f;
 #pragma warning disable 0612
             ShadowModelLODDistanceFactor = 1.0f;
 #pragma warning restore 0612
@@ -105,6 +106,7 @@ namespace FlaxEngine
             RenderLayersMask = camera.RenderLayersMask;
             Flags = camera.RenderFlags;
             Mode = camera.RenderMode;
+            WeaponFOV = camera.WeaponFieldOfView;
 
             UpdateCachedData();
         }

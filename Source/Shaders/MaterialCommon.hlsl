@@ -184,6 +184,17 @@ cbuffer ViewData : register(b1)
 };
 #endif
 
+#if USE_PER_VIEW_CONSTANTS
+float GetWeaponFOVRadians()
+{
+    const float overrideDegrees = ViewPadding0.x;
+    if (overrideDegrees > 0.0f)
+        return radians(overrideDegrees);
+    const float cameraHalfFov = atan(max(ViewInfo.y, 1e-4f));
+    return cameraHalfFov * 2.0f;
+}
+#endif
+
 // Draw pipeline constant buffer (with per-draw constants at slot 2)
 #if USE_PER_DRAW_CONSTANTS
 cbuffer DrawData : register(b2)

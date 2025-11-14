@@ -63,6 +63,7 @@ void GUIMaterialShader::Bind(BindParameters& params)
         auto& viewport = Render2D::GetViewport();
         materialData->ScreenSize = Float4(viewport.Width, viewport.Height, 1.0f / viewport.Width, 1.0f / viewport.Height);
         materialData->ViewSize = Float4(customData->ViewSize.X, customData->ViewSize.Y, 1.0f / customData->ViewSize.X, 1.0f / customData->ViewSize.Y);
+        materialData->ViewPadding0 = Float3::Zero;
     }
 
     // Bind constants
