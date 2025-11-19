@@ -62,13 +62,13 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     const float weaponProjectionScale = GetWeaponFOVProjectionScale();
 
     // Build custom projection matrix with narrower FOV but same depth behavior
-    // ViewInfo: x=1/P[0,0], y=1/P[1,1], z=Far/(Far-Near), w=(-Far*Near)/(Far-Near)
+    // ViewInfo: x=1/P[0,0], y=1/P[1,1], z=Far/(Far-Near), w=(-Far*Near)/(Far-Near)/Far=-Near
     float4x4 projectionMatrix = (float4x4)0;
     projectionMatrix[0][0] = weaponProjectionScale / aspect; // Narrower FOV in X = bigger on screen
     projectionMatrix[1][1] = weaponProjectionScale; // Narrower FOV in Y = bigger on screen
     projectionMatrix[2][2] = ViewInfo.z; // Same depth: Far/(Far-Near)
     projectionMatrix[2][3] = 1.0f; // W component
-    projectionMatrix[3][2] = ViewInfo.w; // Same depth: (-Far*Near)/(Far-Near)
+    projectionMatrix[3][2] = ViewInfo.w * ViewFar; // Reconstruct M43: (-Near) * Far = (-Far*Near)/(Far-Near)
     return mul(viewPosition, projectionMatrix);
 }
 
