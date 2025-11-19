@@ -301,7 +301,7 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     projectionMatrix[1][1] = weaponProjectionScale;
     projectionMatrix[2][2] = ViewInfo.z; // Same depth: Far/(Far-Near)
     projectionMatrix[2][3] = 1.0f;
-    projectionMatrix[3][2] = ViewInfo.w; // Same depth: (-Far*Near)/(Far-Near)
+    projectionMatrix[3][2] = ViewInfo.w * ViewFar; // Reconstruct M43: (-Near) * Far = (-Far*Near)/(Far-Near)
     return mul(viewPosition, projectionMatrix);
 }
 #endif
