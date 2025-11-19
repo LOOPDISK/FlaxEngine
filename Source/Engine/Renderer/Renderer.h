@@ -41,6 +41,15 @@ public:
     API_FUNCTION() static void DrawSceneDepth(GPUContext* context, SceneRenderTask* task, GPUTexture* output, const Array<Actor*, HeapAllocation>& customActors);
 
     /// <summary>
+    /// Draws scene lighting with shadows to the output texture (light accumulation buffer).
+    /// </summary>
+    /// <param name="context">The GPU commands context to use.</param>
+    /// <param name="task">Render task to use it's view description and the render buffers.</param>
+    /// <param name="output">The output texture for light accumulation. Must be valid and created.</param>
+    /// <param name="customActors">The custom set of actors to render. If empty, the loaded scenes will be rendered.</param>
+    API_FUNCTION() static void DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPUTexture* output, const Array<Actor*, HeapAllocation>& customActors);
+
+    /// <summary>
     /// Draws postFx material to the render target.
     /// </summary>
     /// <param name="context">The GPU commands context to use.</param>

@@ -293,7 +293,49 @@ void Renderer::DrawSceneDepth(GPUContext* context, SceneRenderTask* task, GPUTex
     RenderList::ReturnToPool(renderContext.List);
 }
 
+void Renderer::DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPUTexture* output, const Array<Actor*>& customActors)
+{
+    CHECK(context && task && output && task->Buffers);
+    if (customActors.IsEmpty())
+        return;
+
+    // Use the task's existing render buffers for GBuffer
+    // We'll render to them temporarily and output lighting to our custom texture
+
+    // Prepare render context
+    RenderContext renderContext(task);
+    renderContext.List = RenderList::GetFromPool();
+    renderContext.View.Pass = DrawPass::GBuffer;
+    renderContext.View.Prepare(renderContext);
+
+    // Setup render context batch for lighting
+    RenderContextBatch renderContextBatch(task);
+    renderContextBatch.Contexts.Add(renderContext);
+
+    // Setup lights and shadows (before collecting draw calls)
+    LightPass::Instance()->SetupLights(renderContext, renderContextBatch);
+    if (ShadowsPass::Instance()->IsReady())
+        ShadowsPass::Instance()->SetupShadows(renderContext, renderContextBatch);
+
+    // Call drawing (will collect draw calls for GBuffer)
+    DrawActors(renderContext, customActors);
+
+    // Sort draw calls
+    renderContext.List->SortDrawCalls(renderContext, false, DrawCallsListType::GBuffer, DrawPass::GBuffer);
+
+    // Fill GBuffer (renders geometry to task's GBuffer textures temporarily)
+    GBufferPass::Instance()->Fill(renderContext, output);
+
+    // Sync render context changes and render shadows + lighting to our custom output
     renderContextBatch.GetMainContext() = renderContext;
+    if (ShadowsPass::Instance()->IsReady())
+        ShadowsPass::Instance()->RenderShadowMaps(renderContextBatch);
+    LightPass::Instance()->RenderLights(renderContextBatch, output->View());
+
+    // Cleanup
+    RenderList::ReturnToPool(renderContext.List);
+}
+
 void Renderer::DrawPostFxMaterial(GPUContext* context, const RenderContext& renderContext, MaterialBase* material, GPUTexture* output, GPUTextureView* input)
 {
     CHECK(material && material->IsPostFx());
