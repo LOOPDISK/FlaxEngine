@@ -296,11 +296,10 @@ void Renderer::DrawSceneDepth(GPUContext* context, SceneRenderTask* task, GPUTex
 void Renderer::DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPUTexture* output, const Array<Actor*>& customActors)
 {
     CHECK(context && task && output && task->Buffers);
-    if (customActors.IsEmpty())
-        return;
 
     // Use the task's existing render buffers for GBuffer
     // We'll render to them temporarily and output lighting to our custom texture
+    // If customActors is empty, DrawActors will render all scene actors instead
 
     // Prepare render context
     RenderContext renderContext(task);
