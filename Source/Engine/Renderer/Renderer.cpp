@@ -293,6 +293,7 @@ void Renderer::DrawSceneDepth(GPUContext* context, SceneRenderTask* task, GPUTex
     RenderList::ReturnToPool(renderContext.List);
 }
 
+    renderContextBatch.GetMainContext() = renderContext;
 void Renderer::DrawPostFxMaterial(GPUContext* context, const RenderContext& renderContext, MaterialBase* material, GPUTexture* output, GPUTextureView* input)
 {
     CHECK(material && material->IsPostFx());
