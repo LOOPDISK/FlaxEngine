@@ -293,13 +293,9 @@ void Renderer::DrawSceneDepth(GPUContext* context, SceneRenderTask* task, GPUTex
     RenderList::ReturnToPool(renderContext.List);
 }
 
-void Renderer::DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPUTexture* output, const Array<Actor*>& customActors)
+void Renderer::DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPUTexture* output, const Array<Actor*>& customActors, const Array<Actor*>& customLights)
 {
     CHECK(context && task && output && task->Buffers);
-
-    // Use the task's existing render buffers for GBuffer
-    // We'll render to them temporarily and output lighting to our custom texture
-    // If customActors is empty, DrawActors will render all scene actors instead
 
     // Prepare render context
     RenderContext renderContext(task);
@@ -311,21 +307,38 @@ void Renderer::DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPU
     RenderContextBatch renderContextBatch(task);
     renderContextBatch.Contexts.Add(renderContext);
 
-    // Setup lights and shadows (before collecting draw calls)
+    // Draw custom lights first (if provided), otherwise draw scene lights
+    if (customLights.HasItems())
+    {
+        for (Actor* light : customLights)
+        {
+            if (light && light->GetIsActive())
+                light->Draw(renderContext);
+        }
+    }
+    else
+    {
+        // Draw scene lights so they get collected by SetupLights
+        DrawActors(renderContext, customLights); // customLights is empty, so this draws all scene lights
+    }
+
+    // Setup lights and shadows
     LightPass::Instance()->SetupLights(renderContext, renderContextBatch);
     if (ShadowsPass::Instance()->IsReady())
         ShadowsPass::Instance()->SetupShadows(renderContext, renderContextBatch);
 
     // Call drawing (will collect draw calls for GBuffer)
+    // If customActors is empty, this will draw all scene actors
+    // If customActors is provided, only those actors are rendered
     DrawActors(renderContext, customActors);
 
     // Sort draw calls
     renderContext.List->SortDrawCalls(renderContext, false, DrawCallsListType::GBuffer, DrawPass::GBuffer);
 
-    // Fill GBuffer (renders geometry to task's GBuffer textures temporarily)
+    // Fill GBuffer
     GBufferPass::Instance()->Fill(renderContext, output);
 
-    // Sync render context changes and render shadows + lighting to our custom output
+    // Render shadows and lighting to output
     renderContextBatch.GetMainContext() = renderContext;
     if (ShadowsPass::Instance()->IsReady())
         ShadowsPass::Instance()->RenderShadowMaps(renderContextBatch);
