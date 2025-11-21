@@ -385,16 +385,13 @@ void Renderer::FillLightBufferNoAlbedo(RenderContext& renderContext, GPUTexture*
         context->Clear(lightBuffer->View(), Color::Transparent);
         context->Clear(renderContext.Buffers->GBuffer0->View(), Color::Transparent);
         context->Clear(renderContext.Buffers->GBuffer1->View(), Color::Transparent);
-        context->Clear(renderContext.Buffers->GBuffer2->View(), Color(1, 0, 0, 0));
+        context->Clear(renderContext.Buffers->GBuffer2->View(), Color(1, 0, 0, 0)); // Roughness=1, Metalness=0, Specular=0
         context->Clear(renderContext.Buffers->GBuffer3->View(), Color::Transparent);
     }
 
-    // Draw objects that can get decals
+    // Draw all geometry
     context->SetRenderTarget(*renderContext.Buffers->DepthBuffer, ToSpan(targetBuffers, ARRAY_COUNT(targetBuffers)));
     renderContext.List->ExecuteDrawCalls(renderContext, DrawCallsListType::GBuffer);
-
-    // Draw objects that cannot get decals
-    context->SetRenderTarget(*renderContext.Buffers->DepthBuffer, ToSpan(targetBuffers, ARRAY_COUNT(targetBuffers)));
     renderContext.List->ExecuteDrawCalls(renderContext, DrawCallsListType::GBufferNoDecals);
 
     context->ResetRenderTarget();
