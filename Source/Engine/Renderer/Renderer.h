@@ -51,6 +51,13 @@ public:
     API_FUNCTION() static void DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPUTexture* output, const Array<Actor*, HeapAllocation>& customActors, const Array<Actor*, HeapAllocation>& customLights);
 
     /// <summary>
+    /// Fills the light buffer without applying albedo to the output (raw lighting only).
+    /// </summary>
+    /// <param name="renderContext">The rendering context.</param>
+    /// <param name="lightBuffer">The light buffer output texture.</param>
+    static void FillLightBufferNoAlbedo(RenderContext& renderContext, GPUTexture* lightBuffer);
+
+    /// <summary>
     /// Draws postFx material to the render target.
     /// </summary>
     /// <param name="context">The GPU commands context to use.</param>

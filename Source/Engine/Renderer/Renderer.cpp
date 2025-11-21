@@ -345,8 +345,8 @@ void Renderer::DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPU
         renderContextBatch.Contexts[i].List->SortDrawCalls(renderContextBatch.Contexts[i], false, DrawCallsListType::Depth, DrawPass::Depth);
     }
 
-    // Fill GBuffer
-    GBufferPass::Instance()->Fill(renderContext, output);
+    // Fill GBuffer without albedo
+    FillLightBufferNoAlbedo(renderContext, output);
 
     // Render shadows and lighting to output
     renderContextBatch.GetMainContext() = renderContext;
@@ -360,6 +360,44 @@ void Renderer::DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPU
         if (e.List)
             RenderList::ReturnToPool(e.List);
     }
+}
+
+void Renderer::FillLightBufferNoAlbedo(RenderContext& renderContext, GPUTexture* lightBuffer)
+{
+    PROFILE_GPU_CPU("GBuffer_NoAlbedo");
+
+    auto device = GPUDevice::Instance;
+    auto context = device->GetMainContext();
+    GPUTextureView* targetBuffers[5] =
+    {
+        lightBuffer->View(),
+        renderContext.Buffers->GBuffer0->View(),
+        renderContext.Buffers->GBuffer1->View(),
+        renderContext.Buffers->GBuffer2->View(),
+        renderContext.Buffers->GBuffer3->View(),
+    };
+    renderContext.View.Pass = DrawPass::GBuffer;
+
+    // Clear GBuffer
+    {
+        PROFILE_GPU_CPU_NAMED("Clear");
+        context->ClearDepth(*renderContext.Buffers->DepthBuffer);
+        context->Clear(lightBuffer->View(), Color::Transparent);
+        context->Clear(renderContext.Buffers->GBuffer0->View(), Color::Transparent);
+        context->Clear(renderContext.Buffers->GBuffer1->View(), Color::Transparent);
+        context->Clear(renderContext.Buffers->GBuffer2->View(), Color(1, 0, 0, 0));
+        context->Clear(renderContext.Buffers->GBuffer3->View(), Color::Transparent);
+    }
+
+    // Draw objects that can get decals
+    context->SetRenderTarget(*renderContext.Buffers->DepthBuffer, ToSpan(targetBuffers, ARRAY_COUNT(targetBuffers)));
+    renderContext.List->ExecuteDrawCalls(renderContext, DrawCallsListType::GBuffer);
+
+    // Draw objects that cannot get decals
+    context->SetRenderTarget(*renderContext.Buffers->DepthBuffer, ToSpan(targetBuffers, ARRAY_COUNT(targetBuffers)));
+    renderContext.List->ExecuteDrawCalls(renderContext, DrawCallsListType::GBufferNoDecals);
+
+    context->ResetRenderTarget();
 }
 
 void Renderer::DrawPostFxMaterial(GPUContext* context, const RenderContext& renderContext, MaterialBase* material, GPUTexture* output, GPUTextureView* input)
