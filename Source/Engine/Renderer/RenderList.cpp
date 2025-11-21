@@ -609,9 +609,11 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
         const RenderContext& renderContext = renderContextBatch.Contexts.Get()[i];
         ASSERT_LOW_LAYER(renderContext.View.Pass == DrawPass::Depth);
         drawModes = modes & renderContext.View.Pass;
+        // TODO: DSM frustum culling is broken - skip for now
+        const bool frustumCheck = true; // renderContext.View.CullingFrustum.Intersects(bounds);
         if (drawModes != DrawPass::None &&
             (staticFlags & renderContext.View.StaticFlagsMask) == renderContext.View.StaticFlagsCompare &&
-            renderContext.View.CullingFrustum.Intersects(bounds))
+            frustumCheck)
         {
             renderContext.List->ShadowDepthDrawCallsList.Indices.Add(index);
         }

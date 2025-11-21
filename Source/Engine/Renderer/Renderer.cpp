@@ -332,8 +332,18 @@ void Renderer::DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPU
     // If customActors is provided, only those actors are rendered
     DrawActors(renderContext, customActors);
 
+    // Collect draw calls for shadow contexts
+    for (int32 i = 1; i < renderContextBatch.Contexts.Count(); i++)
+    {
+        DrawActors(renderContextBatch.Contexts[i], customActors);
+    }
+
     // Sort draw calls
     renderContext.List->SortDrawCalls(renderContext, false, DrawCallsListType::GBuffer, DrawPass::GBuffer);
+    for (int32 i = 1; i < renderContextBatch.Contexts.Count(); i++)
+    {
+        renderContextBatch.Contexts[i].List->SortDrawCalls(renderContextBatch.Contexts[i], false, DrawCallsListType::Depth, DrawPass::Depth);
+    }
 
     // Fill GBuffer
     GBufferPass::Instance()->Fill(renderContext, output);
@@ -345,7 +355,11 @@ void Renderer::DrawSceneLighting(GPUContext* context, SceneRenderTask* task, GPU
     LightPass::Instance()->RenderLights(renderContextBatch, output->View());
 
     // Cleanup
-    RenderList::ReturnToPool(renderContext.List);
+    for (const auto& e : renderContextBatch.Contexts)
+    {
+        if (e.List)
+            RenderList::ReturnToPool(e.List);
+    }
 }
 
 void Renderer::DrawPostFxMaterial(GPUContext* context, const RenderContext& renderContext, MaterialBase* material, GPUTexture* output, GPUTextureView* input)
