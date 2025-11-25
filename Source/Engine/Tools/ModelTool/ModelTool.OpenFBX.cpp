@@ -1249,6 +1249,184 @@ static Float3 FbxVectorFromAxisAndSign(int axis, int sign)
     return { 0.f, 0.f, 0.f };
 }
 
+/// <summary>
+/// Main OpenFBX metadata processing function.
+/// </summary>
+void ProcessNodeMetadataOpenFBX(const ofbx::IScene* scene, ModelData& data)
+{
+    if (!scene)
+        return;
+
+    LOG(Info, "OpenFBX: Importing custom properties from scene...");
+
+    // Process all objects in the scene to extract their custom properties
+    const ofbx::Object* const* allObjects = scene->getAllObjects();
+    int objectCount = scene->getAllObjectCount();
+
+    for (int i = 0; i < objectCount; i++)
+    {
+        const ofbx::Object* obj = allObjects[i];
+        if (!obj || !obj->isNode())
+            continue;
+
+        const String nodeName(obj->name);
+        if (nodeName.IsEmpty())
+            continue;
+
+        // Look for or create node custom data entry
+        NodeCustomData* nodeData = nullptr;
+        for (int32 j = 0; j < data.CustomNodeData.Count(); j++)
+        {
+            if (data.CustomNodeData[j].NodeName == nodeName)
+            {
+                nodeData = &data.CustomNodeData[j];
+                break;
+            }
+        }
+
+        if (!nodeData)
+        {
+            nodeData = &data.CustomNodeData.AddOne();
+            nodeData->NodeName = nodeName;
+        }
+
+        int propertiesFoundOnNode = 0;
+
+        // Extract properties from the element
+        const ofbx::IElement& element = obj->element;
+        for (const ofbx::IElement* child = element.getFirstChild(); child; child = child->getSibling())
+        {
+            // Look for Properties70 element which contains custom properties
+            ofbx::DataView childId = child->getID();
+
+            // Check for Properties70
+            if (childId.end - childId.begin == 12 && Platform::MemoryCompare(childId.begin, "Properties70", 12) == 0)
+            {
+
+                // Properties70 contains P elements with custom properties
+                // Each P element is: P, PropertyName, PropertyType, PropertyFlags, PropertyValue
+                for (const ofbx::IElement* propElem = child->getFirstChild(); propElem; propElem = propElem->getSibling())
+                {
+                    ofbx::DataView propId = propElem->getID();
+
+                    // We're looking for "P" elements
+                    if (propId.end - propId.begin == 1 && propId.begin[0] == 'P')
+                    {
+                        // Property format: P, Name, Type, TypeFlags, Value
+                        const ofbx::IElementProperty* prop = propElem->getFirstProperty();
+                        if (!prop)
+                            continue;
+
+                        // First property contains the property name
+                        ofbx::DataView nameView = prop->getValue();
+                        if (nameView.end <= nameView.begin)
+                        {
+                            continue;
+                        }
+
+                        // Convert property name to String
+                        String propName;
+                        {
+                            char tempName[256] = { 0 };
+                            const int32 nameLen = Math::Min((int32)(nameView.end - nameView.begin), (int32)sizeof(tempName) - 1);
+                            Platform::MemoryCopy(tempName, nameView.begin, nameLen);
+                            propName = String(tempName);
+                        }
+
+                        // Skip internal FBX properties
+                        if (propName.StartsWith(TEXT("Lcl ")) || propName == TEXT("Visibility") || propName == TEXT("Visibility Inheritance"))
+                        {
+                            continue;
+                        }
+
+                        // P element structure: [0]=Name, [1]=Type, [2]=Flags, [3]=Unknown, [4]=Value
+                        // Navigate to property at index 1 (Type string)
+                        const ofbx::IElementProperty* typeProp = prop->getNext();
+                        if (!typeProp) continue;
+
+                        char typeStr[32] = { 0 };
+                        ofbx::DataView typeView = typeProp->getValue();
+                        const int32 typeStrLen = Math::Min((int32)(typeView.end - typeView.begin), 31);
+                        if (typeStrLen > 0)
+                        {
+                            Platform::MemoryCopy(typeStr, typeView.begin, typeStrLen);
+                        }
+
+                        // Navigate to property at index 4 (Value)
+                        // Start from index 0 (prop), go to 1, 2, 3, 4
+                        const ofbx::IElementProperty* valueProp = prop;
+                        for (int i = 0; i < 4 && valueProp; i++)
+                        {
+                            valueProp = valueProp->getNext();
+                        }
+                        if (!valueProp) continue;
+
+                        // Convert property value to string based on the type
+                        StringAnsi value;
+
+                        // Extract value using DataView conversion methods
+                        if (String(typeStr) == TEXT("double") || String(typeStr) == TEXT("Number"))
+                        {
+                            ofbx::DataView dataView = valueProp->getValue();
+                            double doubleVal = dataView.toDouble();
+                            value = StringAnsi(String::Format(TEXT("{0}"), doubleVal).Get());
+                        }
+                        else if (String(typeStr) == TEXT("float"))
+                        {
+                            ofbx::DataView dataView = valueProp->getValue();
+                            float floatVal = dataView.toFloat();
+                            value = StringAnsi(String::Format(TEXT("{0}"), floatVal).Get());
+                        }
+                        else if (String(typeStr) == TEXT("int") || String(typeStr) == TEXT("Integer") || String(typeStr) == TEXT("enum"))
+                        {
+                            ofbx::DataView dataView = valueProp->getValue();
+                            int intVal = dataView.toInt();
+                            value = StringAnsi(String::Format(TEXT("{0}"), intVal).Get());
+                        }
+                        else if (String(typeStr) == TEXT("bool"))
+                        {
+                            ofbx::DataView dataView = valueProp->getValue();
+                            bool boolVal = dataView.toBool();
+                            value = StringAnsi(boolVal ? "true" : "false");
+                        }
+                        else if (String(typeStr) == TEXT("string") || String(typeStr) == TEXT("KString"))
+                        {
+                            ofbx::DataView strView = valueProp->getValue();
+                            if (strView.end > strView.begin)
+                            {
+                                char tempStr[512] = { 0 };
+                                const int32 strLen = Math::Min((int32)(strView.end - strView.begin), (int32)sizeof(tempStr) - 1);
+                                Platform::MemoryCopy(tempStr, strView.begin, strLen);
+                                value = StringAnsi(tempStr);
+                            }
+                        }
+                        else
+                        {
+                            // Unknown type - try as double by default
+                            ofbx::DataView dataView = valueProp->getValue();
+                            double doubleVal = dataView.toDouble();
+                            value = StringAnsi(String::Format(TEXT("{0}"), doubleVal).Get());
+                        }
+
+                        if (value.Length() > 0)
+                        {
+                            nodeData->Properties.Add(propName, String(value.Get()));
+                            propertiesFoundOnNode++;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (propertiesFoundOnNode > 0)
+        {
+            LOG(Info, "OpenFBX: Node '{0}' has {1} custom properties", nodeName, propertiesFoundOnNode);
+        }
+    }
+
+    LOG(Info, "OpenFBX: Metadata import complete. Found {0} nodes with custom data", data.CustomNodeData.Count());
+}
+
 bool ModelTool::ImportDataOpenFBX(const String& path, ModelData& data, Options& options, String& errorMsg)
 {
     // Import file
@@ -1466,6 +1644,12 @@ bool ModelTool::ImportDataOpenFBX(const String& path, ModelData& data, Options& 
             node.ParentIndex = aNode.ParentIndex;
             node.LocalTransform = aNode.LocalTransform;
         }
+    }
+
+    // Import custom metadata (OpenFBX has limited support)
+    if (options.ImportCustomMetadata)
+    {
+        ProcessNodeMetadataOpenFBX(context.Scene, data);
     }
 
     return false;

@@ -2335,6 +2335,130 @@ void ModelTool::CalculateBoneOffsetMatrix(const Array<SkeletonNode>& nodes, Matr
     offsetMatrix.Invert();
 }
 
+#if USE_EDITOR
+
+int32 ModelTool::GetNodeMetadataCount(const String& path, const String& nodeName, Options& options)
+{
+    ModelData data;
+    String errorMsg;
+
+    if (!ImportData(path, data, options, errorMsg))
+    {
+        return -1;
+    }
+
+    // Find node metadata
+    for (const auto& nodeData : data.CustomNodeData)
+    {
+        if (nodeData.NodeName == nodeName)
+        {
+            return nodeData.Properties.Count();
+        }
+    }
+
+    return 0;
+}
+
+String ModelTool::GetNodeMetadataKey(const String& path, const String& nodeName, int32 index, Options& options)
+{
+    ModelData data;
+    String errorMsg;
+
+    if (!ImportData(path, data, options, errorMsg))
+    {
+        return String::Empty;
+    }
+
+    // Find node metadata
+    for (const auto& nodeData : data.CustomNodeData)
+    {
+        if (nodeData.NodeName == nodeName)
+        {
+            if (index >= 0 && index < nodeData.Properties.Count())
+            {
+                int32 currentIndex = 0;
+                for (const auto& property : nodeData.Properties)
+                {
+                    if (currentIndex == index)
+                    {
+                        return property.Key;
+                    }
+                    currentIndex++;
+                }
+            }
+            break;
+        }
+    }
+
+    return String::Empty;
+}
+
+String ModelTool::GetNodeMetadataValue(const String& path, const String& nodeName, int32 index, Options& options)
+{
+    ModelData data;
+    String errorMsg;
+
+    if (!ImportData(path, data, options, errorMsg))
+    {
+        return String::Empty;
+    }
+
+    // Find node metadata
+    for (const auto& nodeData : data.CustomNodeData)
+    {
+        if (nodeData.NodeName == nodeName)
+        {
+            if (index >= 0 && index < nodeData.Properties.Count())
+            {
+                int32 currentIndex = 0;
+                for (const auto& property : nodeData.Properties)
+                {
+                    if (currentIndex == index)
+                    {
+                        return property.Value;
+                    }
+                    currentIndex++;
+                }
+            }
+            break;
+        }
+    }
+
+    return String::Empty;
+}
+
+Dictionary<String, String> ModelTool::GetNodeCustomProperties(const String& path, const String& nodeName)
+{
+    Dictionary<String, String> result;
+
+    // Use minimal options - only import what we need
+    Options options;
+    options.Type = ModelType::Model;
+    options.ImportCustomMetadata = true;
+
+    ModelData data;
+    String errorMsg;
+
+    // ImportData returns true on failure, false on success
+    if (ImportData(path, data, options, errorMsg))
+    {
+        LOG(Warning, "Failed to import model for custom properties: {0}", errorMsg);
+        return result;
+    }
+
+    // Find node and return its properties
+    for (const auto& nodeData : data.CustomNodeData)
+    {
+        if (nodeData.NodeName == nodeName)
+        {
+            return nodeData.Properties;
+        }
+    }
+
+    return result;
+}
+
 #endif
 
 #endif
+#endif  // Closes #if COMPILE_WITH_MODEL_TOOL (Line 16)

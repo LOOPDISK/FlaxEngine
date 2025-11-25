@@ -341,6 +341,52 @@ struct FLAXENGINE_API MaterialSlotEntry
 };
 
 /// <summary>
+/// Custom metadata entry representing a key-value pair imported from the source file.
+/// </summary>
+API_STRUCT(Namespace="FlaxEngine.Tools") struct FLAXENGINE_API CustomMetadataEntry
+{
+    DECLARE_SCRIPTING_TYPE_MINIMAL(CustomMetadataEntry);
+
+    /// <summary>
+    /// The metadata key identifier.
+    /// </summary>
+    API_FIELD() String Key;
+
+    /// <summary>
+    /// The metadata value (can be JSON for complex data).
+    /// </summary>
+    API_FIELD() StringAnsi Value;
+
+    /// <summary>
+    /// The target type this metadata applies to (e.g., "node", "mesh", "material", "bone").
+    /// </summary>
+    API_FIELD() String TargetType;
+
+    /// <summary>
+    /// The target name/identifier (node name, mesh name, material name, etc.).
+    /// </summary>
+    API_FIELD() String TargetName;
+};
+
+/// <summary>
+/// Per-node custom properties imported from the source file (e.g., Blender custom properties).
+/// </summary>
+API_STRUCT(Namespace="FlaxEngine.Tools") struct FLAXENGINE_API NodeCustomData
+{
+    DECLARE_SCRIPTING_TYPE_MINIMAL(NodeCustomData);
+
+    /// <summary>
+    /// The node name this data belongs to.
+    /// </summary>
+    API_FIELD() String NodeName;
+
+    /// <summary>
+    /// Custom properties as key-value pairs (property name -> property value as string).
+    /// </summary>
+    API_FIELD() Dictionary<String, String> Properties;
+};
+
+/// <summary>
 /// Data container for model hierarchy node.
 /// </summary>
 struct FLAXENGINE_API ModelDataNode
@@ -390,8 +436,9 @@ struct FLAXENGINE_API ModelLodData
 /// <summary>
 /// Data container for model metadata and LODs.
 /// </summary>
-class FLAXENGINE_API ModelData
+API_CLASS(Namespace="FlaxEngine.Tools") class FLAXENGINE_API ModelData
 {
+    DECLARE_SCRIPTING_TYPE_MINIMAL(ModelData);
 public:
     /// <summary>
     /// The minimum screen size to draw model (the bottom limit).
@@ -427,6 +474,16 @@ public:
     /// The node animations.
     /// </summary>
     Array<AnimationData> Animations;
+
+    /// <summary>
+    /// Custom metadata entries imported from the source file.
+    /// </summary>
+    Array<CustomMetadataEntry> CustomMetadata;
+
+    /// <summary>
+    /// Per-node custom properties imported from the source file (e.g., Blender custom properties).
+    /// </summary>
+    Array<NodeCustomData> CustomNodeData;
 
 public:
     // See ModelTool::PositionFormat
