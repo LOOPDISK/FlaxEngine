@@ -191,8 +191,16 @@ namespace FlaxEngine
         /// </summary>
         protected void MutateSeed()
         {
+            // OLD VERSION:
             // This can be modified to provide better randomization
-            _seed = _seed * 196314165 + 907633515;
+            //_seed = _seed * 196314165 + 907633515;
+
+            // CUSTOM VERSION (SplitMix32):
+            uint z = (uint)_seed + 0x9e3779b9;
+            z = (z ^ (z >> 16)) * 0x85ebca6b;
+            z = (z ^ (z >> 13)) * 0xc2b2ae35;
+            z = z ^ (z >> 16);
+            _seed = (int)z;
         }
     }
 }
