@@ -673,6 +673,125 @@ void ImportAnimation(int32 index, ModelData& data, AssimpImporterData& importerD
     }
 }
 
+/// <summary>
+/// Extracts custom metadata from an Assimp node.
+/// </summary>
+void ExtractNodeMetadataAssimp(const aiNode* node, const String& nodeName, ModelData& data)
+{
+    if (!node || !node->mMetaData)
+        return;
+
+    // Look for existing node custom data entry
+    NodeCustomData* nodeData = nullptr;
+    for (int32 i = 0; i < data.CustomNodeData.Count(); i++)
+    {
+        if (data.CustomNodeData[i].NodeName == nodeName)
+        {
+            nodeData = &data.CustomNodeData[i];
+            break;
+        }
+    }
+
+    // Create new entry if not found
+    if (!nodeData)
+    {
+        nodeData = &data.CustomNodeData.AddOne();
+        nodeData->NodeName = nodeName;
+    }
+
+    // Iterate through all metadata entries
+    for (unsigned i = 0; i < node->mMetaData->mNumProperties; i++)
+    {
+        const aiMetadataEntry& entry = node->mMetaData->mValues[i];
+        const char* keyName = node->mMetaData->mKeys[i].C_Str();
+        String key(keyName);
+        StringAnsi value;
+
+        // Convert aiMetadata types to StringAnsi
+        switch (entry.mType)
+        {
+            case AI_BOOL:
+            {
+                bool val = *reinterpret_cast<bool*>(entry.mData);
+                value = val ? StringAnsi("true") : StringAnsi("false");
+                break;
+            }
+            case AI_INT32:
+            {
+                int32 val = *reinterpret_cast<int32*>(entry.mData);
+                value = StringAnsi(String::Format(TEXT("{0}"), val).Get());
+                break;
+            }
+            case AI_FLOAT:
+            {
+                float val = *reinterpret_cast<float*>(entry.mData);
+                value = StringAnsi(String::Format(TEXT("{0}"), val).Get());
+                break;
+            }
+            case AI_DOUBLE:
+            {
+                double val = *reinterpret_cast<double*>(entry.mData);
+                value = StringAnsi(String::Format(TEXT("{0}"), val).Get());
+                break;
+            }
+            case AI_AISTRING:
+            {
+                aiString* str = reinterpret_cast<aiString*>(entry.mData);
+                value = StringAnsi(str->C_Str());
+                break;
+            }
+            case AI_AIVECTOR3D:
+            {
+                aiVector3D* v = reinterpret_cast<aiVector3D*>(entry.mData);
+                value = StringAnsi(String::Format(TEXT("{0},{1},{2}"), v->x, v->y, v->z).Get());
+                break;
+            }
+            default:
+            {
+                // Skip unknown metadata types
+                LOG(Warning, "Assimp: Unknown metadata type {0} for key '{1}' in node '{2}'", (int32)entry.mType, key, nodeName);
+                continue;
+            }
+        }
+
+        nodeData->Properties.Add(key, String(value.Get()));
+    }
+}
+
+/// <summary>
+/// Recursively processes nodes and extracts their metadata.
+/// </summary>
+void ProcessNodeMetadataRecursiveAssimp(const aiNode* node, ModelData& data)
+{
+    if (!node)
+        return;
+
+    String nodeName(node->mName.C_Str());
+    ExtractNodeMetadataAssimp(node, nodeName, data);
+
+    // Process children
+    for (unsigned i = 0; i < node->mNumChildren; i++)
+    {
+        ProcessNodeMetadataRecursiveAssimp(node->mChildren[i], data);
+    }
+}
+
+/// <summary>
+/// Extracts metadata from materials.
+/// Note: Assimp doesn't expose material metadata in the same way as nodes.
+/// This is a placeholder for future material metadata support if needed.
+/// </summary>
+void ExtractMaterialMetadataAssimp(const aiScene* scene, ModelData& data)
+{
+    // Assimp material metadata is not exposed through public API in the same way
+    // Material properties can be extracted directly from material properties if needed
+    // For now, this function is a placeholder for consistency with other importers
+    if (!scene || scene->mNumMaterials == 0)
+        return;
+
+    LOG(Info, "Assimp: Material metadata extraction not yet implemented (Assimp API limitation)");
+}
+
 bool ModelTool::ImportDataAssimp(const String& path, ModelData& data, Options& options, String& errorMsg)
 {
     static bool AssimpInited = false;
@@ -816,6 +935,33 @@ bool ModelTool::ImportDataAssimp(const String& path, ModelData& data, Options& o
             node.ParentIndex = aNode.ParentIndex;
             node.LocalTransform = aNode.LocalTransform;
         }
+    }
+
+    // Import custom metadata
+    LOG(Info, "Assimp: ImportCustomMetadata={0}, ImportNodeProperties={1}, ImportMaterialProperties={2}",
+        options.ImportCustomMetadata, options.ImportNodeProperties, options.ImportMaterialProperties);
+
+    if (options.ImportCustomMetadata)
+    {
+        if (options.ImportNodeProperties)
+        {
+            LOG(Info, "Assimp: Importing node custom properties...");
+            ProcessNodeMetadataRecursiveAssimp(context.Scene->mRootNode, data);
+            LOG(Info, "Assimp: Node metadata import complete. Found {0} nodes with custom data", data.CustomNodeData.Count());
+        }
+
+        if (options.ImportMaterialProperties)
+        {
+            LOG(Info, "Assimp: Importing material custom properties...");
+            ExtractMaterialMetadataAssimp(context.Scene, data);
+        }
+
+        LOG(Info, "Assimp: Total imported {0} node custom data entries and {1} material metadata entries",
+            data.CustomNodeData.Count(), data.CustomMetadata.Count());
+    }
+    else
+    {
+        LOG(Info, "Assimp: Custom metadata import disabled in import options");
     }
 
     return false;

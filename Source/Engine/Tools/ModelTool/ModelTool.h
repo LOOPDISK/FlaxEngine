@@ -333,6 +333,18 @@ public:
         API_FIELD(Attributes="EditorOrder(1510), EditorDisplay(\"SDF\"), VisibleIf(nameof(ShowModel)), Limit(0.0001f, 100.0f)")
         float SDFResolution = 1.0f;
 
+    public: // Custom Data
+
+        // If checked, the importer will import custom properties from the source file (e.g., Blender custom properties).
+        API_FIELD(Attributes="EditorOrder(1750), EditorDisplay(\"Custom Data\", \"Import Custom Metadata\")")
+        bool ImportCustomMetadata = false;
+        // If checked, per-node custom properties will be imported and preserved.
+        API_FIELD(Attributes="EditorOrder(1760), EditorDisplay(\"Custom Data\", \"Import Node Properties\"), VisibleIf(nameof(ImportCustomMetadata))")
+        bool ImportNodeProperties = false;
+        // If checked, material and mesh custom properties will be imported and preserved.
+        API_FIELD(Attributes="EditorOrder(1770), EditorDisplay(\"Custom Data\", \"Import Material Properties\"), VisibleIf(nameof(ImportCustomMetadata))")
+        bool ImportMaterialProperties = false;
+
     public: // Splitting
 
         // If checked, the imported mesh/animations are split into separate assets. Used if ObjectIndex is set to -1.
@@ -379,6 +391,43 @@ public:
     static bool ImportData(const String& path, ModelData& data, Options& options, String& errorMsg);
 
     /// <summary>
+    /// Gets the count of metadata entries for a given node name.
+    /// </summary>
+    /// <param name="path">The file path.</param>
+    /// <param name="nodeName">The name of the node to get metadata for.</param>
+    /// <param name="options">The import options.</param>
+    /// <returns>The number of metadata entries for the node, or -1 if import failed.</returns>
+    API_FUNCTION() static int32 GetNodeMetadataCount(const String& path, const String& nodeName, API_PARAM(Ref) Options& options);
+
+    /// <summary>
+    /// Gets a metadata key for a specific node and index.
+    /// </summary>
+    /// <param name="path">The file path.</param>
+    /// <param name="nodeName">The name of the node.</param>
+    /// <param name="index">The zero-based index of the metadata entry.</param>
+    /// <param name="options">The import options.</param>
+    /// <returns>The metadata key, or empty string if not found.</returns>
+    API_FUNCTION() static String GetNodeMetadataKey(const String& path, const String& nodeName, int32 index, API_PARAM(Ref) Options& options);
+
+    /// <summary>
+    /// Gets a metadata value for a specific node and index.
+    /// </summary>
+    /// <param name="path">The file path.</param>
+    /// <param name="nodeName">The name of the node.</param>
+    /// <param name="index">The zero-based index of the metadata entry.</param>
+    /// <param name="options">The import options.</param>
+    /// <returns>The metadata value, or empty string if not found.</returns>
+    API_FUNCTION() static String GetNodeMetadataValue(const String& path, const String& nodeName, int32 index, API_PARAM(Ref) Options& options);
+
+    /// <summary>
+    /// Gets custom properties from an FBX file for a specific node.
+    /// </summary>
+    /// <param name="path">The file path.</param>
+    /// <param name="nodeName">The name of the node to get properties for.</param>
+    /// <returns>Dictionary of custom property names to values, or empty if node not found.</returns>
+    API_FUNCTION() static Dictionary<String, String> GetNodeCustomProperties(const String& path, const String& nodeName);
+
+    /// <summary>
     /// Imports the model.
     /// </summary>
     /// <param name="path">The file path.</param>
@@ -387,7 +436,7 @@ public:
     /// <param name="errorMsg">The error message container.</param>
     /// <param name="autoImportOutput">The output folder for the additional imported data - optional. Used to auto-import textures and material assets.</param>
     /// <returns>True if fails, otherwise false.</returns>
-    static bool ImportModel(const String& path, ModelData& data, Options& options, String& errorMsg, const String& autoImportOutput = String::Empty);
+    API_FUNCTION() static bool ImportModel(const String& path, API_PARAM(Out) ModelData& data, API_PARAM(Ref) Options& options, API_PARAM(Out) String& errorMsg, const String& autoImportOutput = String::Empty);
 
 public:
     static int32 DetectLodIndex(const String& nodeName);

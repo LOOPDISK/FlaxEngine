@@ -786,6 +786,186 @@ void BakeTransforms(FbxScene* scene)
     scene->GetRootNode()->ConvertPivotAnimationRecursive(nullptr, FbxNode::eDestinationPivot, frameRate, false);
 }
 
+/// <summary>
+/// Converts FBX property value to StringAnsi based on type.
+/// </summary>
+StringAnsi FbxPropertyToString(const FbxProperty& property)
+{
+    if (!property.IsValid())
+        return StringAnsi("");
+
+    FbxDataType dataType = property.GetPropertyDataType();
+
+    if (dataType == FbxBoolDT)
+    {
+        return property.Get<FbxBool>() ? StringAnsi("true") : StringAnsi("false");
+    }
+    else if (dataType == FbxIntDT)
+    {
+        return StringAnsi(String::Format(TEXT("{0}"), property.Get<FbxInt>()).Get());
+    }
+    else if (dataType == FbxFloatDT)
+    {
+        return StringAnsi(String::Format(TEXT("{0}"), property.Get<FbxFloat>()).Get());
+    }
+    else if (dataType == FbxDoubleDT)
+    {
+        return StringAnsi(String::Format(TEXT("{0}"), property.Get<FbxDouble>()).Get());
+    }
+    else if (dataType == FbxStringDT)
+    {
+        return StringAnsi(property.Get<FbxString>().Buffer());
+    }
+    else if (dataType == FbxDouble3DT)
+    {
+        FbxDouble3 v = property.Get<FbxDouble3>();
+        return StringAnsi(String::Format(TEXT("{0},{1},{2}"), v[0], v[1], v[2]).Get());
+    }
+    else if (dataType == FbxDouble4DT)
+    {
+        FbxDouble4 v = property.Get<FbxDouble4>();
+        return StringAnsi(String::Format(TEXT("{0},{1},{2},{3}"), v[0], v[1], v[2], v[3]).Get());
+    }
+
+    return StringAnsi("");
+}
+
+/// <summary>
+/// Extracts custom properties from an FBX node recursively.
+/// </summary>
+void ExtractNodeMetadataFbxSdk(const FbxNode* node, ModelData& data)
+{
+    if (!node)
+        return;
+
+    String nodeName(node->GetName());
+
+    // Look for existing node custom data entry
+    NodeCustomData* nodeData = nullptr;
+    for (int32 i = 0; i < data.CustomNodeData.Count(); i++)
+    {
+        if (data.CustomNodeData[i].NodeName == nodeName)
+        {
+            nodeData = &data.CustomNodeData[i];
+            break;
+        }
+    }
+
+    // Create new entry if not found
+    if (!nodeData)
+    {
+        nodeData = &data.CustomNodeData.AddOne();
+        nodeData->NodeName = nodeName;
+    }
+
+    // Iterate through all properties
+    FbxProperty prop = node->GetFirstProperty();
+    while (prop.IsValid())
+    {
+        const char* propName = prop.GetName();
+        if (!propName || propName[0] == '\0')
+        {
+            prop = node->GetNextProperty(prop);
+            continue;
+        }
+
+        // Skip internal FBX properties (typically start with capital letters or have specific prefixes)
+        if (strcmp(propName, "Lcl Translation") == 0 ||
+            strcmp(propName, "Lcl Rotation") == 0 ||
+            strcmp(propName, "Lcl Scaling") == 0 ||
+            strcmp(propName, "Visibility") == 0)
+        {
+            prop = node->GetNextProperty(prop);
+            continue;
+        }
+
+        // Extract the custom property
+        StringAnsi value = FbxPropertyToString(prop);
+        if (value.Length() > 0)
+        {
+            String key(propName);
+            nodeData->Properties.Add(key, String(value.Get()));
+        }
+
+        prop = node->GetNextProperty(prop);
+    }
+}
+
+/// <summary>
+/// Recursively processes nodes and extracts their metadata.
+/// </summary>
+void ProcessNodeMetadataRecursiveFbxSdk(const FbxNode* node, ModelData& data)
+{
+    if (!node)
+        return;
+
+    ExtractNodeMetadataFbxSdk(node, data);
+
+    // Process children
+    for (int i = 0; i < node->GetChildCount(); i++)
+    {
+        ProcessNodeMetadataRecursiveFbxSdk(node->GetChild(i), data);
+    }
+}
+
+/// <summary>
+/// Extracts metadata from materials.
+/// </summary>
+void ExtractMaterialMetadataFbxSdk(const FbxScene* scene, ModelData& data)
+{
+    if (!scene)
+        return;
+
+    int materialCount = scene->GetMaterialCount();
+    for (int i = 0; i < materialCount; i++)
+    {
+        FbxSurfaceMaterial* material = scene->GetMaterial(i);
+        if (!material)
+            continue;
+
+        String materialName(material->GetName());
+
+        // Extract custom properties from material
+        FbxProperty prop = material->GetFirstProperty();
+        while (prop.IsValid())
+        {
+            const char* propName = prop.GetName();
+            if (!propName || propName[0] == '\0')
+            {
+                prop = material->GetNextProperty(prop);
+                continue;
+            }
+
+            // Skip standard FBX material properties
+            if (strcmp(propName, "ShadingModel") == 0 ||
+                strcmp(propName, "MultiLayer") == 0 ||
+                strcmp(propName, "Emissive") == 0 ||
+                strcmp(propName, "Ambient") == 0 ||
+                strcmp(propName, "Diffuse") == 0 ||
+                strcmp(propName, "Specular") == 0 ||
+                strcmp(propName, "Shininess") == 0 ||
+                strcmp(propName, "NormalMap") == 0)
+            {
+                prop = material->GetNextProperty(prop);
+                continue;
+            }
+
+            StringAnsi value = FbxPropertyToString(prop);
+            if (value.Length() > 0)
+            {
+                auto& metadataEntry = data.CustomMetadata.AddOne();
+                metadataEntry.Key = String(propName);
+                metadataEntry.TargetType = TEXT("material");
+                metadataEntry.TargetName = materialName;
+                metadataEntry.Value = value;
+                LOG(Info, "FBX SDK: Extracted material property '{0}.{1}' = '{2}'", materialName, metadataEntry.Key, String(value.Get()));
+            }
+
+            prop = material->GetNextProperty(prop);
+        }
+    }
+}
+
 bool ModelTool::ImportDataAutodeskFbxSdk(const String& path, ImportedModelData& data, Options& options, String& errorMsg)
 {
     ScopeLock lock(FbxSdkManager::Locker);
@@ -923,6 +1103,33 @@ bool ModelTool::ImportDataAutodeskFbxSdk(const String& path, ImportedModelData& 
             node.ParentIndex = aNode.ParentIndex;
             node.LocalTransform = aNode.LocalTransform;
         }
+    }
+
+    // Import custom metadata
+    LOG(Info, "FBX SDK: ImportCustomMetadata={0}, ImportNodeProperties={1}, ImportMaterialProperties={2}",
+        options.ImportCustomMetadata, options.ImportNodeProperties, options.ImportMaterialProperties);
+
+    if (options.ImportCustomMetadata)
+    {
+        if (options.ImportNodeProperties)
+        {
+            LOG(Info, "FBX SDK: Importing node custom properties...");
+            ProcessNodeMetadataRecursiveFbxSdk(scene->GetRootNode(), data);
+            LOG(Info, "FBX SDK: Node metadata import complete. Found {0} nodes with custom data", data.CustomNodeData.Count());
+        }
+
+        if (options.ImportMaterialProperties)
+        {
+            LOG(Info, "FBX SDK: Importing material custom properties...");
+            ExtractMaterialMetadataFbxSdk(scene, data);
+        }
+
+        LOG(Info, "FBX SDK: Total imported {0} node custom data entries and {1} material metadata entries",
+            data.CustomNodeData.Count(), data.CustomMetadata.Count());
+    }
+    else
+    {
+        LOG(Info, "FBX SDK: Custom metadata import disabled in import options");
     }
 
     // Export materials info
