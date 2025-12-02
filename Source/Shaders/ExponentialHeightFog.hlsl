@@ -80,8 +80,8 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
 
     // Fade out noise at distance to prevent visible patterns in sky
     float noiseFadeDistance = 5000.0f; // Distance at which noise fully fades
-    float distanceFade = saturate(1.0 - (rayLength / noiseFadeDistance));
-    float noiseIntensity = 0.15 * distanceFade;
+    float noiseFade = saturate(1.0 - (rayLength / noiseFadeDistance));
+    float noiseIntensity = 0.15 * noiseFade;
 
     float noiseMod = 1.0 + clamp(noise, -1.0, 1.0) * noiseIntensity;
     exponentialHeightLineIntegralCalc *= noiseMod;
