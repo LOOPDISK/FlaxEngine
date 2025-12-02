@@ -1,5 +1,6 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
+#include "Engine/Engine/Time.h"
 #include "ExponentialHeightFog.h"
 #include "DirectionalLight.h"
 #include "Engine/Core/Math/Color.h"
@@ -185,6 +186,7 @@ void ExponentialHeightFog::GetExponentialHeightFogData(const RenderView& view, S
     result.VolumetricFogMaxDistance = VolumetricFogDistance;
     result.GradientInfluence = GradientInfluence;
     result.GradientHeightRange = GradientHeightRange;
+    result.GlobalTime = Time::GetGameTime();
 }
 
 GPU_CB_STRUCT(Data {

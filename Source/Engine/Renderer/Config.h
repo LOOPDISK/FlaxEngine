@@ -45,7 +45,8 @@ GPU_CB_STRUCT(ShaderExponentialHeightFogData {
 
     float GradientInfluence;
     float GradientHeightRange;
-    Float2 Padding;
+    float GlobalTime;
+    float Padding;
     });
 
 /// <summary>

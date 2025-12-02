@@ -34,7 +34,7 @@ struct ExponentialHeightFogData
 
     float GradientInfluence;
     float GradientHeightRange;
-    float2 Padding;
+    float GlobalTime;
 };
 
 float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, float3 posWS, float3 camWS, float skipDistance, float sceneDistance)
@@ -67,9 +67,18 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     float lineIntegralTaylor = log(2.0f) - (0.5f * Pow2(log(2.0f))) * falloff;
     float exponentialHeightLineIntegralCalc = rayOriginTerms * (abs(falloff) > 0.01f ? lineIntegral : lineIntegralTaylor);
 
+    // [NOISE] Add subtle 3D noise to break up uniformity
+    // Use low-frequency sine patterns for "wispy" cloud-like variation rather than high-freq grain
+    float3 p = posWS * 0.0001; 
+    // Animate noise by offsetting the sampling position over time
+    float timeFactor = exponentialHeightFog.GlobalTime * 0.5; // Adjust speed as needed
+    float noise = sin(p.x + timeFactor) * sin(p.z * 0.8 + timeFactor * 0.7) + sin(p.x * 2.3 + p.y * 1.5 - timeFactor * 0.4) * 0.5;
+    float noiseMod = 1.0 + clamp(noise, -1.0, 1.0) * 0.15; 
+    exponentialHeightLineIntegralCalc *= noiseMod;
+
     // Apply gradual buildup to height falloff (matching depth math)
     float heightBuildupScale = 0.1;
-    float heightBuildupPower = 0.2;
+    float heightBuildupPower = 0.3;
     float heightT = saturate(exponentialHeightLineIntegralCalc * rayLength * heightBuildupScale);
     float heightGradualCurve = pow(heightT, heightBuildupPower);
 
@@ -77,25 +86,18 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
 
     // Apply distance-based fog density ramping (core physics integration)
     float startDist = max(exponentialHeightFog.StartDistance, 0.1f);
-    if (cameraToPosLen <= startDist)
-    {
-        // Ray is entirely within ramp-up zone: average density = (distance/startDist) * 0.5
-        float avgDensityFactor = (cameraToPosLen / startDist) * 0.5f;
-        exponentialHeightLineIntegral *= avgDensityFactor;
-    }
-    else
-    {
-        // Ray extends beyond ramp zone: weighted average of ramp and full density regions
-        float rampZoneContribution = startDist * 0.5f; // ramp zone average = 0.5
-        float fullZoneContribution = cameraToPosLen - startDist; // full density = 1.0
-        float totalContribution = rampZoneContribution + fullZoneContribution;
-        float avgDensityFactor = totalContribution / cameraToPosLen;
-        exponentialHeightLineIntegral *= avgDensityFactor;
-    }
+    
+    // [FIX] Smoother start distance transition using smoothstep instead of hard branch
+    // This eliminates the "sudden thick line" artifact when crossing the start distance threshold.
+    float distanceFade = smoothstep(0.0, startDist, cameraToPosLen);
+    // We also want a linear ramp up of density *within* the start zone to match physical "entering fog"
+    // But the previous integration was creating a kink. 
+    // Let's just dampen the total integral near the start.
+    exponentialHeightLineIntegral *= distanceFade;
 
     // Calculate the light that went through the fog using gradual buildup
-    float buildupScale = 0.1;      // TWEAK: Lower = more gradual buildup, Higher = faster buildup
-    float buildupPower = 0.2;      // TWEAK: Higher = more gradual start (try 3.0-6.0)
+    float buildupScale = 0.07;      // TWEAK: Lower = more gradual buildup, Higher = faster buildup
+    float buildupPower = 0.1;      // TWEAK: Higher = more gradual start (try 3.0-6.0)
     float t = saturate(exponentialHeightLineIntegral * buildupScale);
     // Cubic/quartic curve for very gradual start: t^n
     float gradualCurve = pow(t, buildupPower);
