@@ -10,6 +10,15 @@ float3 Diffuse_Lambert(float3 diffuseColor)
     return diffuseColor * (1 / PI);
 }
 
+// [Burley 2012, "Physically-Based Shading at Disney"]
+float3 Diffuse_Burley(float3 diffuseColor, float roughness, float NoV, float NoL, float VoH)
+{
+    float FD90 = 0.5 + 2 * VoH * VoH * roughness;
+    float FdV = 1 + (FD90 - 1) * Pow5(1 - NoV);
+    float FdL = 1 + (FD90 - 1) * Pow5(1 - NoL);
+    return diffuseColor * ((1 / PI) * FdV * FdL);
+}
+
 // GGX / Trowbridge-Reitz
 // [Walter et al. 2007, "Microfacet models for refraction through rough surfaces"]
 float D_GGX(float roughness, float NoH)
@@ -46,40 +55,59 @@ float Vis_Smith(float roughness, float NoV, float NoL)
 float Vis_SmithJointApprox(float roughness, float NoV, float NoL)
 {
     float a = Square(roughness);
-    float visSmithV = NoL * (NoV * (1 - a) + a);
-    float visSmithL = NoV * (NoL * (1 - a) + a);
-    return 0.5 * rcp(visSmithV + visSmithL);
+    float Vis_SmithV = NoL * (NoV * (1 - a) + a);
+    float Vis_SmithL = NoV * (NoL * (1 - a) + a);
+    // Add a tiny epsilon to prevent division by zero
+    return 0.5 * rcp(max(Vis_SmithV + Vis_SmithL, 0.0001));
 }
 
 // [Schlick 1994, "An Inexpensive BRDF Model for Physically-Based Rendering"]
+float3 F_Schlick_Raw(float3 f0, float f90, float VoH)
+{
+    return f0 + (f90 - f0) * Pow5(1 - VoH);
+}
+
 float3 F_Schlick(float3 specularColor, float VoH)
 {
-    float fc = Pow5(1 - VoH);
-    return saturate(50.0 * specularColor.g) * fc + (1 - fc) * specularColor;
+    float f90 = saturate(50.0 * specularColor.g);
+    return F_Schlick_Raw(specularColor, f90, VoH);
+}
+
+
+
+float3 F_Schlick(float3 specularColor, float VoH, float roughness)
+{
+    float f90 = saturate(50.0 * specularColor.g);
+    // REMOVED: f90 *= saturate(1.0 - roughness); <--- The culprit for sharp cutoffs
+    return F_Schlick_Raw(specularColor, f90, VoH);
 }
 
 #define REFLECTION_CAPTURE_NUM_MIPS 7
-#define REFLECTION_CAPTURE_ROUGHEST_MIP 1
+// Allow going down to mip 0 (1x1 pixel) for fully diffuse/chalky look
+#define REFLECTION_CAPTURE_ROUGHEST_MIP 0 
 #define REFLECTION_CAPTURE_ROUGHNESS_MIP_SCALE 1.2
 
 half ProbeMipFromRoughness(half roughness)
 {
-    half mip1px = REFLECTION_CAPTURE_ROUGHEST_MIP - REFLECTION_CAPTURE_ROUGHNESS_MIP_SCALE * log2(roughness);
-    return REFLECTION_CAPTURE_NUM_MIPS - 1 - mip1px;
+    // Original Log2 formula was too conservative. 
+    // We use a linear-to-sqrt mapping to ensure Roughness 1.0 hits the bottom mip.
+    float mipLevel = (REFLECTION_CAPTURE_NUM_MIPS - 1) * sqrt(roughness);
+    return mipLevel;
 }
 
 half SSRMipFromRoughness(half roughness)
 {
-    half mip1px = 4 - REFLECTION_CAPTURE_ROUGHNESS_MIP_SCALE * log2(roughness);
-    return max(1, 10 - mip1px);
+    // Matches the probe logic for consistency
+    half mipLevel = 5.0 * sqrt(roughness);
+    return mipLevel;
 }
 
 float ProbeRoughnessFromMip(float mip)
 {
-    float mip1px = REFLECTION_CAPTURE_NUM_MIPS - 1 - mip;
-    return exp2((REFLECTION_CAPTURE_ROUGHEST_MIP - mip1px) / REFLECTION_CAPTURE_ROUGHNESS_MIP_SCALE);
+    // Inverse of the sqrt curve above
+    float t = mip / (REFLECTION_CAPTURE_NUM_MIPS - 1);
+    return t * t;
 }
-
 // [Lazarov 2013, "Getting More Physical in Call of Duty: Black Ops II"]
 float3 EnvBRDFApprox(float3 specularColor, float roughness, float NoV)
 {

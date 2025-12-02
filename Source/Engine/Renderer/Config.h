@@ -36,16 +36,15 @@ GPU_CB_STRUCT(ShaderExponentialHeightFogData {
     float ApplyDirectionalInscattering;
 
     Float3 DirectionalInscatteringColor;
-    float DirectionalInscatteringExponent;
+    float MieScatteringAnisotropy;
 
     float FogCutoffDistance;
     float VolumetricFogMaxDistance;
     float DirectionalInscatteringStartDistance;
     float StartDistance;
 
-    float GradientInfluence;
-    float GradientHeightRange;
-    Float2 Padding;
+    float GlobalTime;
+    float Padding;
     });
 
 /// <summary>

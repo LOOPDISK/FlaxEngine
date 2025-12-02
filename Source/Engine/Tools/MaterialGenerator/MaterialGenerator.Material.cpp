@@ -666,19 +666,21 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
             .Code(TEXT(R"(
     {
         float3 rgb = %COLOR%.rgb;
-        float minc = min(min(rgb.r, rgb.g), rgb.b);
-        float maxc = max(max(rgb.r, rgb.g), rgb.b);
-        float delta = maxc - minc;
+        float4 K = float4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+        float4 p = lerp(float4(rgb.bg, K.wz), float4(rgb.gb, K.xy), step(rgb.b, rgb.g));
+        float4 q = lerp(float4(p.xyw, rgb.r), float4(rgb.r, p.yzx), step(p.x, rgb.r));
 
-        float3 grb = float3(rgb.g - rgb.b, rgb.r - rgb.b, rgb.b - rgb.g);
-        float3 cmps = float3(maxc == rgb.r, maxc == rgb.g, maxc == rgb.b);
-        float h = dot(grb * rcp(delta), cmps);
-        h += 6.0 * (h < 0);
-        h = frac(h * (1.0/6.0) * step(0, delta) + %HUE% * 0.5);
-    
-        float s = saturate(delta * rcp(maxc + step(maxc, 0)) * (1.0 + %SATURATION%));
-        float v = maxc * (1.0 + %VALUE%);
-    
+        float d = q.x - min(q.w, q.y);
+        float e = 1.0e-10;
+        
+        float h = abs((q.w - q.y) / (6.0 * d + e) + q.z);
+        float s = d / (q.x + e);
+        float v = q.x;
+
+        h = frac(h + %HUE% * 0.5);
+        s = saturate(s * (1.0 + %SATURATION%));
+        v = max(0.0, v * (1.0 + %VALUE%));
+
         float3 k = float3(1.0, 2.0 / 3.0, 1.0 / 3.0);
         %RESULT% = float4(v * lerp(1.0, saturate(abs(frac(h + k) * 6.0 - 3.0) - 1.0), s), %COLOR%.a);
     }

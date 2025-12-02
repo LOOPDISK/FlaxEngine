@@ -1,5 +1,6 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
+#include "Engine/Engine/Time.h"
 #include "ExponentialHeightFog.h"
 #include "DirectionalLight.h"
 #include "Engine/Core/Math/Color.h"
@@ -77,15 +78,12 @@ void ExponentialHeightFog::Serialize(SerializeStream& stream, const void* otherO
     SERIALIZE(FogDensity);
     SERIALIZE(FogHeightFalloff);
     SERIALIZE(FogInscatteringColor);
-    SERIALIZE(FogGradientTexture);
-    SERIALIZE(GradientInfluence);
-    SERIALIZE(GradientHeightRange);
     SERIALIZE(FogMaxOpacity);
     SERIALIZE(StartDistance);
     SERIALIZE(FogCutoffDistance);
 
     SERIALIZE(DirectionalInscatteringLight);
-    SERIALIZE(DirectionalInscatteringExponent);
+    SERIALIZE(DirectionalScatteringAnisotropy);
     SERIALIZE(DirectionalInscatteringStartDistance);
     SERIALIZE(DirectionalInscatteringColor);
 
@@ -105,15 +103,12 @@ void ExponentialHeightFog::Deserialize(DeserializeStream& stream, ISerializeModi
     DESERIALIZE(FogDensity);
     DESERIALIZE(FogHeightFalloff);
     DESERIALIZE(FogInscatteringColor);
-    DESERIALIZE(FogGradientTexture);
-    DESERIALIZE(GradientInfluence);
-    DESERIALIZE(GradientHeightRange);
     DESERIALIZE(FogMaxOpacity);
     DESERIALIZE(StartDistance);
     DESERIALIZE(FogCutoffDistance);
 
     DESERIALIZE(DirectionalInscatteringLight);
-    DESERIALIZE(DirectionalInscatteringExponent);
+    DESERIALIZE(DirectionalScatteringAnisotropy);
     DESERIALIZE(DirectionalInscatteringStartDistance);
     DESERIALIZE(DirectionalInscatteringColor);
 
@@ -171,20 +166,19 @@ void ExponentialHeightFog::GetExponentialHeightFogData(const RenderView& view, S
     {
         result.InscatteringLightDirection = -DirectionalInscatteringLight->GetDirection();
         result.DirectionalInscatteringColor = DirectionalInscatteringColor.ToFloat3();
-        result.DirectionalInscatteringExponent = Math::Clamp(DirectionalInscatteringExponent, 0.000001f, 1000.0f);
+        result.MieScatteringAnisotropy = Math::Clamp(DirectionalScatteringAnisotropy, -0.999f, 0.999f);
         result.DirectionalInscatteringStartDistance = Math::Min(DirectionalInscatteringStartDistance, view.Far - 1.0f);
     }
     else
     {
         result.InscatteringLightDirection = Float3::Zero;
         result.DirectionalInscatteringColor = Float3::Zero;
-        result.DirectionalInscatteringExponent = 4.0f;
+        result.MieScatteringAnisotropy = 0.76f;
         result.DirectionalInscatteringStartDistance = 0.0f;
     }
     result.ApplyDirectionalInscattering = useDirectionalLightInscattering ? 1.0f : 0.0f;
     result.VolumetricFogMaxDistance = VolumetricFogDistance;
-    result.GradientInfluence = GradientInfluence;
-    result.GradientHeightRange = GradientHeightRange;
+    result.GlobalTime = Time::GetGameTime();
 }
 
 GPU_CB_STRUCT(Data {
@@ -207,16 +201,6 @@ void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderCon
     context->BindCB(0, cb);
     context->BindSR(0, renderContext.Buffers->DepthBuffer);
     context->BindSR(1, integratedLightScattering ? integratedLightScattering->ViewVolume() : nullptr);
-    
-    // Bind gradient texture for fog coloring if available
-    if (FogGradientTexture && FogGradientTexture->IsLoaded())
-    {
-        context->BindSR(15, FogGradientTexture->GetTexture());
-    }
-    else
-    {
-        context->BindSR(15, static_cast<GPUTexture*>(nullptr));
-    }
 
     // TODO: instead of rendering fullscreen triangle, draw quad transformed at the fog start distance (also it could use early depth discard)
 

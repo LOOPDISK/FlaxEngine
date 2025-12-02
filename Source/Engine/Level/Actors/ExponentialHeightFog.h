@@ -32,7 +32,7 @@ public:
     /// <summary>
     /// The fog height density factor that controls how the density increases as height decreases. Smaller values produce a more visible transition layer.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(20), DefaultValue(0.2f), Limit(0.0001f, 10.0f, 0.001f), EditorDisplay(\"Exponential Height Fog\")")
+    API_FIELD(Attributes="EditorOrder(20), DefaultValue(0.2f), Limit(0.0001f, 1000.0f, 0.001f), EditorDisplay(\"Exponential Height Fog\")")
     float FogHeightFalloff = 0.2f;
 
     /// <summary>
@@ -40,24 +40,6 @@ public:
     /// </summary>
     API_FIELD(Attributes="EditorOrder(30), DefaultValue(typeof(Color), \"0.448,0.634,1.0\"), EditorDisplay(\"Exponential Height Fog\")")
     Color FogInscatteringColor = Color(0.448f, 0.634f, 1.0f);
-
-    /// <summary>
-    /// 2D gradient texture for fog color variation. U axis = sun angle (0 = away from sun, 1 = toward sun), V axis = height.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(35), DefaultValue(null), EditorDisplay(\"Exponential Height Fog\")")
-    AssetReference<Texture> FogGradientTexture;
-
-    /// <summary>
-    /// Controls how much the gradient texture influences the fog color (0 = base color only, 1 = gradient fully replaces base color).
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(36), DefaultValue(0.0f), Limit(0, 1, 0.01f), EditorDisplay(\"Exponential Height Fog\")")
-    float GradientInfluence = 0.0f;
-
-    /// <summary>
-    /// The height range (in world units) over which the gradient texture's V axis is mapped. Controls the vertical gradient stretch.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(37), DefaultValue(1000.0f), Limit(1, 100000, 1.0f), EditorDisplay(\"Exponential Height Fog\")")
-    float GradientHeightRange = 1000.0f;
 
     /// <summary>
     /// Maximum opacity of the fog.
@@ -87,11 +69,11 @@ public:
     ScriptingObjectReference<DirectionalLight> DirectionalInscatteringLight;
 
     /// <summary>
-    /// Controls the size of the directional inscattering cone, which is used to approximate inscattering from a directional light.
-    /// Note: there must be a directional light enabled for DirectionalInscattering to be used. Range: 2-64.
+    /// Controls the anisotropy of Mie scattering for directional light. -1 = backward scattering, 0 = isotropic, +1 = forward scattering.
+    /// Typical values for atmospheric fog/haze: 0.6-0.9. Higher values create stronger forward scattering (sun glow effect).
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(210), DefaultValue(4.0f), Limit(2, 64, 0.1f), EditorDisplay(\"Directional Inscattering\", \"Exponent\")")
-    float DirectionalInscatteringExponent = 4.0f;
+    API_FIELD(Attributes="EditorOrder(210), DefaultValue(0.76f), Limit(-0.999f, 0.999f, 0.01f), EditorDisplay(\"Directional Inscattering\", \"Mie Anisotropy\")")
+    float DirectionalScatteringAnisotropy = 0.76f;
 
     /// <summary>
     /// Controls the start distance from the viewer of the directional inscattering, which is used to approximate inscattering from a directional light.
