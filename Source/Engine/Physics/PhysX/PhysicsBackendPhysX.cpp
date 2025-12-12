@@ -2997,6 +2997,21 @@ void PhysicsBackend::SetSliderJointLimit(void* joint, const LimitLinearRange& va
     jointPhysX->setLimit(limit);
 }
 
+void PhysicsBackend::SetSliderJointProjection(void* joint, bool useProjection, float linearProjection, float angularProjection)
+{
+    auto jointPhysX = (PxPrismaticJoint*)joint;
+    if (linearProjection > 0)
+    {
+        jointPhysX->setProjectionLinearTolerance(linearProjection);
+    }
+    if (angularProjection > 0)
+    {
+        jointPhysX->setProjectionAngularTolerance(angularProjection);
+    }
+    jointPhysX->setConstraintFlag(PxConstraintFlag::ePROJECTION, useProjection);
+}
+
+
 float PhysicsBackend::GetSliderJointPosition(void* joint)
 {
     auto jointPhysX = (PxPrismaticJoint*)joint;

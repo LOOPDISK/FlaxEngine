@@ -222,6 +222,7 @@ public:
     static float GetHingeJointVelocity(void* joint);
     static void SetSliderJointFlags(void* joint, SliderJointFlag value);
     static void SetSliderJointLimit(void* joint, const LimitLinearRange& value);
+    static void SetSliderJointProjection(void* joint, bool useProjection, float linearProjection, float angularProjection);
     static float GetSliderJointPosition(void* joint);
     static float GetSliderJointVelocity(void* joint);
     static void SetSphericalJointFlags(void* joint, SphericalJointFlag value);

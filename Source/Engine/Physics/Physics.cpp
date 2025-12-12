@@ -175,6 +175,7 @@ PhysicsScene* Physics::CreateGeneratorScene(const StringView& name)
     auto scene = New<PhysicsScene>();
     auto settings = New<PhysicsSettings>();
     settings->EnableEnhancedDeterminism = true;
+    settings->EnableSubstepping = true;
     settings->SolverType = PhysicsSolverType::TemporalGaussSeidelSolver;
     if (scene->Init(name, *settings))
     {
