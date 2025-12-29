@@ -110,7 +110,6 @@ namespace FlaxEditor.Tools.Foliage
                     if (Mathf.NearEqual(_type.CullDistance, value))
                         return;
                     _type.CullDistance = value;
-                    Foliage.UpdateCullDistance();
                 }
             }
 
@@ -123,7 +122,6 @@ namespace FlaxEditor.Tools.Foliage
                     if (Mathf.NearEqual(_type.CullDistanceRandomRange, value))
                         return;
                     _type.CullDistanceRandomRange = value;
-                    Foliage.UpdateCullDistance();
                 }
             }
 
@@ -164,7 +162,6 @@ namespace FlaxEditor.Tools.Foliage
                     if (_type.UseDensityScaling == value)
                         return;
                     _type.UseDensityScaling = value;
-                    Foliage.RebuildClusters();
                 }
             }
 
@@ -177,7 +174,6 @@ namespace FlaxEditor.Tools.Foliage
                     if (Mathf.NearEqual(_type.DensityScalingScale, value))
                         return;
                     _type.DensityScalingScale = value;
-                    Foliage.RebuildClusters();
                 }
             }
 

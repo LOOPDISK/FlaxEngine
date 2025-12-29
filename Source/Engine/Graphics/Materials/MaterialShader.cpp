@@ -166,6 +166,9 @@ MaterialShader* MaterialShader::Create(const StringView& name, MemoryReadStream&
     case MaterialDomain::Deformable:
         material = New<DeformableMaterialShader>(name);
         break;
+    case MaterialDomain::Foliage:
+        material = New<DeferredMaterialShader>(name);
+        break;
     case MaterialDomain::VolumeParticle:
         material = New<VolumeParticleMaterialShader>(name);
         break;

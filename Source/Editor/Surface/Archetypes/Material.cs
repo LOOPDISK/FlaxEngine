@@ -122,6 +122,7 @@ namespace FlaxEditor.Surface.Archetypes
                 case MaterialDomain.Terrain:
                 case MaterialDomain.Particle:
                 case MaterialDomain.Deformable:
+                case MaterialDomain.Foliage:
                 {
                     bool isNotUnlit = info.ShadingModel != MaterialShadingModel.Unlit;
                     bool withTess = info.TessellationMode != TessellationMethod.None;

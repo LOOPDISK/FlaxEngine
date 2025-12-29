@@ -216,6 +216,7 @@ namespace FlaxEditor.Viewport.Previews
                     switch (_material.Info.Domain)
                     {
                     case MaterialDomain.Surface:
+                    case MaterialDomain.Foliage:
                         surfaceMaterial = _material;
                         break;
                     case MaterialDomain.PostProcess:

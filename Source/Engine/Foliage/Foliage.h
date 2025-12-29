@@ -4,16 +4,43 @@
 
 #include "Config.h"
 #include "FoliageInstance.h"
-#include "FoliageCluster.h"
 #include "FoliageType.h"
 #include "Engine/Level/Actor.h"
 #include "Engine/Core/Memory/SimpleHeapAllocation.h"
+#include "Engine/Graphics/GPUBuffer.h"
+#include "Engine/Graphics/GPUPipelineState.h"
+#include "Engine/Content/Content.h"
+#include "Engine/Content/AssetReference.h"
+#include "Engine/Content/Assets/Shader.h"
+#include "Engine/Graphics/DynamicBuffer.h"
 
 class FoliageRendererAllocation : public SimpleHeapAllocation<FoliageRendererAllocation, 1024>
 {
 public:
     static FLAXENGINE_API void* Allocate(uintptr size);
     static FLAXENGINE_API void Free(void* ptr, uintptr size);
+};
+
+
+/// <summary>
+/// GPU representation of a foliage instance (uploaded to structured buffer)
+/// </summary>
+struct GPUFoliageInstance
+{
+    Float4 WorldMatrixRow0;     // M11, M12, M13, M41
+    Float4 WorldMatrixRow1;     // M21, M22, M23, M42
+    Float4 WorldMatrixRow2;     // M31, M32, M33, M43
+
+    Float4 PrevWorldMatrixRow0;
+    Float4 PrevWorldMatrixRow1;
+    Float4 PrevWorldMatrixRow2;
+
+
+    Float4 LightmapUVArea;
+    float CullDistance;
+    float Random;
+    int32 Type;
+    float Padding[1];
 };
 
 /// <summary>
@@ -27,23 +54,32 @@ private:
     bool _disableFoliageTypeEvents;
     int32 _sceneRenderingKey = -1;
 
+
+
+    DynamicTypedBuffer _instanceDataBuffer;
+
+    GPUBuffer* _indirectArgsUAV = nullptr;
+    GPUBuffer* _indirectArgsBuffer = nullptr;
+
+    GPUBuffer* _typeToMeshIndexBuffer = nullptr;  // Maps FoliageType index to indirect args index
+
+    GPUBuffer* _visibleInstancesBuffer = nullptr;
+
+    // Compute shader for culling
+    AssetReference<Shader> _cullingShader;
+    GPUConstantBuffer* _cameraParamsBuffer = nullptr;
+
+    void InitializeGPUBuffers();
+    void ReleaseGPUBuffers();
 public:
+
+    void BeginPlay(SceneBeginData* data) override;
+    void EndPlay() override;
+
     /// <summary>
     /// The allocated foliage instances. It's read-only.
     /// </summary>
     ChunkedArray<FoliageInstance, FOLIAGE_INSTANCE_CHUNKS_SIZE> Instances;
-
-#if FOLIAGE_USE_SINGLE_QUAD_TREE
-    /// <summary>
-    /// The root cluster. Contains all the instances and it's the starting point of the quad-tree hierarchy. Null if no foliage added. It's read-only.
-    /// </summary>
-    FoliageCluster* Root = nullptr;
-
-    /// <summary>
-    /// The allocated foliage clusters. It's read-only.
-    /// </summary>
-    ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_SIZE> Clusters;
-#endif
 
     /// <summary>
     /// The foliage instances types used by the current foliage actor. It's read-only.
@@ -98,14 +134,14 @@ public:
     API_FUNCTION() int32 GetFoliageTypeInstancesCount(int32 index) const;
 
     /// <summary>
-    /// Adds the new foliage instance. Ensure to always call <see cref="RebuildClusters"/> after editing foliage to sync cached data (call it once after editing one or more instances).
+    /// Adds the new foliage instance.
     /// </summary>
     /// <remarks>Input instance bounds, instance random and world matrix are ignored (recalculated).</remarks>
     /// <param name="instance">The instance.</param>
     API_FUNCTION() void AddInstance(API_PARAM(Ref) const FoliageInstance& instance);
 
     /// <summary>
-    /// Removes the foliage instance. Ensure to always call <see cref="RebuildClusters"/> after editing foliage to sync cached data (call it once after editing one or more instances).
+    /// Removes the foliage instance.
     /// </summary>
     /// <param name="index">The zero-based index of the instance to remove.</param>
     API_FUNCTION() void RemoveInstance(int32 index)
@@ -114,13 +150,13 @@ public:
     }
 
     /// <summary>
-    /// Removes the foliage instance. Ensure to always call <see cref="RebuildClusters"/> after editing foliage to sync cached data (call it once after editing one or more instances).
+    /// Removes the foliage instance.
     /// </summary>
     /// <param name="i">The iterator from foliage instances that points to the instance to remove.</param>
     void RemoveInstance(ChunkedArray<FoliageInstance, FOLIAGE_INSTANCE_CHUNKS_SIZE>::Iterator i);
 
     /// <summary>
-    /// Sets the foliage instance transformation. Ensure to always call <see cref="RebuildClusters"/> after editing foliage to sync cached data (call it once after editing one or more instances).
+    /// Sets the foliage instance transformation.
     /// </summary>
     /// <param name="index">The zero-based index of the foliage instance.</param>
     /// <param name="value">The value.</param>
@@ -131,16 +167,6 @@ public:
     /// </summary>
     /// <param name="index">The zero-based index of the foliage type.</param>
     void OnFoliageTypeModelLoaded(int32 index);
-
-    /// <summary>
-    /// Rebuilds the foliage clusters used as internal acceleration structures (quad tree).
-    /// </summary>
-    API_FUNCTION() void RebuildClusters();
-
-    /// <summary>
-    /// Updates the cull distance for all foliage instances and for created clusters.
-    /// </summary>
-    API_FUNCTION() void UpdateCullDistance();
 
     /// <summary>
     /// Clears all foliage instances. Preserves the foliage types and other properties.
@@ -163,11 +189,9 @@ public:
     /// </summary>
     API_PROPERTY() static void SetGlobalDensityScale(float value);
 
-private:
-    void AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_SIZE>& clusters, FoliageCluster* cluster, FoliageInstance& instance);
 
 public:
-#if !FOLIAGE_USE_SINGLE_QUAD_TREE && FOLIAGE_USE_DRAW_CALLS_BATCHING
+#if FOLIAGE_USE_DRAW_CALLS_BATCHING
     struct DrawKey
     {
         IMaterial* Mat;
@@ -196,20 +220,25 @@ public:
     };
 
     private:
+
+        int32 _lastInstanceCount = 0; // Track last buffer size
+        uint64 _lastCullingFrame = 0; // Track which frame we last ran compute on
+
     typedef Array<struct FoliageBatchedDrawCall, InlinedAllocation<8>> DrawCallsList;
     typedef Dictionary<DrawKey, struct FoliageBatchedDrawCall, class FoliageRendererAllocation> BatchedDrawCalls;
 
     void DrawInstance(RenderContext& renderContext, FoliageInstance& instance, const FoliageType& type, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
-    void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
-#else
-    void DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, Mesh::DrawInfo& draw);
-#endif
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE
-    void DrawClusterGlobalSDF(class GlobalSignDistanceFieldPass* globalSDF, const BoundingBox& globalSDFBounds, FoliageCluster* cluster, const FoliageType& type);
-    void DrawClusterGlobalSA(class GlobalSurfaceAtlasPass* globalSA, const Vector4& cullingPosDistance, FoliageCluster* cluster, const FoliageType& type, const BoundingBox& localBounds);
     void DrawFoliageJob(int32 i);
     RenderContextBatch* _renderContextBatch;
 #endif
+
+
+#endif
+
+
+
+
     void DrawType(RenderContext& renderContext, const FoliageType& type, DrawCallsList* drawCallsLists);
 
 public:
@@ -237,4 +266,5 @@ protected:
     void OnEnable() override;
     void OnDisable() override;
     void OnTransformChanged() override;
+    void UpdateBounds();
 };

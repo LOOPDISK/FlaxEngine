@@ -858,6 +858,29 @@ void RenderList::ExecuteDrawCalls(const RenderContext& renderContext, DrawCallsL
 
             bindParams.Instanced = batch.BatchSize != 1;
             bindParams.DrawCall = &drawCall;
+
+
+            if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage &&
+                bindParams.DrawCall->Draw.IndirectArgsBuffer != nullptr)
+            {
+                bindParams.Instanced = true;
+            }
+
+            if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage &&
+                bindParams.DrawCall->Foliage.VisibleInstancesBuffer != nullptr &&
+                bindParams.DrawCall->Foliage.InstanceDataBuffer != nullptr)
+            {
+                LOG(Warning, "RenderList binding foliage buffers t10/t11");
+                context->BindSR(10, bindParams.DrawCall->Foliage.VisibleInstancesBuffer);
+                context->BindSR(11, bindParams.DrawCall->Foliage.InstanceDataBuffer);
+            }
+            else if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage)
+            {
+                LOG(Error, "Foliage material but buffers are NULL! VisibleBuf={0}, InstanceBuf={1}",
+                    bindParams.DrawCall->Foliage.VisibleInstancesBuffer != nullptr,
+                    bindParams.DrawCall->Foliage.InstanceDataBuffer != nullptr);
+            }
+
             bindParams.DrawCall->Material->Bind(bindParams);
 
             if (bindParams.Instanced)
@@ -939,6 +962,28 @@ void RenderList::ExecuteDrawCalls(const RenderContext& renderContext, DrawCallsL
             const DrawBatch& batch = batchesData[i];
 
             bindParams.DrawCall = drawCallsData + listData[batch.StartIndex];
+
+            if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage &&
+                bindParams.DrawCall->Draw.IndirectArgsBuffer != nullptr)
+            {
+                bindParams.Instanced = true;
+            }
+
+            if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage &&
+                bindParams.DrawCall->Foliage.VisibleInstancesBuffer != nullptr &&
+                bindParams.DrawCall->Foliage.InstanceDataBuffer != nullptr)
+            {
+                LOG(Warning, "RenderList binding foliage buffers t10/t11");
+                context->BindSR(10, bindParams.DrawCall->Foliage.VisibleInstancesBuffer);
+                context->BindSR(11, bindParams.DrawCall->Foliage.InstanceDataBuffer);
+            }
+            else if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage)
+            {
+                LOG(Error, "Foliage material but buffers are NULL! VisibleBuf={0}, InstanceBuf={1}",
+                    bindParams.DrawCall->Foliage.VisibleInstancesBuffer != nullptr,
+                    bindParams.DrawCall->Foliage.InstanceDataBuffer != nullptr);
+            }
+
             bindParams.DrawCall->Material->Bind(bindParams);
 
             for (int32 j = 0; j < batch.BatchSize; j++)
@@ -966,6 +1011,29 @@ void RenderList::ExecuteDrawCalls(const RenderContext& renderContext, DrawCallsL
             const DrawCall& drawCall = batch.DrawCall;
 
             bindParams.DrawCall = &drawCall;
+
+
+            if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage &&
+                bindParams.DrawCall->Draw.IndirectArgsBuffer != nullptr)
+            {
+                bindParams.Instanced = true;
+            }
+
+            if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage &&
+                bindParams.DrawCall->Foliage.VisibleInstancesBuffer != nullptr &&
+                bindParams.DrawCall->Foliage.InstanceDataBuffer != nullptr)
+            {
+                LOG(Warning, "RenderList binding foliage buffers t10/t11");
+                context->BindSR(10, bindParams.DrawCall->Foliage.VisibleInstancesBuffer);
+                context->BindSR(11, bindParams.DrawCall->Foliage.InstanceDataBuffer);
+            }
+            else if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage)
+            {
+                LOG(Error, "Foliage material but buffers are NULL! VisibleBuf={0}, InstanceBuf={1}",
+                    bindParams.DrawCall->Foliage.VisibleInstancesBuffer != nullptr,
+                    bindParams.DrawCall->Foliage.InstanceDataBuffer != nullptr);
+            }
+
             bindParams.DrawCall->Material->Bind(bindParams);
 
             context->BindIB(drawCall.Geometry.IndexBuffer);
@@ -990,6 +1058,29 @@ void RenderList::ExecuteDrawCalls(const RenderContext& renderContext, DrawCallsL
 
                 const DrawCall& drawCall = drawCallsData[perDraw.DrawObjectIndex];
                 bindParams.DrawCall = &drawCall;
+
+
+                if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage &&
+                    bindParams.DrawCall->Draw.IndirectArgsBuffer != nullptr)
+                {
+                    bindParams.Instanced = true;
+                }
+
+                if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage &&
+                    bindParams.DrawCall->Foliage.VisibleInstancesBuffer != nullptr &&
+                    bindParams.DrawCall->Foliage.InstanceDataBuffer != nullptr)
+                {
+                    LOG(Warning, "RenderList binding foliage buffers t10/t11");
+                    context->BindSR(10, bindParams.DrawCall->Foliage.VisibleInstancesBuffer);
+                    context->BindSR(11, bindParams.DrawCall->Foliage.InstanceDataBuffer);
+                }
+                else if (bindParams.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage)
+                {
+                    LOG(Error, "Foliage material but buffers are NULL! VisibleBuf={0}, InstanceBuf={1}",
+                        bindParams.DrawCall->Foliage.VisibleInstancesBuffer != nullptr,
+                        bindParams.DrawCall->Foliage.InstanceDataBuffer != nullptr);
+                }
+
                 drawCall.Material->Bind(bindParams);
 
                 context->BindIB(drawCall.Geometry.IndexBuffer);

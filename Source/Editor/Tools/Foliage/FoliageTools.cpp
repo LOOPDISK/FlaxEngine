@@ -343,8 +343,6 @@ void FoliageTools::Paint(Foliage* foliage, Span<int32> foliageTypesIndices, cons
             // Add foliage instance
             foliage->AddInstance(instance);
         }
-
-        foliage->RebuildClusters();
     }
 }
 
@@ -384,6 +382,4 @@ void FoliageTools::Remove(Foliage* foliage, Span<int32> foliageTypesIndices, con
         foliage->RemoveInstance(i);
         --i;
     }
-
-    foliage->RebuildClusters();
 }

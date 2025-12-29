@@ -83,17 +83,6 @@ public:
     /// </summary>
     ModelInstanceEntries Entries;
 
-#if !FOLIAGE_USE_SINGLE_QUAD_TREE
-    /// <summary>
-    /// The root cluster. Contains all the instances and it's the starting point of the quad-tree hierarchy. Null if no foliage added. It's read-only.
-    /// </summary>
-    FoliageCluster* Root = nullptr;
-
-    /// <summary>
-    /// The allocated foliage clusters. It's read-only.
-    /// </summary>
-    ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_SIZE> Clusters;
-#endif
 
 public:
     /// <summary>

@@ -27,6 +27,7 @@ class GPUTextureView;
 class GPUContext;
 class GPUBuffer;
 class GPUTexture;
+class GPUBufferView;
 
 /// <summary>
 /// Interface for objects that can render custom sky
@@ -243,6 +244,14 @@ struct DrawCall
             float MeshMinZ;
             float MeshMaxZ;
         } Deformable;
+
+        struct
+        {
+            const Lightmap* Lightmap;
+            Rectangle LightmapUVsArea;
+            GPUBufferView* VisibleInstancesBuffer;
+            GPUBufferView* InstanceDataBuffer;
+        } Foliage;
 
         struct
         {

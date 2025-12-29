@@ -148,7 +148,7 @@ namespace FlaxEditor.Windows.Assets
             private bool IsPostProcess => Domain == MaterialDomain.PostProcess;
             private bool IsDecal => Domain == MaterialDomain.Decal;
             private bool IsGUI => Domain == MaterialDomain.GUI;
-            private bool IsStandard => Domain == MaterialDomain.Surface || Domain == MaterialDomain.Terrain || Domain == MaterialDomain.Particle || Domain == MaterialDomain.Deformable;
+            private bool IsStandard => Domain == MaterialDomain.Surface || Domain == MaterialDomain.Terrain || Domain == MaterialDomain.Particle || Domain == MaterialDomain.Deformable || Domain == MaterialDomain.Foliage;
             private bool IsForward => Domain == MaterialDomain.Particle || ((Domain == MaterialDomain.Deformable || Domain == MaterialDomain.Surface) && BlendMode != MaterialBlendMode.Opaque);
             private bool IsStandardOrGUI => IsStandard || IsGUI;
 

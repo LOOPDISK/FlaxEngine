@@ -42,10 +42,16 @@ public:
         return GetInfo().Domain == MaterialDomain::Surface;
     }
 
+    FORCE_INLINE bool IsSurfaceLike() const
+    {
+        auto domain = GetInfo().Domain;
+        return domain == MaterialDomain::Surface || domain == MaterialDomain::Foliage;
+    }
+
     /// <summary>
     /// Determines whether material is a post fx.
     /// </summary>
-    FORCE_INLINE bool IsPostFx() const
+    FORCE_INLINE bool IsPostFx() const 
     {
         return GetInfo().Domain == MaterialDomain::PostProcess;
     }

@@ -43,7 +43,6 @@ namespace FlaxEditor.Tools.Foliage.Undo
 
             _instance = foliage.GetInstance(_index);
             foliage.RemoveInstance(_index);
-            foliage.RebuildClusters();
 
             Editor.Instance.Scene.MarkSceneEdited(foliage.Scene);
         }
@@ -56,7 +55,6 @@ namespace FlaxEditor.Tools.Foliage.Undo
 
             _index = foliage.InstancesCount;
             foliage.AddInstance(ref _instance);
-            foliage.RebuildClusters();
 
             Editor.Instance.Scene.MarkSceneEdited(foliage.Scene);
         }

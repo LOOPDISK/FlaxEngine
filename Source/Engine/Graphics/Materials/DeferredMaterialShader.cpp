@@ -61,7 +61,11 @@ void DeferredMaterialShader::Bind(BindParameters& params)
     context->BindSR(0, params.ObjectBuffer);
 
     // Check if using mesh skinning
-    const bool useSkinning = drawCall.Surface.Skinning != nullptr;
+    const bool isFoliage =  params.DrawCall && 
+                            params.DrawCall->Material &&    
+                            params.DrawCall->Material->GetInfo().Domain == MaterialDomain::Foliage;
+
+    const bool useSkinning = !isFoliage && drawCall.Surface.Skinning != nullptr;
     bool perBoneMotionBlur = false;
     if (useSkinning)
     {

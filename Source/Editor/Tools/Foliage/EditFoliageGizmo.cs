@@ -173,7 +173,6 @@ namespace FlaxEditor.Tools.Foliage
             // Transform foliage instance
             instance.Transform = foliage.Transform.WorldToLocal(trans);
             foliage.SetInstanceTransform(instanceIndex, ref instance.Transform);
-            foliage.RebuildClusters();
         }
 
         /// <inheritdoc />

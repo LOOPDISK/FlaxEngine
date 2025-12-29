@@ -67,7 +67,6 @@ namespace FlaxEditor.Tools.Foliage
                 if (Foliage != null && InstanceIndex > -1 && InstanceIndex < Foliage.InstancesCount)
                 {
                     Foliage.SetInstanceTransform(InstanceIndex, ref _instance.Transform);
-                    Foliage.RebuildClusters();
                 }
             }
 

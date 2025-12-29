@@ -233,6 +233,29 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
         if (materialInfo.BlendMode != MaterialBlendMode::Opaque)
             ADD_FEATURE(ForwardShadingFeature);
         break;
+    case MaterialDomain::Foliage:
+        // Foliage uses same features as Surface domain
+        if (materialInfo.TessellationMode != TessellationMethod::None)
+            ADD_FEATURE(TessellationFeature);
+        if (materialInfo.BlendMode == MaterialBlendMode::Opaque)
+            ADD_FEATURE(MotionVectorsFeature);
+        if (materialInfo.BlendMode == MaterialBlendMode::Opaque)
+            ADD_FEATURE(LightmapFeature);
+        if (materialInfo.BlendMode == MaterialBlendMode::Opaque)
+            ADD_FEATURE(DeferredShadingFeature);
+        if (materialInfo.BlendMode != MaterialBlendMode::Opaque && (materialInfo.FeaturesFlags & MaterialFeaturesFlags::DisableDistortion) == MaterialFeaturesFlags::None)
+            ADD_FEATURE(DistortionFeature);
+        if (materialInfo.BlendMode != MaterialBlendMode::Opaque && EnumHasAnyFlags(materialInfo.FeaturesFlags, MaterialFeaturesFlags::GlobalIllumination))
+        {
+            ADD_FEATURE(GlobalIlluminationFeature);
+            if (materialInfo.BlendMode != MaterialBlendMode::Opaque && EnumHasAnyFlags(materialInfo.FeaturesFlags, MaterialFeaturesFlags::ScreenSpaceReflections))
+                ADD_FEATURE(SDFReflectionsFeature);
+        }
+        if (EnumHasAnyFlags(materialInfo.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride))
+            ADD_FEATURE(WeaponFOVOverrideFeature);
+        if (materialInfo.BlendMode != MaterialBlendMode::Opaque)
+            ADD_FEATURE(ForwardShadingFeature);
+        break;
     default:
         break;
     }
@@ -255,7 +278,7 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
     {
         materialVarPS = Value(VariantType::Void, baseLayer->GetVariableName(nullptr));
         _writer.Write(TEXT("\tMaterial {0} = (Material)0;\n"), materialVarPS.Value);
-        if (baseLayer->Domain == MaterialDomain::Surface || baseLayer->Domain == MaterialDomain::Terrain || baseLayer->Domain == MaterialDomain::Particle || baseLayer->Domain == MaterialDomain::Deformable)
+        if (baseLayer->Domain == MaterialDomain::Surface || baseLayer->Domain == MaterialDomain::Terrain || baseLayer->Domain == MaterialDomain::Particle || baseLayer->Domain == MaterialDomain::Deformable || baseLayer->Domain == MaterialDomain::Foliage)
         {
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Emissive);
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Normal);
@@ -329,6 +352,7 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Refraction);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::SubsurfaceColor);
         }
+
         else
         {
             CRASH;
@@ -472,6 +496,9 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
         {
         case MaterialDomain::Surface:
             srv = 3; // Objects + Skinning Bones + Prev Bones
+            break;
+        case MaterialDomain::Foliage:
+            srv = 3; // Objects + Skinning Bones + Prev Bones (same as Surface)
             break;
         case MaterialDomain::Decal:
             srv = 1; // Depth buffer
@@ -906,6 +933,9 @@ float3 hex2normalTexRWS(Texture2D tex, SamplerState samp, float2 st,
             break;
         case MaterialDomain::VolumeParticle:
             path /= TEXT("VolumeParticle.shader");
+            break;
+        case MaterialDomain::Foliage:
+            path /= TEXT("FoliageSurface.shader");
             break;
         default:
             LOG(Warning, "Unknown material domain.");

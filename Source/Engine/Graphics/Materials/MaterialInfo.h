@@ -49,6 +49,11 @@ API_ENUM() enum class MaterialDomain : byte
     /// </summary>
     VolumeParticle = 7,
 
+    /// <summary>
+    /// The foliage shader. Can be used only with GPU-driven foliage rendering system that uses indirect drawing from compute-culled instance buffers.
+    /// </summary>
+    Foliage = 8,
+
     API_ENUM(Attributes="HideInEditor")
     MAX
 };

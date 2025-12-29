@@ -409,9 +409,14 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
 
     // Prepare
     auto& info = _shaderHeader.Material.Info;
-    const bool isSurfaceOrTerrainOrDeformable = info.Domain == MaterialDomain::Surface || info.Domain == MaterialDomain::Terrain || info.Domain == MaterialDomain::Deformable;
+    const bool isSurfaceOrTerrainOrDeformable = info.Domain == MaterialDomain::Surface || 
+                                                info.Domain == MaterialDomain::Terrain || 
+                                                info.Domain == MaterialDomain::Deformable || 
+                                                info.Domain == MaterialDomain::Foliage;
     const bool useCustomData = info.ShadingModel == MaterialShadingModel::Subsurface || info.ShadingModel == MaterialShadingModel::Foliage || info.ShadingModel == MaterialShadingModel::Weapon;
-    const bool useForward = ((info.Domain == MaterialDomain::Surface || info.Domain == MaterialDomain::Deformable) && info.BlendMode != MaterialBlendMode::Opaque) || info.Domain == MaterialDomain::Particle;
+    const bool useForward = ((  info.Domain == MaterialDomain::Surface || 
+                                info.Domain == MaterialDomain::Deformable ||
+                                info.Domain == MaterialDomain::Foliage) && info.BlendMode != MaterialBlendMode::Opaque) || info.Domain == MaterialDomain::Particle;
     const bool useTess =
             info.TessellationMode != TessellationMethod::None &&
             RenderTools::CanSupportTessellation(options.Profile) && isSurfaceOrTerrainOrDeformable;
@@ -491,6 +496,7 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
     options.Macros.Add({ "USE_FORWARD", Numbers[useForward ? 1 : 0] });
     options.Macros.Add({ "USE_DEFERRED", Numbers[isSurfaceOrTerrainOrDeformable && info.BlendMode == MaterialBlendMode::Opaque ? 1 : 0] });
     options.Macros.Add({ "USE_DISTORTION", Numbers[useDistortion ? 1 : 0] });
+    options.Macros.Add({ "IS_FOLIAGE", Numbers[info.Domain == MaterialDomain::Foliage ? 1 : 0] });
 #endif
 }
 
