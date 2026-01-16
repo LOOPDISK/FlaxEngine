@@ -310,6 +310,7 @@ public:
     static bool ModifyHeightField(void* heightField, int32 startCol, int32 startRow, int32 cols, int32 rows, const HeightFieldSample* data);
     static void FlushRequests();
     static void FlushRequests(void* scene);
+    static void FlushQueryUpdates(void* scene);
     static void DestroyActor(void* actor);
     static void DestroyShape(void* shape);
     static void DestroyJoint(void* joint);

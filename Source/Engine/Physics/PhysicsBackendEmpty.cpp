@@ -849,6 +849,10 @@ void PhysicsBackend::FlushRequests(void* scene)
 {
 }
 
+void PhysicsBackend::FlushQueryUpdates(void* scene)
+{
+}
+
 void PhysicsBackend::DestroyActor(void* actor)
 {
 }

@@ -540,6 +540,11 @@ void PhysicsScene::CollectResults()
     _isDuringSimulation = false;
 }
 
+void PhysicsScene::FlushSpatialChanges()
+{
+    PhysicsBackend::FlushQueryUpdates(_scene);
+}
+
 bool PhysicsScene::LineCast(const Vector3& start, const Vector3& end, uint32 layerMask, bool hitTriggers)
 {
     Vector3 directionToEnd = end - start;

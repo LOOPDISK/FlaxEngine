@@ -132,6 +132,11 @@ public:
     /// </summary>
     API_FUNCTION() void CollectResults();
 
+    /// <summary>
+    /// Flushes any changes to collider transforms.
+    /// </summary>
+    API_FUNCTION() void FlushSpatialChanges();
+
 public:
     /// <summary>
     /// Performs a line between two points in the scene.

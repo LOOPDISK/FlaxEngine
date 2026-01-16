@@ -4472,6 +4472,14 @@ void PhysicsBackend::FlushRequests(void* scene)
     FlushLocker.Unlock();
 }
 
+void PhysicsBackend::FlushQueryUpdates(void* scene)
+{
+    auto scenePhysX = (ScenePhysX*)scene;
+    FlushLocker.Lock();
+    scenePhysX->Scene->flushUpdates();
+    FlushLocker.Unlock();
+}
+
 void PhysicsBackend::DestroyActor(void* actor)
 {
     ASSERT_LOW_LAYER(actor);
