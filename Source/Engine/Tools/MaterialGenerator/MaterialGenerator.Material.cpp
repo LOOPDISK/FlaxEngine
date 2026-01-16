@@ -670,15 +670,24 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         float maxc = max(max(rgb.r, rgb.g), rgb.b);
         float delta = maxc - minc;
 
-        float3 grb = float3(rgb.g - rgb.b, rgb.r - rgb.b, rgb.b - rgb.g);
-        float3 cmps = float3(maxc == rgb.r, maxc == rgb.g, maxc == rgb.b);
-        float h = dot(grb * rcp(delta), cmps);
-        h += 6.0 * (h < 0);
-        h = frac(h * (1.0/6.0) * step(0, delta) + %HUE% * 0.5);
-    
-        float s = saturate(delta * rcp(maxc + step(maxc, 0)) * (1.0 + %SATURATION%));
+        // Calculate hue (protect against divide-by-zero for grayscale colors)
+        float h = 0.0;
+        if (delta > 0.0001)
+        {
+            float3 rgb_diffs = float3(rgb.g - rgb.b, rgb.b - rgb.r, rgb.r - rgb.g);
+            float3 offsets = float3(0.0, 2.0, 4.0);
+            float3 cmps = float3(maxc == rgb.r, maxc == rgb.g, maxc == rgb.b);
+            h = dot(rgb_diffs * rcp(delta), cmps) + dot(offsets, cmps);
+            h += 6.0 * (h < 0);
+            h *= (1.0 / 6.0);
+        }
+        h = frac(h + %HUE%);
+
+        // Calculate saturation (protect against divide-by-zero for black)
+        float s = (maxc > 0.0001) ? saturate((delta / maxc) * (1.0 + %SATURATION%)) : 0.0;
         float v = maxc * (1.0 + %VALUE%);
-    
+
+        // Convert back to RGB
         float3 k = float3(1.0, 2.0 / 3.0, 1.0 / 3.0);
         %RESULT% = float4(v * lerp(1.0, saturate(abs(frac(h + k) * 6.0 - 3.0) - 1.0), s), %COLOR%.a);
     }
