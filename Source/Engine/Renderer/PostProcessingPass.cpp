@@ -70,9 +70,9 @@ GPU_CB_STRUCT(Data{
     Matrix LensFlareStarMat;
     Float4 ViewInfo;
     float ViewFar;
-    float Dummy2;
-    float Dummy3;
-    float Dummy4;
+    float DummyPadding1;
+    float DummyPadding2;
+    float DummyPadding3;
     });
 
 GPU_CB_STRUCT(GaussianBlurData{

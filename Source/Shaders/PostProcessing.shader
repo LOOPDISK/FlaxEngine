@@ -28,9 +28,9 @@
 #define GB_KERNEL_SIZE (GB_RADIUS * 2 + 1)
 
 // Linearize raw device depth
-float LinearizeZ(float depth, float4 viewInfo)
+float LinearizeZ(float depth, float4 viewInfo, float viewFar)
 {
-    return (viewInfo.w * ViewFar) / (depth - viewInfo.z);
+    return (viewInfo.w * viewFar) / (depth - viewInfo.z);
 }
 
 #ifndef NO_GRADING_LUT
@@ -98,9 +98,9 @@ float4x4 LensFlareStarMat;
 
 float4 ViewInfo;
 float ViewFar;
-float Dummy2;
-float Dummy3;
-float Dummy4;
+float DummyPadding1;
+float DummyPadding2;
+float DummyPadding3;
 
 META_CB_END
 
@@ -621,7 +621,7 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
 
     // Get center depth for comparison
     float centerDepth = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
-    float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo);
+    float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo, ViewFar);
 
     // 9-tap tent filter with fixed spatial weights
     float3 color = 0;
@@ -667,7 +667,7 @@ float4 PS_DepthHazeAdaptiveBilateralDownsample(Quad_VS2PS input) : SV_Target
 
         // Sample depth at this location
         float sampleDepth = DepthMips.SampleLevel(SamplerLinearClamp, sampleUV, 0).r;
-        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
+        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo, ViewFar);
 
         // Calculate depth similarity weight (bilateral weight)
         float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
@@ -698,7 +698,7 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     
     // Get center depth for comparison
     float centerDepth = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
-    float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo);
+    float centerLinearDepth = LinearizeZ(centerDepth, ViewInfo, ViewFar);
     
     float nearDistance = DepthHazeNearDistance * 0.8;
     BRANCH
@@ -739,7 +739,7 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
 
         // Sample depth and calculate bilateral weight
         float sampleDepth = DepthMips.SampleLevel(SamplerLinearClamp, sampleUV, 0).r;
-        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
+        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo, ViewFar);
         float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
         float depthWeight = exp(-depthDiff / depthThreshold);
         closeEdgeFound += sampleLinearDepth < nearDistance;
@@ -766,7 +766,7 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
 
         // Sample depth and calculate bilateral weight
         float sampleDepth = DepthMips.SampleLevel(SamplerLinearClamp, sampleUV, 0).r;
-        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo);
+        float sampleLinearDepth = LinearizeZ(sampleDepth, ViewInfo, ViewFar);
         float depthDiff = abs(sampleLinearDepth - centerLinearDepth);
         float depthWeight = exp(-depthDiff / depthThreshold);
         closeEdgeFound += sampleLinearDepth < nearDistance;
@@ -975,7 +975,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
             mipLevel = min(mipLevel, (int)mipCount - 1);
             float2 mipUV = float2((debugLocalPos.x - 0.5) * 2.0, fmod(debugLocalPos.y, mipHeight) / mipHeight);
             float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, mipUV, (float)mipLevel).r;
-            float linearDepth = LinearizeZ(depthValue, ViewInfo);
+            float linearDepth = LinearizeZ(depthValue, ViewInfo, ViewFar);
             float depthVisualized = saturate((linearDepth - DepthHazeNearDistance) / (DepthHazeFarDistance - DepthHazeNearDistance));
             return float4(depthVisualized, depthVisualized, depthVisualized, 1.0);
         }
@@ -1008,7 +1008,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     {
         // A. Get the blurred depth from the CORRECT mip for this area
         float blurredDepthValue = DepthMips.SampleLevel(SamplerLinearClamp, screenPos, i).r;
-        float linearDepth = LinearizeZ(blurredDepthValue, ViewInfo);
+        float linearDepth = LinearizeZ(blurredDepthValue, ViewInfo, ViewFar);
 
         // B. Define the boundaries for this specific area
         float areaStart = DepthHazeNearDistance + i * sliceWidth;
@@ -1046,7 +1046,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     {
         // Get depth for mip selection and blending
         float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
-        float pixelDepth = LinearizeZ(depthValue, ViewInfo);
+        float pixelDepth = LinearizeZ(depthValue, ViewInfo, ViewFar);
 
         // Calculate depth-based mip level for sampling from upsampled buffer
         float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
@@ -1149,7 +1149,7 @@ float4 PS_DepthHazeComposite(Quad_VS2PS input) : SV_Target
     {
         // Get depth for mip selection and blending
         float depthValue = DepthMips.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r;
-        float pixelDepth = LinearizeZ(depthValue, ViewInfo);
+        float pixelDepth = LinearizeZ(depthValue, ViewInfo, ViewFar);
 
         // Calculate depth-based mip level for sampling from upsampled buffer
         float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
