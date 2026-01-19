@@ -123,58 +123,46 @@ ProbeBufferOutput PS_EnvProbe(Model_VS2PS input)
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_CombinePass(Quad_VS2PS input) : SV_Target0
 {
-	// Sample GBuffer
 	GBufferData gBufferData = GetGBufferData();
 	GBufferSample gBuffer = SampleGBuffer(gBufferData, input.TexCoord);
 
-	// Check if cannot light pixel
 	BRANCH
 	if (gBuffer.ShadingModel == SHADING_MODEL_UNLIT)
-	{
 		return 0;
-	}
 
-	// Sample both reflection buffers
 	float4 specularProbe = SAMPLE_RT(Reflections, input.TexCoord);
 	float4 diffuseProbe = SAMPLE_RT(DiffuseReflections, input.TexCoord);
 
-	// Skip if no probe contribution
 	if (specularProbe.a < 0.0001f && diffuseProbe.a < 0.0001f)
 		return 0;
 		
-	// Normalize contributions by total weight to handle overlapping probes
 	float3 normalizedSpecular = specularProbe.a > 0.0001f ? specularProbe.rgb / specularProbe.a : 0;
 	float3 normalizedDiffuse = diffuseProbe.a > 0.0001f ? diffuseProbe.rgb / diffuseProbe.a : 0;
 
-	// Calculate specular color
-	float3 specularColor = GetSpecularColor(gBuffer);
 	float3 diffuseColor = GetDiffuseColor(gBuffer);
-
-	// Calculate reflection color with advanced dielectric handling
 	float3 V = normalize(gBufferData.ViewPos - gBuffer.WorldPos);
 	float NoV = saturate(dot(gBuffer.Normal, V));
-	
-	// Combined approach: Working F0 calculation with proper metalness handling
-	// Use the F0 range that worked for middle faces + additional specular boost for dielectrics only
-	
-	// Calculate F0 using the working formula (0.04 to 0.20 range)
-	float dielectric_f0_scalar = 0.04 + 0.16 * gBuffer.Specular; // This worked for middle faces
-	float3 metallic_f0 = gBuffer.Color.rgb; // Metals use full color as F0
-	float3 F0 = lerp(float3(dielectric_f0_scalar, dielectric_f0_scalar, dielectric_f0_scalar), metallic_f0, gBuffer.Metalness);
-	
-	// Schlick Fresnel with roughness compensation  
-	float3 F = F0 + (max(float3(1.0 - gBuffer.Roughness, 1.0 - gBuffer.Roughness, 1.0 - gBuffer.Roughness), F0) - F0) * pow(1.0 - NoV, 5.0);
-	
-	// Apply additional specular scaling only to dielectrics (avoid double-scaling for metals)
-	float specular_boost = lerp(gBuffer.Specular, 1.0, gBuffer.Metalness);
-	float3 finalSpecular = normalizedSpecular * F * specular_boost;
 
-	// Apply specular occlusion
+	// 1. PBR F0 (Matches Lighting.hlsl)
+	// We map 0.5 Specular to 0.04 F0 (Standard PBR)
+	float dielectricF0 = 0.08 * gBuffer.Specular; 
+	float3 F0 = lerp(float3(dielectricF0, dielectricF0, dielectricF0), gBuffer.Color.rgb, gBuffer.Metalness);
+
+	// 2. Fresnel with Roughness Softening
+	// At high roughness, strict Fresnel (pow5) can look like a sharp ring. 
+	// We dampen the *power* of the Fresnel slightly based on roughness to soften the transition.
+	float fresnelPower = 5.0 / (1.0 + gBuffer.Roughness * 4.0); 
+	float3 F = F0 + (max(float3(1.0 - gBuffer.Roughness, 1.0 - gBuffer.Roughness, 1.0 - gBuffer.Roughness), F0) - F0) * pow(1.0 - NoV, fresnelPower);
+
+	float3 finalSpecular = normalizedSpecular * F;
+
+	// 3. Specular Occlusion (Relaxed)
 	float roughnessSq = gBuffer.Roughness * gBuffer.Roughness;
-	float specularOcclusion = GetSpecularOcclusion(NoV, roughnessSq, gBuffer.AO);
-	finalSpecular *= specularOcclusion;
+	float specularOcclusion = saturate(pow(NoV + gBuffer.AO, roughnessSq * 0.5) - 1 + gBuffer.AO);
 	
-	// Apply diffuse contribution with ambient occlusion
+    // Fixed typo here: ensured 'finalSpecular' is used correctly
+    finalSpecular *= specularOcclusion;
+	
 	float3 finalDiffuse = normalizedDiffuse * diffuseColor * gBuffer.AO;
 
 	return float4(finalSpecular + finalDiffuse, 0);

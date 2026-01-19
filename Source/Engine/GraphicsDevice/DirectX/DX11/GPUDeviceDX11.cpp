@@ -600,10 +600,11 @@ bool GPUDeviceDX11::Init()
         samplerDesc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
 
         // Linear Clamp
-        samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
         samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        samplerDesc.MaxAnisotropy = 16;
         result = _device->CreateSamplerState(&samplerDesc, &_samplerLinearClamp);
         LOG_DIRECTX_RESULT_WITH_RETURN(result, true);
 
@@ -616,10 +617,11 @@ bool GPUDeviceDX11::Init()
         LOG_DIRECTX_RESULT_WITH_RETURN(result, true);
 
         // Linear Wrap
-        samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
         samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
         samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
         samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        samplerDesc.MaxAnisotropy = 16;
         result = _device->CreateSamplerState(&samplerDesc, &_samplerLinearWrap);
         LOG_DIRECTX_RESULT_WITH_RETURN(result, true);
 

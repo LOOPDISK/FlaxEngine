@@ -13,6 +13,30 @@ ShadowSample GetShadow(LightData lightData, GBufferSample gBuffer, float4 shadow
     return shadow;
 }
 
+LightSample StandardShadingOLD(GBufferSample gBuffer, float energy, float3 L, float3 V, half3 N)
+{
+    float3 diffuseColor = GetDiffuseColor(gBuffer);
+    float3 H = normalize(V + L);
+    float NoL = saturate(dot(N, L));
+    float NoV = max(dot(N, V), 1e-5);
+    float NoH = saturate(dot(N, H));
+    float VoH = saturate(dot(V, H));
+
+    LightSample lighting;
+    lighting.Diffuse = Diffuse_Burley(diffuseColor, gBuffer.Roughness, NoV, NoL, VoH);
+#if LIGHTING_NO_SPECULAR
+    lighting.Specular = 0;
+#else
+    float3 specularColor = GetSpecularColor(gBuffer);
+    float3 F = F_Schlick(specularColor, VoH, gBuffer.Roughness);
+    float D = D_GGX(gBuffer.Roughness, NoH) * energy;
+    float Vis = Vis_SmithJointApprox(gBuffer.Roughness, NoV, NoL);
+    lighting.Specular = (D * Vis) * F;
+#endif
+    lighting.Transmission = 0;
+    return lighting;
+}
+
 LightSample StandardShading(GBufferSample gBuffer, float energy, float3 L, float3 V, half3 N)
 {
     float3 diffuseColor = GetDiffuseColor(gBuffer);
@@ -23,16 +47,45 @@ LightSample StandardShading(GBufferSample gBuffer, float energy, float3 L, float
     float VoH = saturate(dot(V, H));
 
     LightSample lighting;
-    lighting.Diffuse = Diffuse_Lambert(diffuseColor);
-#if LIGHTING_NO_SPECULAR
-    lighting.Specular = 0;
-#else
+
+    // 1. Calculate Specular Term
     float3 specularColor = GetSpecularColor(gBuffer);
-    float3 F = F_Schlick(specularColor, VoH);
+
+    // Standard Schlick Fresnel (Blender/UE4 Standard)
+    // We dampen F90 on rough surfaces to prevent "crunchy" artifacts at grazing angles.
+    float f90 = saturate(1.0 - gBuffer.Roughness);
+    float3 F = specularColor + (f90 - specularColor) * pow(1.0 - VoH, 5.0);
+
     float D = D_GGX(gBuffer.Roughness, NoH) * energy;
     float Vis = Vis_SmithJointApprox(gBuffer.Roughness, NoV, NoL);
-    lighting.Specular = (D * Vis) * F;
-#endif
+    
+    float3 SpecularTerm = (D * Vis) * F;
+
+    // [FIX] Horizon Occlusion for Rough Surfaces
+    // Fade out specular at grazing angles to prevent "crunchy" artifacts at the shadow terminator.
+    // For rough surfaces, the microfacet model can sustain brightness up to the terminator; 
+    // this forces a fade (horizon occlusion) similar to diffuse.
+    float horizonFade = saturate(NoL * 4.5); 
+    SpecularTerm *= lerp(1.0, horizonFade, gBuffer.Roughness);
+
+    lighting.Specular = SpecularTerm;
+
+    // 2. ENERGY CONSERVATION (Anti-Crunch Version)
+    // We approximate how much energy was lost due to microfacet shadowing.
+    float essApprox = 1.0 - max(0.0, gBuffer.Roughness - 0.1);
+    
+    // [FIX] Clamp the divisor to 0.1 to prevent dividing by tiny numbers.
+    // This stops the "Crunchy" fireflies on grazing angles.
+    float3 EnergyCompensation = 1.0 + specularColor * (1.0 / max(essApprox, 0.1) - 1.0);
+
+    // [FIX] Clamp the total compensation to a reasonable max (e.g. 2.0x boost)
+    // This ensures we get the "chalky" look without blowing out the texture details.
+    EnergyCompensation = min(EnergyCompensation, 3.0f);
+
+    // 3. Diffuse Calculation
+    lighting.Diffuse = Diffuse_Burley(diffuseColor, gBuffer.Roughness, NoV, NoL, VoH);
+    lighting.Diffuse *= EnergyCompensation;
+
     lighting.Transmission = 0;
     return lighting;
 }

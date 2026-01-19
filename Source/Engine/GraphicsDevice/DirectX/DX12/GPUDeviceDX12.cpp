@@ -602,12 +602,12 @@ bool GPUDeviceDX12::Init()
         D3D12_STATIC_SAMPLER_DESC staticSamplers[6];
         static_assert(GPU_STATIC_SAMPLERS_COUNT == ARRAY_COUNT(staticSamplers), "Update static samplers setup.");
         // Linear Clamp
-        staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        staticSamplers[0].Filter = D3D12_FILTER_ANISOTROPIC;
         staticSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         staticSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         staticSamplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         staticSamplers[0].MipLODBias = 0.0f;
-        staticSamplers[0].MaxAnisotropy = 1;
+        staticSamplers[0].MaxAnisotropy = 16;
         staticSamplers[0].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
         staticSamplers[0].MinLOD = 0;
         staticSamplers[0].MaxLOD = D3D12_FLOAT32_MAX;
@@ -628,12 +628,12 @@ bool GPUDeviceDX12::Init()
         staticSamplers[1].RegisterSpace = 0;
         staticSamplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         // Linear Wrap
-        staticSamplers[2].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        staticSamplers[2].Filter = D3D12_FILTER_ANISOTROPIC;
         staticSamplers[2].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
         staticSamplers[2].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
         staticSamplers[2].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
         staticSamplers[2].MipLODBias = 0.0f;
-        staticSamplers[2].MaxAnisotropy = 1;
+        staticSamplers[2].MaxAnisotropy = 16;
         staticSamplers[2].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
         staticSamplers[2].MinLOD = 0;
         staticSamplers[2].MaxLOD = D3D12_FLOAT32_MAX;

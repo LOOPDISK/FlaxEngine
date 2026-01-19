@@ -666,9 +666,9 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
             .Code(TEXT(R"(
     {
         float3 rgb = %COLOR%.rgb;
-        float minc = min(min(rgb.r, rgb.g), rgb.b);
-        float maxc = max(max(rgb.r, rgb.g), rgb.b);
-        float delta = maxc - minc;
+        float4 K = float4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+        float4 p = lerp(float4(rgb.bg, K.wz), float4(rgb.gb, K.xy), step(rgb.b, rgb.g));
+        float4 q = lerp(float4(p.xyw, rgb.r), float4(rgb.r, p.yzx), step(p.x, rgb.r));
 
         // Calculate hue (protect against divide-by-zero for grayscale colors)
         float h = 0.0;

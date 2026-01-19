@@ -103,8 +103,18 @@ float3 WhiteBalance(float3 linearColor)
 
 float3 ColorCorrect(float3 color, float luma, float4 saturation, float4 contrast, float4 gamma, float4 gain, float4 offset)
 {
-	color = max(0, lerp(luma.xxx, color, saturation.xyz * saturation.w));
+	// Standard saturation (lerp from luma)
+	float3 saturatedColor = max(0, lerp(luma.xxx, color, saturation.xyz * saturation.w));
+
+	// "Rich" Saturation: Renormalize to preserve original luminance
+	// This prevents highly saturated colors from blowing out brightness-wise
+	float newLuma = dot(saturatedColor, AP1_RGB2Y);
+	color = saturatedColor * (luma / max(newLuma, 1e-5));
+
+	// Contrast (Pivot 0.18)
 	color = pow(color * (1.0f / 0.18f), contrast.xyz * contrast.w) * 0.18f;
+	
+	// Gamma, Gain, Offset
 	color = pow(color, 1.0f / (gamma.xyz * gamma.w));
 	color = color * (gain.xyz * gain.w) + (offset.xyz + offset.w);
 	return color;
@@ -268,7 +278,8 @@ float3 TonemapAGX(float3 linearColor)
 
 float3 TonemapSmoothstep(float3 linearColor)
 {
-    return (4.0 * linearColor * linearColor) / (4.0 * linearColor * linearColor + 1.0);
+    float amount = 6.0f;
+    return (amount * linearColor * linearColor) / (amount * linearColor * linearColor + 1.0);
 }
 
 #endif

@@ -35,7 +35,9 @@ float3 GetDiffuseColor(in float3 color, in float metalness)
 
 float3 GetSpecularColor(in float3 color, in float specular, in float metalness)
 {
+    //MANUAL BOOST
     return lerp(0.08 * specular.xxx, color.rgb, metalness.xxx);
+    //return float3(1.0, 0, 0);
 }
 
 // Calculate material diffuse color
@@ -47,7 +49,8 @@ float3 GetDiffuseColor(in GBufferSample gBuffer)
 // Calculate material specular color
 float3 GetSpecularColor(in GBufferSample gBuffer)
 {
-    return lerp(0.08 * gBuffer.Specular.xxx, gBuffer.Color.rgb, gBuffer.Metalness.xxx);
+    return lerp(0.16 * gBuffer.Specular.xxx, gBuffer.Color.rgb, gBuffer.Metalness.xxx);
+    //return float3(1.0, 0, 0);
 }
 
 // Compact Normal Storage for Small G-Buffers
