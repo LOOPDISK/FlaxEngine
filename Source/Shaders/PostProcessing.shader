@@ -30,7 +30,7 @@
 // Linearize raw device depth
 float LinearizeZ(float depth, float4 viewInfo)
 {
-    return viewInfo.w / (depth - viewInfo.z);
+    return (viewInfo.w * ViewFar) / (depth - viewInfo.z);
 }
 
 #ifndef NO_GRADING_LUT
@@ -97,6 +97,10 @@ float4 ScreenFadeColor;
 float4x4 LensFlareStarMat;
 
 float4 ViewInfo;
+float ViewFar;
+float Dummy2;
+float Dummy3;
+float Dummy4;
 
 META_CB_END
 

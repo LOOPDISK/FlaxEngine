@@ -69,6 +69,10 @@ GPU_CB_STRUCT(Data{
 
     Matrix LensFlareStarMat;
     Float4 ViewInfo;
+    float ViewFar;
+    float Dummy2;
+    float Dummy3;
+    float Dummy4;
     });
 
 GPU_CB_STRUCT(GaussianBlurData{
@@ -479,6 +483,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     data.InvInputSize = Float2(1.0f / static_cast<float>(w1), 1.0f / static_cast<float>(h1));
     data.InputAspect = static_cast<float>(w1) / h1;
     data.ViewInfo = view.ViewInfo;
+    data.ViewFar = view.Far;
     context->UpdateCB(cb0, &data);
     context->BindCB(0, cb0);
 
@@ -729,6 +734,7 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
 
     // View settings
     data.ViewInfo = view.ViewInfo;
+    data.ViewFar = view.Far;
 
     context->UpdateCB(cb0, &data);
     context->BindCB(0, cb0);
