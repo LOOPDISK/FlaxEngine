@@ -806,11 +806,15 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
             .Code(TEXT(R"(
         {
             float threshold = 1.0f - %WIDTH%;
-            float cleanEdge = saturate((%CURVATURE% - threshold) * %SHARPNESS%);
             float grungeMod = saturate((%GRUNGE% - 0.5f) * %CONTRAST% + 0.5f);
             if (%INVERT_GRUNGE%)
                 grungeMod = 1.0f - grungeMod;
-            float grungeMask = lerp(1.0f, grungeMod, %INTENSITY%);
+            
+            // Offset the curvature by grunge to create "chipped" erosion
+            float erodedCurvature = %CURVATURE% + (grungeMod - 0.5f) * %INTENSITY%;
+            
+            float cleanEdge = saturate((%CURVATURE% - threshold) * %SHARPNESS%);
+            float grungedEdge = saturate((erodedCurvature - threshold) * %SHARPNESS%);
 
             float finalResult = 0;
             if (%OUTPUT_TYPE% == 0) // Clean Edge
@@ -819,11 +823,11 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
             }
             else if (%OUTPUT_TYPE% == 1) // Grunge Edge
             {
-                finalResult = cleanEdge * grungeMask;
+                finalResult = grungedEdge;
             }
             else // Edge Highlight
             {
-                finalResult = %CURVATURE% * cleanEdge * grungeMask;
+                finalResult = %CURVATURE% * grungedEdge;
             }
             %RESULT% = saturate((finalResult - 0.5f) * %FINAL_SHARPNESS% + 0.5f);
         }

@@ -1148,10 +1148,10 @@ namespace FlaxEditor.Surface.Archetypes
                 Size = new Float2(200, 200),
                 DefaultValues = new object[]
                 {
-                    0.5f, // Width
-                    10.0f, // Sharpness
-                    1.0f, // Grunge Intensity
-                    1.0f, // Grunge Contrast
+                    0.7f, // Width
+                    20.0f, // Sharpness
+                    0.2f, // Grunge Intensity
+                    1.5f, // Grunge Contrast
                     false, // Invert Grunge
                     1.0f, // Final Sharpness
                 },
