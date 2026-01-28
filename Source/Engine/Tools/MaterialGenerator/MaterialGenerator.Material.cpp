@@ -670,17 +670,24 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         float4 p = lerp(float4(rgb.bg, K.wz), float4(rgb.gb, K.xy), step(rgb.b, rgb.g));
         float4 q = lerp(float4(p.xyw, rgb.r), float4(rgb.r, p.yzx), step(p.x, rgb.r));
 
-        float d = q.x - min(q.w, q.y);
-        float e = 1.0e-10;
-        
-        float h = abs((q.w - q.y) / (6.0 * d + e) + q.z);
-        float s = d / (q.x + e);
-        float v = q.x;
+        // Calculate hue (protect against divide-by-zero for grayscale colors)
+        float h = 0.0;
+        if (delta > 0.0001)
+        {
+            float3 rgb_diffs = float3(rgb.g - rgb.b, rgb.b - rgb.r, rgb.r - rgb.g);
+            float3 offsets = float3(0.0, 2.0, 4.0);
+            float3 cmps = float3(maxc == rgb.r, maxc == rgb.g, maxc == rgb.b);
+            h = dot(rgb_diffs * rcp(delta), cmps) + dot(offsets, cmps);
+            h += 6.0 * (h < 0);
+            h *= (1.0 / 6.0);
+        }
+        h = frac(h + %HUE%);
 
-        h = frac(h + %HUE% * 0.5);
-        s = saturate(s * (1.0 + %SATURATION%));
-        v = max(0.0, v * (1.0 + %VALUE%));
+        // Calculate saturation (protect against divide-by-zero for black)
+        float s = (maxc > 0.0001) ? saturate((delta / maxc) * (1.0 + %SATURATION%)) : 0.0;
+        float v = maxc * (1.0 + %VALUE%);
 
+        // Convert back to RGB
         float3 k = float3(1.0, 2.0 / 3.0, 1.0 / 3.0);
         %RESULT% = float4(v * lerp(1.0, saturate(abs(frac(h + k) * 6.0 - 3.0) - 1.0), s), %COLOR%.a);
     }
@@ -695,6 +702,8 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         value = result;
         break;
     }
+
+
     // Color Blend
     case 51:
     {
@@ -780,6 +789,66 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         value = result;
         break;
     }
+    // Edge Damage
+    case 52:
+    {
+        auto curvature = tryGetValue(node->GetBox(0), Value::Zero).AsFloat();
+        auto grunge = tryGetValue(node->GetBox(1), Value::Zero).AsFloat();
+        auto width = tryGetValue(node->GetBox(2), Value(node->Values[0])).AsFloat();
+        auto sharpness = tryGetValue(node->GetBox(3), Value(node->Values[1])).AsFloat();
+        auto grungeIntensity = tryGetValue(node->GetBox(4), Value(node->Values[2])).AsFloat();
+        auto grungeContrast = tryGetValue(node->GetBox(5), Value(node->Values[3])).AsFloat();
+        auto invertGrunge = tryGetValue(node->GetBox(6), Value(node->Values[4])).AsBool();
+        auto finalSharpness = tryGetValue(node->GetBox(7), Value(node->Values[5])).AsFloat();
+
+        auto result = writeLocal(VariantType::Float, node);
+        String shaderCode = ShaderStringBuilder()
+            .Code(TEXT(R"(
+        {
+            float threshold = 1.0f - %WIDTH%;
+            float grungeMod = saturate((%GRUNGE% - 0.5f) * %CONTRAST% + 0.5f);
+            if (%INVERT_GRUNGE%)
+                grungeMod = 1.0f - grungeMod;
+            
+            // Offset the curvature by grunge to create "chipped" erosion
+            float erodedCurvature = %CURVATURE% + (grungeMod - 0.5f) * %INTENSITY%;
+            
+            float cleanEdge = saturate((%CURVATURE% - threshold) * %SHARPNESS%);
+            float grungedEdge = saturate((erodedCurvature - threshold) * %SHARPNESS%);
+
+            float finalResult = 0;
+            if (%OUTPUT_TYPE% == 0) // Clean Edge
+            {
+                finalResult = cleanEdge;
+            }
+            else if (%OUTPUT_TYPE% == 1) // Grunge Edge
+            {
+                finalResult = grungedEdge;
+            }
+            else // Edge Highlight
+            {
+                finalResult = %CURVATURE% * grungedEdge;
+            }
+            %RESULT% = saturate((finalResult - 0.5f) * %FINAL_SHARPNESS% + 0.5f);
+        }
+        )"))
+            .Replace(TEXT("%WIDTH%"), width.Value)
+            .Replace(TEXT("%CURVATURE%"), curvature.Value)
+            .Replace(TEXT("%SHARPNESS%"), sharpness.Value)
+            .Replace(TEXT("%GRUNGE%"), grunge.Value)
+            .Replace(TEXT("%CONTRAST%"), grungeContrast.Value)
+            .Replace(TEXT("%INTENSITY%"), grungeIntensity.Value)
+            .Replace(TEXT("%INVERT_GRUNGE%"), invertGrunge.Value)
+            .Replace(TEXT("%FINAL_SHARPNESS%"), finalSharpness.Value)
+            .Replace(TEXT("%OUTPUT_TYPE%"), StringUtils::ToString(box->ID - 8))
+            .Replace(TEXT("%RESULT%"), result.Value)
+            .Build();
+
+        _writer.Write(shaderCode);
+        value = result;
+        break;
+    }
+
     default:
         break;
     }
@@ -849,6 +918,9 @@ void MaterialGenerator::ProcessGroupFunction(Box* box, Node* node, Value& value)
         }
         break;
     }
+
+
+
     default:
         break;
     }

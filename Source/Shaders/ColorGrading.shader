@@ -35,7 +35,8 @@ float ColorCorrectionHighlightsMin;
 float WhiteTemp;
 float WhiteTint;
 
-float3 Dummy;
+float ColorVibrance;
+float2 Dummy;
 float LutWeight;
 META_CB_END
 
@@ -119,12 +120,32 @@ float3 ColorCorrect(float3 color, float luma, float4 saturation, float4 contrast
 	return color;
 }
 
+float3 ApplyVibrance(float3 color, float vibrance)
+{
+	float luma = dot(color, AP1_RGB2Y);
+	float maxVal = max(color.r, max(color.g, color.b));
+	float minVal = min(color.r, min(color.g, color.b));
+	
+	// Calculate purity (saturation independent of intensity) which is HDR safe (always 0-1)
+	float purity = (maxVal - minVal) / max(maxVal, 1e-6);
+	purity = saturate(purity);
+
+	// Boost low-purity colors more than high-purity colors
+	float satMult = 1.0 + vibrance * (1.0 - purity);
+	float3 result = luma + (color - luma) * satMult;
+	return max(result, 0.0);
+}
+
 float3 ColorGrade(float3 linearColor)
 {
 	// Convert into ACEScg color
 	const float3x3 sRGB_2_AP1 = mul(XYZ_2_AP1_MAT,  mul(D65_2_D60_CAT, sRGB_2_XYZ_MAT));
 	const float3x3 AP1_2_sRGB = mul(XYZ_2_sRGB_MAT, mul(D60_2_D65_CAT, AP1_2_XYZ_MAT));
 	float3 color = mul(sRGB_2_AP1, linearColor);
+
+    // Apply Vibrance
+    if (abs(ColorVibrance) > 0.001)
+        color = ApplyVibrance(color, ColorVibrance);
 
 	// Perform color grading with CC wheels
 	float luma = dot(color, AP1_RGB2Y);
@@ -245,7 +266,7 @@ float3 TonemapAGX(float3 linearColor)
             + 0.1191    * color
             - 0.00232;
 
-    // color = agxAscCdl(color, float3(1.0, 1.0, 1.0), float3(0.0, 0.0, 0.0), float3(1.35, 1.35, 1.35), 1.4);
+    color = agxAscCdl(color, float3(1.0, 1.0, 1.0), float3(0.0, 0.0, 0.0), float3(1.35, 1.35, 1.35), 1.4);
     color = mul(color, AgXOutsetMatrix);
     color = pow(max(float3(0.0, 0.0, 0.0), color), float3(2.2, 2.2, 2.2));
     color = saturate(color);

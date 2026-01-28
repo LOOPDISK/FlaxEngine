@@ -737,104 +737,109 @@ API_ENUM(Attributes="Flags") enum class ColorGradingSettingsOverride : int32
     ColorOffset = 1 << 4,
 
     /// <summary>
+    /// Overrides <see cref="ColorGradingSettings.ColorVibrance"/> property.
+    /// </summary>
+    ColorVibrance = 1 << 5,
+
+    /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorSaturationShadows"/> property.
     /// </summary>
-    ColorSaturationShadows = 1 << 5,
+    ColorSaturationShadows = 1 << 6,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorContrastShadows"/> property.
     /// </summary>
-    ColorContrastShadows = 1 << 6,
+    ColorContrastShadows = 1 << 7,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorGammaShadows"/> property.
     /// </summary>
-    ColorGammaShadows = 1 << 7,
+    ColorGammaShadows = 1 << 8,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorGainShadows"/> property.
     /// </summary>
-    ColorGainShadows = 1 << 8,
+    ColorGainShadows = 1 << 9,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorOffsetShadows"/> property.
     /// </summary>
-    ColorOffsetShadows = 1 << 9,
+    ColorOffsetShadows = 1 << 10,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorSaturationMidtones"/> property.
     /// </summary>
-    ColorSaturationMidtones = 1 << 10,
+    ColorSaturationMidtones = 1 << 11,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorContrastMidtones"/> property.
     /// </summary>
-    ColorContrastMidtones = 1 << 11,
+    ColorContrastMidtones = 1 << 12,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorGammaMidtones"/> property.
     /// </summary>
-    ColorGammaMidtones = 1 << 12,
+    ColorGammaMidtones = 1 << 13,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorGainMidtones"/> property.
     /// </summary>
-    ColorGainMidtones = 1 << 13,
+    ColorGainMidtones = 1 << 14,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorOffsetMidtones"/> property.
     /// </summary>
-    ColorOffsetMidtones = 1 << 14,
+    ColorOffsetMidtones = 1 << 15,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorSaturationHighlights"/> property.
     /// </summary>
-    ColorSaturationHighlights = 1 << 15,
+    ColorSaturationHighlights = 1 << 16,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorContrastHighlights"/> property.
     /// </summary>
-    ColorContrastHighlights = 1 << 16,
+    ColorContrastHighlights = 1 << 17,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorGammaHighlights"/> property.
     /// </summary>
-    ColorGammaHighlights = 1 << 17,
+    ColorGammaHighlights = 1 << 18,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorGainHighlights"/> property.
     /// </summary>
-    ColorGainHighlights = 1 << 18,
+    ColorGainHighlights = 1 << 19,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ColorOffsetHighlights"/> property.
     /// </summary>
-    ColorOffsetHighlights = 1 << 19,
+    ColorOffsetHighlights = 1 << 20,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.ShadowsMax"/> property.
     /// </summary>
-    ShadowsMax = 1 << 20,
+    ShadowsMax = 1 << 21,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.HighlightsMin"/> property.
     /// </summary>
-    HighlightsMin = 1 << 21,
+    HighlightsMin = 1 << 22,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.LutTexture"/> property.
     /// </summary>
-    LutTexture = 1 << 22,
+    LutTexture = 1 << 23,
 
     /// <summary>
     /// Overrides <see cref="ColorGradingSettings.LutWeight"/> property.
     /// </summary>
-    LutWeight = 1 << 23,
+    LutWeight = 1 << 24,
 
     /// <summary>
     /// All properties.
     /// </summary>
-    All = ColorSaturation | ColorContrast | ColorGamma | ColorGain | ColorOffset | ColorSaturationShadows | ColorContrastShadows | ColorGammaShadows | ColorGainShadows | ColorOffsetShadows | ColorSaturationMidtones | ColorContrastMidtones | ColorGammaMidtones | ColorGainMidtones | ColorOffsetMidtones | ColorSaturationHighlights | ColorContrastHighlights | ColorGammaHighlights | ColorGainHighlights | ColorOffsetHighlights | ShadowsMax | HighlightsMin | LutTexture | LutWeight,
+    All = ColorSaturation | ColorContrast | ColorGamma | ColorGain | ColorOffset | ColorVibrance | ColorSaturationShadows | ColorContrastShadows | ColorGammaShadows | ColorGainShadows | ColorOffsetShadows | ColorSaturationMidtones | ColorContrastMidtones | ColorGammaMidtones | ColorGainMidtones | ColorOffsetMidtones | ColorSaturationHighlights | ColorContrastHighlights | ColorGammaHighlights | ColorGainHighlights | ColorOffsetHighlights | ShadowsMax | HighlightsMin | LutTexture | LutWeight,
 };
 
 /// <summary>
@@ -883,6 +888,12 @@ API_STRUCT() struct FLAXENGINE_API ColorGradingSettings : ISerializable
     /// </summary>
     API_FIELD(Attributes="DefaultValue(typeof(Float4), \"0,0,0,0\"), CustomEditorAlias(\"FlaxEditor.CustomEditors.Editors.ColorTrackball\"), EditorOrder(4), PostProcessSetting((int)ColorGradingSettingsOverride.ColorOffset), Limit(-1, 1, 0.001f), EditorDisplay(\"Global\", \"Offset\")")
     Float4 ColorOffset = Float4::Zero;
+
+    /// <summary>
+    /// Gets or sets the color vibrance (applies globally to the whole image). Default is 0.
+    /// </summary>
+    API_FIELD(Attributes="DefaultValue(0.0f), EditorOrder(5), PostProcessSetting((int)ColorGradingSettingsOverride.ColorVibrance), Limit(-10, 10, 0.01f), EditorDisplay(\"Global\", \"Vibrance\")")
+    float ColorVibrance = 0.0f;
 
     // Shadows
 

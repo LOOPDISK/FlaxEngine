@@ -412,7 +412,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     }
     if (useDepthHaze)
     {
-        data.DepthHazeIntensity = settings.DepthHaze.Intensity;
+        data.DepthHazeIntensity = 0.0f; // Disable in composite pass as it's already rendered in RenderDepthHaze
         data.DepthHazeNearDistance = settings.DepthHaze.NearDistance;
         data.DepthHazeFarDistance = settings.DepthHaze.FarDistance;
         data.DepthHazePower = settings.DepthHaze.Power;

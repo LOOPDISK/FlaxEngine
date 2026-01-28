@@ -79,6 +79,7 @@ void ColorGradingSettings::BlendWith(ColorGradingSettings& other, float weight)
     BLEND_FLOAT(ColorGamma);
     BLEND_FLOAT(ColorGain);
     BLEND_FLOAT(ColorOffset);
+    BLEND_FLOAT(ColorVibrance);
 
     BLEND_FLOAT(ColorSaturationShadows);
     BLEND_FLOAT(ColorContrastShadows);
