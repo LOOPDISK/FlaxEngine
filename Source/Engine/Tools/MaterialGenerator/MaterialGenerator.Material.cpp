@@ -799,6 +799,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         auto grungeIntensity = tryGetValue(node->GetBox(4), Value(node->Values[2])).AsFloat();
         auto grungeContrast = tryGetValue(node->GetBox(5), Value(node->Values[3])).AsFloat();
         auto invertGrunge = tryGetValue(node->GetBox(6), Value(node->Values[4])).AsBool();
+        auto finalSharpness = tryGetValue(node->GetBox(7), Value(node->Values[5])).AsFloat();
 
         auto result = writeLocal(VariantType::Float, node);
         String shaderCode = ShaderStringBuilder()
@@ -811,18 +812,20 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
                 grungeMod = 1.0f - grungeMod;
             float grungeMask = lerp(1.0f, grungeMod, %INTENSITY%);
 
+            float finalResult = 0;
             if (%OUTPUT_TYPE% == 0) // Clean Edge
             {
-                %RESULT% = cleanEdge;
+                finalResult = cleanEdge;
             }
             else if (%OUTPUT_TYPE% == 1) // Grunge Edge
             {
-                %RESULT% = saturate(cleanEdge * grungeMask);
+                finalResult = cleanEdge * grungeMask;
             }
             else // Edge Highlight
             {
-                %RESULT% = saturate(%CURVATURE% * cleanEdge * grungeMask);
+                finalResult = %CURVATURE% * cleanEdge * grungeMask;
             }
+            %RESULT% = saturate((finalResult - 0.5f) * %FINAL_SHARPNESS% + 0.5f);
         }
         )"))
             .Replace(TEXT("%WIDTH%"), width.Value)
@@ -832,7 +835,8 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
             .Replace(TEXT("%CONTRAST%"), grungeContrast.Value)
             .Replace(TEXT("%INTENSITY%"), grungeIntensity.Value)
             .Replace(TEXT("%INVERT_GRUNGE%"), invertGrunge.Value)
-            .Replace(TEXT("%OUTPUT_TYPE%"), StringUtils::ToString(box->ID - 7))
+            .Replace(TEXT("%FINAL_SHARPNESS%"), finalSharpness.Value)
+            .Replace(TEXT("%OUTPUT_TYPE%"), StringUtils::ToString(box->ID - 8))
             .Replace(TEXT("%RESULT%"), result.Value)
             .Build();
 

@@ -1145,7 +1145,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Edge Damage",
                 Description = "Calculates edge damage mask using curvature and grunge maps.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(200, 180),
+                Size = new Float2(200, 200),
                 DefaultValues = new object[]
                 {
                     0.5f, // Width
@@ -1153,6 +1153,7 @@ namespace FlaxEditor.Surface.Archetypes
                     1.0f, // Grunge Intensity
                     1.0f, // Grunge Contrast
                     false, // Invert Grunge
+                    1.0f, // Final Sharpness
                 },
                 Elements = new[]
                 {
@@ -1163,9 +1164,10 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(4, "Grunge Intensity", true, typeof(float), 4, 2),
                     NodeElementArchetype.Factory.Input(5, "Grunge Contrast", true, typeof(float), 5, 3),
                     NodeElementArchetype.Factory.Input(6, "Invert Grunge", true, typeof(bool), 6, 4),
-                    NodeElementArchetype.Factory.Output(0, "Clean Edge", typeof(float), 7),
-                    NodeElementArchetype.Factory.Output(1, "Grunge Edge", typeof(float), 8),
-                    NodeElementArchetype.Factory.Output(2, "Edge Highlight", typeof(float), 9),
+                    NodeElementArchetype.Factory.Input(7, "Final Sharpness", true, typeof(float), 7, 5),
+                    NodeElementArchetype.Factory.Output(0, "Clean Edge", typeof(float), 8),
+                    NodeElementArchetype.Factory.Output(1, "Grunge Edge", typeof(float), 9),
+                    NodeElementArchetype.Factory.Output(2, "Edge Highlight", typeof(float), 10),
                 }
             },
         };
