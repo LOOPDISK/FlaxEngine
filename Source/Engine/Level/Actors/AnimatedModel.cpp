@@ -71,7 +71,8 @@ void AnimatedModel::UpdateAnimation()
 
 void AnimatedModel::SetupSkinningData()
 {
-    ASSERT(SkinnedModel && SkinnedModel->IsLoaded());
+    if (!SkinnedModel || !SkinnedModel->IsLoaded())
+        return;
 
     const int32 targetBonesCount = SkinnedModel->Skeleton.Bones.Count();
     const int32 currentBonesCount = _skinningData.BonesCount;
@@ -826,11 +827,13 @@ void AnimatedModel::UpdateSockets()
 void AnimatedModel::OnAnimationUpdated_Async()
 {
     // Update asynchronous stuff
+    if (!SkinnedModel || !SkinnedModel->IsLoaded())
+        return;
     const auto& skeleton = SkinnedModel->Skeleton;
 
     // Copy pose from the master
     // TODO: support retargetting master pose to current pose
-    if (_masterPose && _masterPose->SkinnedModel->Skeleton.Nodes.Count() == skeleton.Nodes.Count())
+    if (_masterPose && _masterPose->SkinnedModel && _masterPose->SkinnedModel->IsLoaded() && _masterPose->SkinnedModel->Skeleton.Nodes.Count() == skeleton.Nodes.Count())
     {
         ANIM_GRAPH_PROFILE_EVENT("Copy Master Pose");
         const auto& masterInstance = _masterPose->GraphInstance;
@@ -843,9 +846,11 @@ void AnimatedModel::OnAnimationUpdated_Async()
     {
         ANIM_GRAPH_PROFILE_EVENT("Final Pose");
         const int32 bonesCount = skeleton.Bones.Count();
+        if (GraphInstance.NodesPose.Count() != skeleton.Nodes.Count())
+            return;
         Matrix3x4* output = (Matrix3x4*)_skinningData.Data.Get();
-        ASSERT(GraphInstance.NodesPose.Count() == skeleton.Nodes.Count());
-        ASSERT(_skinningData.Data.Count() == bonesCount * sizeof(Matrix3x4));
+        if (_skinningData.Data.Count() != bonesCount * sizeof(Matrix3x4))
+            return;
         for (int32 boneIndex = 0; boneIndex < bonesCount; boneIndex++)
         {
             const SkeletonBone& bone = skeleton.Bones[boneIndex];
