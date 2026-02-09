@@ -201,6 +201,7 @@ void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderCon
     context->BindCB(0, cb);
     context->BindSR(0, renderContext.Buffers->DepthBuffer);
     context->BindSR(1, integratedLightScattering ? integratedLightScattering->ViewVolume() : nullptr);
+    context->BindSR(2, renderContext.Buffers->GBuffer1); // Shading model for weapon depth correction
 
     // TODO: instead of rendering fullscreen triangle, draw quad transformed at the fog start distance (also it could use early depth discard)
 

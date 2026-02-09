@@ -69,7 +69,10 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     projectionMatrix[2][2] = ViewInfo.z; // Same depth: Far/(Far-Near)
     projectionMatrix[2][3] = 1.0f; // W component
     projectionMatrix[3][2] = ViewInfo.w * ViewFar; // Reconstruct M43: (-Near) * Far = (-Far*Near)/(Far-Near)
-    return mul(viewPosition, projectionMatrix);
+    float4 result = mul(viewPosition, projectionMatrix);
+    // Scale depth to draw on top of world geometry (compress weapon depth to [0, 0.01] NDC range)
+    result.z *= 0.01;
+    return result;
 }
 
 // Apply weapon FOV override with custom parameters
@@ -91,7 +94,10 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float fov, float aspect, flo
     float4 viewPosition = mul(float4(worldPosition, 1.0), ViewMatrix);
 
     // Apply custom projection
-    return mul(viewPosition, weaponProjectionMatrix);
+    float4 result = mul(viewPosition, weaponProjectionMatrix);
+    // Scale depth to draw on top of world geometry (compress weapon depth to [0, 0.01] NDC range)
+    result.z *= 0.01;
+    return result;
 }
 
 #endif // USE_WEAPON_FOV_OVERRIDE

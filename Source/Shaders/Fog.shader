@@ -23,6 +23,7 @@ Texture2D Depth : register(t0);
 #if VOLUMETRIC_FOG
 Texture3D IntegratedLightScattering : register(t1);
 #endif
+Texture2D GBuffer1 : register(t2);
 
 META_PS(true, FEATURE_LEVEL_ES2)
 META_PERMUTATION_1(VOLUMETRIC_FOG=0)
@@ -31,6 +32,12 @@ float4 PS_Fog(Quad_VS2PS input) : SV_Target0
 {
     // Get world space position at given pixel coordinate
 	float rawDepth = SAMPLE_RT(Depth, input.TexCoord).r;
+
+	// Detect weapon pixels and undo depth remapping for correct fog distance
+	int shadingModel = (int)(SAMPLE_RT(GBuffer1, input.TexCoord).a * 4.999);
+	if (shadingModel == SHADING_MODEL_WEAPON)
+		rawDepth *= 100.0; // Undo 0.01 depth remapping from WeaponFOVOverride
+
 	GBufferData gBufferData = GetGBufferData();
 	float3 viewPos = GetViewPos(gBufferData, input.TexCoord, rawDepth);
 	float3 worldPos = mul(float4(viewPos, 1), gBufferData.InvViewMatrix).xyz;
