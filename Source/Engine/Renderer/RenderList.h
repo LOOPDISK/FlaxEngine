@@ -19,6 +19,7 @@ class SceneRendering;
 class LightWithShadow;
 class IPostFxSettingsProvider;
 class CubeTexture;
+class CloudVolume;
 struct RenderContext;
 struct RenderContextBatch;
 
@@ -365,6 +366,11 @@ public:
     /// Local volumetric fog particles registered for the rendering.
     /// </summary>
     Array<DrawCall> VolumetricFogParticles;
+
+    /// <summary>
+    /// Stylized cloud volumes registered for rendering.
+    /// </summary>
+    Array<CloudVolume*> CloudVolumes;
 
     /// <summary>
     /// Sky/skybox renderer proxy to use (only one per frame)

@@ -21,6 +21,7 @@
 #include "ColorGradingPass.h"
 #include "MotionBlurPass.h"
 #include "VolumetricFogPass.h"
+#include "StylizedCloudPass.h"
 #include "HistogramPass.h"
 #include "AtmospherePreCompute.h"
 #include "ContrastAdaptiveSharpeningPass.h"
@@ -81,6 +82,7 @@ bool RendererService::Init()
     PassList.Add(DepthOfFieldPass::Instance());
     PassList.Add(ColorGradingPass::Instance());
     PassList.Add(VolumetricFogPass::Instance());
+    PassList.Add(StylizedCloudPass::Instance());
     PassList.Add(EyeAdaptationPass::Instance());
     PassList.Add(PostProcessingPass::Instance());
     PassList.Add(MotionBlurPass::Instance());
@@ -755,6 +757,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         renderContext.List->Fog->DrawFog(context, renderContext, *lightBuffer);
         context->ResetSR();
     }
+    StylizedCloudPass::Instance()->Render(renderContext, lightBuffer);
 
     // Run forward pass
     auto frameBuffer = RenderTargetPool::Get(tempDesc);

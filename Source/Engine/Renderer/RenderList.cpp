@@ -440,6 +440,7 @@ RenderList::RenderList(const SpawnParams& params)
     , SkyLights(4)
     , EnvironmentProbes(32)
     , Decals(64)
+    , CloudVolumes(32)
     , Sky(nullptr)
     , AtmosphericFog(nullptr)
     , Fog(nullptr)
@@ -472,6 +473,7 @@ void RenderList::Clear()
     EnvironmentProbes.Clear();
     Decals.Clear();
     VolumetricFogParticles.Clear();
+    CloudVolumes.Clear();
     Sky = nullptr;
     AtmosphericFog = nullptr;
     Fog = nullptr;
