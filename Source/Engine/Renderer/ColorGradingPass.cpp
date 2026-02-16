@@ -32,7 +32,8 @@ GPU_CB_STRUCT(Data {
     float WhiteTemp;
     float WhiteTint;
 
-    Float3 Dummy;
+    float ColorVibrance;
+    Float2 Dummy;
     float LutWeight;
     });
 
@@ -186,6 +187,7 @@ GPUTexture* ColorGradingPass::RenderLUT(RenderContext& renderContext)
     //
     const bool useLut = colorGrading.LutTexture && colorGrading.LutTexture->IsLoaded() && colorGrading.LutTexture->GetResidentMipLevels() > 0 && colorGrading.LutWeight > ZeroTolerance;
     data.LutWeight = useLut ? colorGrading.LutWeight : 0.0f;
+    data.ColorVibrance = colorGrading.ColorVibrance;
 
     // Prepare
     auto device = GPUDevice::Instance;

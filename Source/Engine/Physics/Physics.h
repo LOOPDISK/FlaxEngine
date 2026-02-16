@@ -36,6 +36,11 @@ API_CLASS(Static) class FLAXENGINE_API Physics
     /// Finds an existing scene.
     /// </summary>
     API_FUNCTION() static PhysicsScene* FindScene(const StringView& name);
+    
+    /// <summary>
+    /// Delete an existing scene.
+    /// </summary>
+    API_FUNCTION() static void DeleteScene(PhysicsScene* name);
 
 public:
     /// <summary>
