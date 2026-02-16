@@ -141,6 +141,15 @@ public:
     }
 
     /// <summary>
+    /// Initializes an empty <see cref="HashSet"/> without reserving any space.
+    /// </summary>
+    /// <param name="tag">The custom allocation tag.</param>
+    HashSet(typename Base::AllocationTag tag)
+        : Base(tag)
+    {
+    }
+
+    /// <summary>
     /// Initializes <see cref="HashSet"/> by reserving space.
     /// </summary>
     /// <param name="capacity">The number of elements that can be added without a need to allocate more memory.</param>
@@ -408,7 +417,7 @@ public:
     template<typename ItemType>
     bool Add(const ItemType& item)
     {
-        Bucket* bucket = Base::OnAdd(item, false);
+        Bucket* bucket = Base::OnAdd(item, false, true);
         if (bucket)
             bucket->Occupy(item);
         return bucket != nullptr;
@@ -421,7 +430,7 @@ public:
     /// <returns>True if element has been added to the collection, otherwise false if the element is already present.</returns>
     bool Add(T&& item)
     {
-        Bucket* bucket = Base::OnAdd(item, false);
+        Bucket* bucket = Base::OnAdd(item, false, true);
         if (bucket)
             bucket->Occupy(MoveTemp(item));
         return bucket != nullptr;
@@ -442,7 +451,7 @@ public:
     /// Removes the specified element from the collection.
     /// </summary>
     /// <param name="item">The element to remove.</param>
-    /// <returns>True if cannot remove item from the collection because cannot find it, otherwise false.</returns>
+    /// <returns>True if item was removed from collection, otherwise false.</returns>
     template<typename ItemType>
     bool Remove(const ItemType& item)
     {
@@ -462,7 +471,7 @@ public:
     /// Removes an element at specified iterator position.
     /// </summary>
     /// <param name="i">The element iterator to remove.</param>
-    /// <returns>True if cannot remove item from the collection because cannot find it, otherwise false.</returns>
+    /// <returns>True if item was removed from collection, otherwise false.</returns>
     bool Remove(const Iterator& i)
     {
         ASSERT(i._collection == this);

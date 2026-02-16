@@ -82,6 +82,12 @@ float3 F_Schlick(float3 specularColor, float VoH, float roughness)
     return F_Schlick_Raw(specularColor, f90, VoH);
 }
 
+float3 F_Schlick(float3 f0, float3 f90, float VoH)
+{
+	float fc = Pow5(1 - VoH);
+	return f90 * fc + (1 - fc) * f0;
+}
+
 #define REFLECTION_CAPTURE_NUM_MIPS 7
 // Allow going down to mip 0 (1x1 pixel) for fully diffuse/chalky look
 #define REFLECTION_CAPTURE_ROUGHEST_MIP 0 

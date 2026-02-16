@@ -4,6 +4,9 @@
 
 #include "HashSetBase.h"
 
+template<typename KeyType, typename ValueType, typename AllocationType>
+class ConcurrentDictionary;
+
 /// <summary>
 /// Describes single portion of space for the key and value pair in a hash map.
 /// </summary>
@@ -13,6 +16,7 @@ struct DictionaryBucket
     friend Memory;
     friend HashSetBase<AllocationType, DictionaryBucket>;
     friend Dictionary<KeyType, ValueType, AllocationType>;
+    friend ConcurrentDictionary<KeyType, ValueType, AllocationType>;
 
     /// <summary>The key.</summary>
     KeyType Key;
@@ -160,6 +164,15 @@ public:
     /// Initializes an empty <see cref="Dictionary"/> without reserving any space.
     /// </summary>
     Dictionary()
+    {
+    }
+
+    /// <summary>
+    /// Initializes an empty <see cref="Dictionary"/> without reserving any space.
+    /// </summary>
+    /// <param name="tag">The custom allocation tag.</param>
+    Dictionary(typename Base::AllocationTag tag)
+        : Base(tag)
     {
     }
 
@@ -549,7 +562,7 @@ public:
     /// Removes element with a specified key.
     /// </summary>
     /// <param name="key">The element key to remove.</param>
-    /// <returns>True if cannot remove item from the collection because cannot find it, otherwise false.</returns>
+    /// <returns>True if item was removed from collection, otherwise false.</returns>
     template<typename KeyComparableType>
     bool Remove(const KeyComparableType& key)
     {
@@ -569,7 +582,7 @@ public:
     /// Removes element at specified iterator.
     /// </summary>
     /// <param name="i">The element iterator to remove.</param>
-    /// <returns>True if cannot remove item from the collection because cannot find it, otherwise false.</returns>
+    /// <returns>True if item was removed from collection, otherwise false.</returns>
     bool Remove(const Iterator& i)
     {
         ASSERT(i._collection == this);

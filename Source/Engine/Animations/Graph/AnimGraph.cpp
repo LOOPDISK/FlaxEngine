@@ -6,6 +6,7 @@
 #include "Engine/Content/Assets/SkinnedModel.h"
 #include "Engine/Graphics/Models/SkeletonData.h"
 #include "Engine/Scripting/Scripting.h"
+#include "Engine/Threading/Threading.h"
 
 extern void RetargetSkeletonPose(const SkeletonData& sourceSkeleton, const SkeletonData& targetSkeleton, const SkinnedModel::SkeletonMapping& mapping, const Transform* sourceNodes, Transform* targetNodes);
 
@@ -335,11 +336,13 @@ void AnimGraphExecutor::Update(AnimGraphInstanceData& data, float dt)
     SkeletonData* animResultSkeleton = &skeleton;
 
     // Retarget animation when using output pose from other skeleton
-    AnimGraphImpulse retargetNodes;
     if (_graph.BaseModel != data.NodesSkeleton)
     {
         ANIM_GRAPH_PROFILE_EVENT("Retarget");
         auto& targetSkeleton = data.NodesSkeleton->Skeleton;
+        if (context.PoseCacheSize == context.PoseCache.Count())
+            context.PoseCache.AddOne();
+        auto& retargetNodes = context.PoseCache[context.PoseCacheSize++];
         retargetNodes = *animResult;
         retargetNodes.Nodes.Resize(targetSkeleton.Nodes.Count());
         Transform* targetNodes = retargetNodes.Nodes.Get();

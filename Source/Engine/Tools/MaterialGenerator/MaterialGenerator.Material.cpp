@@ -106,7 +106,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         Value values[OutputsMax];
         for (int32 i = 0; i < OutputsMax; i++)
         {
-            const auto outputBox = node->GetBox(Output0BoxID + i);
+            const auto outputBox = node->TryGetBox(Output0BoxID + i);
             if (outputBox && outputBox->HasConnection())
             {
                 values[i] = writeLocal(VariantType::Float4, node);
@@ -119,7 +119,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         for (int32 i = 0; i < InputsMax; i++)
         {
             auto inputName = TEXT("Input") + StringUtils::ToString(i);
-            const auto inputBox = node->GetBox(Input0BoxID + i);
+            const auto inputBox = node->TryGetBox(Input0BoxID + i);
             if (inputBox && inputBox->HasConnection())
             {
                 auto inputValue = tryGetValue(inputBox, Value::Zero);
@@ -131,7 +131,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         for (int32 i = 0; i < OutputsMax; i++)
         {
             auto outputName = TEXT("Output") + StringUtils::ToString(i);
-            const auto outputBox = node->GetBox(Output0BoxID + i);
+            const auto outputBox = node->TryGetBox(Output0BoxID + i);
             if (outputBox && outputBox->HasConnection())
             {
                 code.Replace(*outputName, *values[i].Value, StringSearchCase::CaseSensitive);
@@ -146,7 +146,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         // Link output values to boxes
         for (int32 i = 0; i < OutputsMax; i++)
         {
-            const auto outputBox = node->GetBox(Output0BoxID + i);
+            const auto outputBox = node->TryGetBox(Output0BoxID + i);
             if (outputBox && outputBox->HasConnection())
             {
                 outputBox->Cache = values[i];
@@ -263,7 +263,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
 
         // Sample scene depth buffer
         auto sceneDepthTexture = findOrAddSceneTexture(MaterialSceneTextures::SceneDepth);
-        auto depthSample = writeLocal(VariantType::Float, String::Format(TEXT("{0}.SampleLevel(SamplerLinearClamp, {1}, 0).x"), sceneDepthTexture.ShaderName, screenUVs.Value), node);
+        auto depthSample = writeLocal(VariantType::Float, String::Format(TEXT("{0}.SampleLevel(SamplerPointClamp, {1}, 0).x"), sceneDepthTexture.ShaderName, screenUVs.Value), node);
 
         // Linearize raw device depth
         Value sceneDepth;
@@ -285,8 +285,8 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
     case 24:
     {
         // Load function asset
-        const auto function = Assets.LoadAsync<MaterialFunction>((Guid)node->Values[0]);
-        if (!function || function->WaitForLoaded())
+        const auto function = Assets.Load<MaterialFunction>((Guid)node->Values[0]);
+        if (!function)
         {
             OnError(node, box, TEXT("Missing or invalid function."));
             value = Value::Zero;
@@ -299,7 +299,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         {
             if (_callStack[i]->Type == GRAPH_NODE_MAKE_TYPE(1, 24))
             {
-                const auto callFunc = Assets.LoadAsync<MaterialFunction>((Guid)_callStack[i]->Values[0]);
+                const auto callFunc = Assets.Load<MaterialFunction>((Guid)_callStack[i]->Values[0]);
                 if (callFunc == function)
                 {
                     OnError(node, box, String::Format(TEXT("Recursive call to function '{0}'!"), function->ToString()));
@@ -384,7 +384,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         // Apply hardness, use 0.991 as max since any value above will result in harsh aliasing
         auto x2 = writeLocal(ValueType::Float, String::Format(TEXT("saturate((1 - {0}) * (1 / (1 - clamp({1}, 0, 0.991f))))"), x1.Value, hardness.Value), node);
 
-        value = writeLocal(ValueType::Float, String::Format(TEXT("{0} ? (1 - {1}) : {1}"), invert.Value, x2.Value), node);
+        value = writeLocal(ValueType::Float, String::Format(TEXT("select({0}, (1 - {1}), {1})"), invert.Value, x2.Value), node);
         break;
     }
     // Tiling & Offset
@@ -459,7 +459,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         auto x = writeLocal(ValueType::Float, String::Format(TEXT("56100000.0f * pow({0}, -1) + 148.0f"), temperature.Value), node);
 
         // Value Y
-        auto y = writeLocal(ValueType::Float, String::Format(TEXT("{0} > 6500.0f ? 35200000.0f * pow({0}, -1) + 184.0f : 100.04f * log({0}) - 623.6f"), temperature.Value), node);
+        auto y = writeLocal(ValueType::Float, String::Format(TEXT("select({0} > 6500.0f, 35200000.0f * pow({0}, -1) + 184.0f, 100.04f * log({0}) - 623.6f)"), temperature.Value), node);
 
         // Value Z
         auto z = writeLocal(ValueType::Float, String::Format(TEXT("194.18f * log({0}) - 1448.6f"), temperature.Value), node);
@@ -467,7 +467,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         // Final color
         auto color = writeLocal(ValueType::Float3, String::Format(TEXT("float3({0}, {1}, {2})"), x.Value, y.Value, z.Value), node);
         color = writeLocal(ValueType::Float3, String::Format(TEXT("clamp({0}, 0.0f, 255.0f) / 255.0f"), color.Value), node);
-        value = writeLocal(ValueType::Float3, String::Format(TEXT("{1} < 1000.0f ? {0} * {1}/1000.0f : {0}"), color.Value, temperature.Value), node);
+        value = writeLocal(ValueType::Float3, String::Format(TEXT("select({1} < 1000.0f, {0} * {1}/1000.0f, {0})"), color.Value, temperature.Value), node);
         break;
     }
     // HSVToRGB
@@ -490,8 +490,8 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         const auto rgb = tryGetValue(node->GetBox(0), node->Values[0]).AsFloat3();
         const auto epsilon = writeLocal(ValueType::Float, TEXT("1e-10"), node);
 
-        auto p = writeLocal(ValueType::Float4, String::Format(TEXT("({0}.g < {0}.b) ? float4({0}.bg, -1.0f, 2.0f/3.0f) : float4({0}.gb, 0.0f, -1.0f/3.0f)"), rgb.Value), node);
-        auto q = writeLocal(ValueType::Float4, String::Format(TEXT("({0}.r < {1}.x) ? float4({1}.xyw, {0}.r) : float4({0}.r, {1}.yzx)"), rgb.Value, p.Value), node);
+        auto p = writeLocal(ValueType::Float4, String::Format(TEXT("select(({0}.g < {0}.b), float4({0}.bg, -1.0f, 2.0f/3.0f), float4({0}.gb, 0.0f, -1.0f/3.0f))"), rgb.Value), node);
+        auto q = writeLocal(ValueType::Float4, String::Format(TEXT("select(({0}.r < {1}.x), float4({1}.xyw, {0}.r), float4({0}.r, {1}.yzx))"), rgb.Value, p.Value), node);
         auto c = writeLocal(ValueType::Float, String::Format(TEXT("{0}.x - min({0}.w, {0}.y)"), q.Value), node);
         auto h = writeLocal(ValueType::Float, String::Format(TEXT("abs(({0}.w - {0}.y) / (6 * {1} + {2}) + {0}.z)"), q.Value, c.Value, epsilon.Value), node);
 
@@ -736,13 +736,13 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
             blendFormula = TEXT("1.0 - (1.0 - base) * (1.0 - blend)");
             break;
         case 5: // Overlay
-            blendFormula = TEXT("base <= 0.5 ? 2.0 * base * blend : 1.0 - 2.0 * (1.0 - base) * (1.0 - blend)");
+            blendFormula = TEXT("select(base <= 0.5, 2.0 * base * blend, 1.0 - 2.0 * (1.0 - base) * (1.0 - blend))");
             break;
         case 6: // Linear Burn
             blendFormula = TEXT("base + blend - 1.0");
             break;
         case 7: // Linear Light
-            blendFormula = TEXT("blend < 0.5 ? max(base + (2.0 * blend) - 1.0, 0.0) : min(base + 2.0 * (blend - 0.5), 1.0)");
+            blendFormula = TEXT("select(blend < 0.5, max(base + (2.0 * blend) - 1.0, 0.0), min(base + 2.0 * (blend - 0.5), 1.0))");
             break;
         case 8: // Darken
             blendFormula = TEXT("min(base, blend)");
@@ -760,10 +760,10 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
             blendFormula = TEXT("base / (blend + 0.000001)");
             break;
         case 13: // Hard Light
-            blendFormula = TEXT("blend <= 0.5 ? 2.0 * base * blend : 1.0 - 2.0 * (1.0 - base) * (1.0 - blend)");
+            blendFormula = TEXT("select(blend <= 0.5, 2.0 * base * blend, 1.0 - 2.0 * (1.0 - base) * (1.0 - blend))");
             break;
         case 14: // Pin Light
-            blendFormula = TEXT("blend <= 0.5 ? min(base, 2.0 * blend) : max(base, 2.0 * (blend - 0.5))");
+            blendFormula = TEXT("select(blend <= 0.5, min(base, 2.0 * blend), max(base, 2.0 * (blend - 0.5)))");
             break;
         case 15: // Hard Mix
             blendFormula = TEXT("step(1.0 - base, blend)");
@@ -865,9 +865,18 @@ void MaterialGenerator::ProcessGroupFunction(Box* box, Node* node, Value& value)
     // Function Input
     case 1:
     {
+        // Check the stack count. If only 1 graph is present,
+        // we are processing the graph in isolation (e.g., in the Editor Preview).
+        // In this case, we skip the caller-finding logic and use the node's default value.
+        if (_graphStack.Count() < 2)
+        {
+            // Use the default value from the function input node's box (usually box 1)
+            value = tryGetValue(node->TryGetBox(1), Value::Zero);
+            break;
+        }
+
         // Find the function call
         Node* functionCallNode = nullptr;
-        ASSERT(_graphStack.Count() >= 2);
         Graph* graph;
         for (int32 i = _callStack.Count() - 1; i >= 0; i--)
         {
@@ -883,7 +892,7 @@ void MaterialGenerator::ProcessGroupFunction(Box* box, Node* node, Value& value)
             value = Value::Zero;
             break;
         }
-        const auto function = Assets.LoadAsync<MaterialFunction>((Guid)functionCallNode->Values[0]);
+        const auto function = Assets.Load<MaterialFunction>((Guid)functionCallNode->Values[0]);
         if (!_functions.TryGet(functionCallNode, graph) || !function)
         {
             OnError(node, box, TEXT("Missing calling function graph."));
