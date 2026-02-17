@@ -189,16 +189,27 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
     float cloudLinearDepth = SAMPLE_RT(CloudDepth, input.TexCoord).r;
     if (cloudLinearDepth >= (DepthRange.y - 1.0f))
         return 0;
+    const float viewFar = max(GBuffer.ViewFar, 1.0f);
     float sceneDepthRaw = SAMPLE_RT(SceneDepth, input.TexCoord).r;
-    float sceneLinearDepth = LinearizeZ(gBufferData, sceneDepthRaw) * max(GBuffer.ViewFar, 1.0f);
+    float sceneLinearDepthCenter = LinearizeZ(gBufferData, sceneDepthRaw) * viewFar;
 
-    // Reject cloud pixels that are behind opaque scene geometry.
-    if (cloudLinearDepth >= sceneLinearDepth)
+    // Cheap 5-tap scene depth blur for fluffy soft intersections.
+    float2 sceneTexel = gBufferData.ScreenSize.zw;
+    float sceneLinearDepthSoft = sceneLinearDepthCenter;
+    sceneLinearDepthSoft += LinearizeZ(gBufferData, SAMPLE_RT(SceneDepth, saturate(input.TexCoord + float2(sceneTexel.x, 0))).r) * viewFar;
+    sceneLinearDepthSoft += LinearizeZ(gBufferData, SAMPLE_RT(SceneDepth, saturate(input.TexCoord + float2(-sceneTexel.x, 0))).r) * viewFar;
+    sceneLinearDepthSoft += LinearizeZ(gBufferData, SAMPLE_RT(SceneDepth, saturate(input.TexCoord + float2(0, sceneTexel.y))).r) * viewFar;
+    sceneLinearDepthSoft += LinearizeZ(gBufferData, SAMPLE_RT(SceneDepth, saturate(input.TexCoord + float2(0, -sceneTexel.y))).r) * viewFar;
+    sceneLinearDepthSoft *= 0.2f;
+
+    // Hard reject only when cloud is significantly behind geometry.
+    float softRejectDistance = max(SoftIntersectionDistance * 2.0f, 1.0f);
+    if (cloudLinearDepth >= (sceneLinearDepthCenter + softRejectDistance))
         return 0;
 
     float alpha = saturate((cloudCoverage - AlphaThreshold) / max(1.0f - AlphaThreshold, 1e-4f));
     // Fade cloud near geometry intersections to avoid hard clipping seams.
-    float intersectionFade = saturate((sceneLinearDepth - cloudLinearDepth) / max(SoftIntersectionDistance, 1.0f));
+    float intersectionFade = saturate((sceneLinearDepthSoft - cloudLinearDepth) / max(SoftIntersectionDistance, 1.0f));
     alpha *= intersectionFade;
 
     // Optional distance-based alpha sharpening.
