@@ -1,6 +1,7 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using FlaxEditor.Content;
@@ -314,10 +315,83 @@ namespace FlaxEditor.Windows
         private void ReimportSelection()
         {
             var selection = _view.Selection;
+
+            // First pass: identify missing source files
+            var missingFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int missingCount = 0;
+            for (int i = 0; i < selection.Count; i++)
+            {
+                string importPath = null;
+                if (selection[i] is BinaryAssetItem binaryAssetItem && !binaryAssetItem.GetImportPath(out importPath))
+                {
+                    if (!File.Exists(importPath))
+                    {
+                        missingFileNames.Add(Path.GetFileName(importPath));
+                        missingCount++;
+                    }
+                }
+                else if (selection[i] is PrefabItem prefabItem)
+                {
+                    var prefab = FlaxEngine.Content.Load<Prefab>(prefabItem.ID);
+                    var modelPrefab = prefab.GetDefaultInstance().GetScript<ModelPrefab>();
+                    if (modelPrefab)
+                    {
+                        importPath = modelPrefab.ImportPath;
+                        if (!File.Exists(importPath))
+                        {
+                            missingFileNames.Add(Path.GetFileName(importPath));
+                            missingCount++;
+                        }
+                    }
+                }
+            }
+
+            // If there are missing source files, ask user to select folders to search
+            Dictionary<string, string> foundFiles = null;
+            if (missingCount > 0)
+            {
+                foundFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                int remaining = missingCount;
+                while (remaining > 0)
+                {
+                    var title = string.Format("{0} source file(s) missing. Select a folder to search", remaining);
+                    if (FileSystem.ShowBrowseFolderDialog(Editor.Windows.MainWindow, null, title, out var searchFolder))
+                        break; // User cancelled
+                    try
+                    {
+                        foreach (var file in Directory.EnumerateFiles(searchFolder, "*.*", SearchOption.AllDirectories))
+                        {
+                            var name = Path.GetFileName(file);
+                            if (missingFileNames.Contains(name) && !foundFiles.ContainsKey(name))
+                            {
+                                foundFiles[name] = file;
+                                remaining--;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Editor.LogWarning("Failed to search for missing source files: " + ex.Message);
+                    }
+                }
+            }
+
+            // Second pass: reimport all items
             for (int i = 0; i < selection.Count; i++)
             {
                 if (selection[i] is BinaryAssetItem binaryAssetItem)
-                    Editor.ContentImporting.Reimport(binaryAssetItem);
+                {
+                    if (binaryAssetItem.GetImportPath(out string importPath))
+                        continue;
+                    if (File.Exists(importPath))
+                    {
+                        Editor.ContentImporting.Reimport(binaryAssetItem);
+                    }
+                    else if (foundFiles != null && foundFiles.TryGetValue(Path.GetFileName(importPath), out var resolved))
+                    {
+                        Editor.ContentImporting.Reimport(binaryAssetItem, resolved);
+                    }
+                }
                 else if (selection[i] is PrefabItem prefabItem)
                 {
                     var prefab = FlaxEngine.Content.Load<Prefab>(prefabItem.ID);
@@ -325,9 +399,12 @@ namespace FlaxEditor.Windows
                     if (!modelPrefab)
                         continue;
                     var importPath = modelPrefab.ImportPath;
+                    if (!File.Exists(importPath))
+                    {
+                        if (foundFiles == null || !foundFiles.TryGetValue(Path.GetFileName(importPath), out importPath))
+                            continue;
+                    }
                     var editor = Editor.Instance;
-                    if (editor.ContentImporting.GetReimportPath("Model Prefab", ref importPath))
-                        continue;
                     var folder = editor.ContentDatabase.Find(Path.GetDirectoryName(prefab.Path)) as ContentFolder;
                     if (folder == null)
                         continue;
