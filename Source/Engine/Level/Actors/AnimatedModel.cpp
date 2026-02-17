@@ -910,11 +910,13 @@ void AnimatedModel::UpdateSockets()
 void AnimatedModel::OnAnimationUpdated_Async()
 {
     // Update asynchronous stuff
+    if (!SkinnedModel || !SkinnedModel->IsLoaded())
+        return;
     const auto& skeleton = SkinnedModel->Skeleton;
 
     // Copy pose from the master
     // TODO: support retargetting master pose to current pose
-    if (_masterPose && _masterPose->SkinnedModel->Skeleton.Nodes.Count() == skeleton.Nodes.Count())
+    if (_masterPose && _masterPose->SkinnedModel && _masterPose->SkinnedModel->IsLoaded() && _masterPose->SkinnedModel->Skeleton.Nodes.Count() == skeleton.Nodes.Count())
     {
         ANIM_GRAPH_PROFILE_EVENT("Copy Master Pose");
         const auto& masterInstance = _masterPose->GraphInstance;
