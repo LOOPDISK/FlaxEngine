@@ -481,6 +481,7 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
 
     // Prepare
     auto& info = _shaderHeader.Material.Info;
+    const bool isOpaque = info.BlendMode == MaterialBlendMode::Opaque;
     const bool isSurfaceOrTerrainOrDeformable = info.Domain == MaterialDomain::Surface || info.Domain == MaterialDomain::Terrain || info.Domain == MaterialDomain::Deformable;
     const bool useCustomData = info.ShadingModel == MaterialShadingModel::Subsurface || info.ShadingModel == MaterialShadingModel::Foliage || info.ShadingModel == MaterialShadingModel::Weapon;
     const bool useForward = ((info.Domain == MaterialDomain::Surface || info.Domain == MaterialDomain::Deformable) && !isOpaque) || info.Domain == MaterialDomain::Particle;

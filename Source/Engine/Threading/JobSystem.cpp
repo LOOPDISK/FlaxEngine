@@ -182,6 +182,15 @@ int32 JobSystemThread::Run()
                 if (jobIndex < jobContext->JobsCount)
                 {
                     // Index is valid
+
+                    // Check if the job still is valid
+                    if (!jobContext->Job.IsBinded())
+                    {
+                        LOG(Error, "Job method was invalid. Ignoring job.");
+                        jobContext == nullptr;
+                        goto RETRY;
+                    }
+
                 }
                 else if (jobStartLabel < jobEndLabel && jobOffset == 0)
                 {
