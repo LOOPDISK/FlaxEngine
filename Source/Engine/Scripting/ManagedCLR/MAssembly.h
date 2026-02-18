@@ -7,6 +7,7 @@
 #include "Engine/Core/Types/String.h"
 #include "Engine/Core/Collections/Array.h"
 #include "Engine/Core/Collections/Dictionary.h"
+#include "Engine/Core/Memory/ArenaAllocation.h"
 #include "Engine/Platform/CriticalSection.h"
 
 /// <summary>
@@ -19,7 +20,7 @@ class FLAXENGINE_API MAssembly
     friend Scripting;
 
 public:
-    typedef Dictionary<StringAnsi, MClass*> ClassesDictionary;
+    typedef Dictionary<StringAnsiView, MClass*> ClassesDictionary;
 
 private:
 #if USE_MONO
@@ -33,6 +34,7 @@ private:
 
     int32 _isLoaded : 1;
     int32 _isLoading : 1;
+    int32 _canReload : 1;
     mutable int32 _hasCachedClasses : 1;
 
     mutable ClassesDictionary _classes;
@@ -66,6 +68,15 @@ public:
     /// Finalizes an instance of the <see cref="MAssembly"/> class.
     /// </summary>
     ~MAssembly();
+
+public:
+    /// <summary>
+    /// Memory storage with all assembly-related data that shares its lifetime (eg. metadata).
+    /// </summary>
+    ArenaAllocator Memory;
+
+    // Allocates the given string within a memory that has lifetime of assembly.
+    StringAnsiView AllocString(const char* str);
 
 public:
     /// <summary>
@@ -113,6 +124,14 @@ public:
     FORCE_INLINE bool IsLoaded() const
     {
         return _isLoaded != 0;
+    }
+
+    /// <summary>
+    /// Returns true if assembly can be hot-reloaded at runtime. For example, in Editor after scripts recompilation. Some assemblies such as engine and class library modules are static.
+    /// </summary>
+    FORCE_INLINE bool CanReload() const
+    {
+        return USE_EDITOR && _canReload;
     }
 
     /// <summary>

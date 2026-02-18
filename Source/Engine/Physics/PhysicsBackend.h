@@ -164,7 +164,7 @@ public:
     static Vector3 GetRigidDynamicActorAngularVelocity(void* actor);
     static void SetRigidDynamicActorAngularVelocity(void* actor, const Vector3& value, bool wakeUp);
     static Vector3 GetRigidDynamicActorCenterOfMass(void* actor);
-    static void SetRigidDynamicActorCenterOfMassOffset(void* actor, const Float3& value);
+    static void AddRigidDynamicActorCenterOfMassOffset(void* actor, const Float3& value);
     static bool GetRigidDynamicActorIsSleeping(void* actor);
     static void RigidDynamicActorSleep(void* actor);
     static void RigidDynamicActorWakeUp(void* actor);
@@ -222,6 +222,7 @@ public:
     static float GetHingeJointVelocity(void* joint);
     static void SetSliderJointFlags(void* joint, SliderJointFlag value);
     static void SetSliderJointLimit(void* joint, const LimitLinearRange& value);
+    static void SetSliderJointProjection(void* joint, bool useProjection, float linearProjection, float angularProjection);
     static float GetSliderJointPosition(void* joint);
     static float GetSliderJointVelocity(void* joint);
     static void SetSphericalJointFlags(void* joint, SphericalJointFlag value);
@@ -309,6 +310,7 @@ public:
     static bool ModifyHeightField(void* heightField, int32 startCol, int32 startRow, int32 cols, int32 rows, const HeightFieldSample* data);
     static void FlushRequests();
     static void FlushRequests(void* scene);
+    static void FlushQueryUpdates(void* scene);
     static void DestroyActor(void* actor);
     static void DestroyShape(void* shape);
     static void DestroyJoint(void* joint);
