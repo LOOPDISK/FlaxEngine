@@ -49,6 +49,7 @@ void ParticleMaterialShader::Bind(BindParameters& params)
     auto context = params.GPUContext;
     auto& view = params.RenderContext.View;
     auto& drawCall = *params.DrawCall;
+    const uint32 sortedIndicesOffset = drawCall.Particle.Module->SortedIndicesOffset;
     Span<byte> cb(_cbData.Get(), _cbData.Count());
     ASSERT_LOW_LAYER(cb.Length() >= sizeof(ParticleMaterialShaderData));
     auto materialData = reinterpret_cast<ParticleMaterialShaderData*>(cb.Get());
