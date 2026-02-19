@@ -2,6 +2,7 @@
 
 #include "MaterialShaderFeatures.h"
 #include "Engine/Graphics/RenderTask.h"
+#include "Engine/Graphics/RenderBuffers.h"
 #include "Engine/Graphics/Textures/GPUTexture.h"
 #include "Engine/Renderer/RenderList.h"
 #include "Engine/Renderer/ShadowsPass.h"
@@ -9,9 +10,11 @@
 #if USE_EDITOR
 #include "Engine/Renderer/Lightmaps.h"
 #endif
+#include "Engine/Content/Content.h"
 #include "Engine/Graphics/GPUContext.h"
 #include "Engine/Level/Scene/Lightmap.h"
 #include "Engine/Level/Actors/EnvironmentProbe.h"
+#include "Engine/Renderer/ReflectionsPass.h"
 
 void ForwardShadingFeature::Bind(MaterialShader::BindParameters& params, Span<byte>& cb, int32& srv)
 {
@@ -24,18 +27,32 @@ void ForwardShadingFeature::Bind(MaterialShader::BindParameters& params, Span<by
     const int32 skyLightShaderRegisterIndex = srv + 1;
     const int32 shadowsBufferRegisterIndex = srv + 2;
     const int32 shadowMapShaderRegisterIndex = srv + 3;
+    const int32 volumetricFogTextureRegisterIndex = srv + 4;
+    const int32 preIntegratedGFRegisterIndex = srv + 5;
     const bool canUseShadow = view.Pass != DrawPass::Depth;
 
     // Set fog input
+    GPUTextureView* volumetricFogTexture = nullptr;
     if (cache->Fog)
     {
         cache->Fog->GetExponentialHeightFogData(view, data.ExponentialHeightFog);
+        VolumetricFogOptions volumetricFog;
+        cache->Fog->GetVolumetricFogOptions(volumetricFog);
+        if (volumetricFog.UseVolumetricFog() && params.RenderContext.Buffers->VolumetricFog)
+            volumetricFogTexture = params.RenderContext.Buffers->VolumetricFog->ViewVolume();
+        else
+            data.ExponentialHeightFog.VolumetricFogMaxDistance = -1.0f;
     }
     else
     {
         data.ExponentialHeightFog.FogMinOpacity = 1.0f;
+        data.ExponentialHeightFog.FogDensity = 0.0f;
+        data.ExponentialHeightFog.FogCutoffDistance = 0.1f;
+        data.ExponentialHeightFog.StartDistance = 0.0f;
         data.ExponentialHeightFog.ApplyDirectionalInscattering = 0.0f;
+        data.ExponentialHeightFog.VolumetricFogMaxDistance = -1.0f;
     }
+    params.GPUContext->BindSR(volumetricFogTextureRegisterIndex, volumetricFogTexture);
 
     // Set directional light input
     if (cache->DirectionalLights.HasItems())
@@ -87,9 +104,12 @@ void ForwardShadingFeature::Bind(MaterialShader::BindParameters& params, Span<by
     }
     if (noEnvProbe)
     {
-        data.EnvironmentProbe.Data1 = Float4::Zero;
+        Platform::MemoryClear(&data.EnvironmentProbe, sizeof(data.EnvironmentProbe));
         params.GPUContext->UnBindSR(envProbeShaderRegisterIndex);
     }
+    // TODO: find a better way to find this texture (eg. cache GPUTextureView* handle within ForwardShading cache for a whole frame)
+    static AssetReference<Texture> PreIntegratedGF = Content::LoadAsyncInternal<Texture>(PRE_INTEGRATED_GF_ASSET_NAME);
+    params.GPUContext->BindSR(preIntegratedGFRegisterIndex, PreIntegratedGF->GetTexture());
 
     // Set local lights
     data.LocalLightsCount = 0;
@@ -178,7 +198,7 @@ bool GlobalIlluminationFeature::Bind(MaterialShader::BindParameters& params, Spa
     {
         // Unbind SRVs to prevent issues
         data.DDGI.CascadesCount = 0;
-        data.DDGI.FallbackIrradiance = Float3::Zero;
+        data.DDGI.FallbackIrradiance = Float4::Zero;
         params.GPUContext->UnBindSR(srv + 0);
         params.GPUContext->UnBindSR(srv + 1);
         params.GPUContext->UnBindSR(srv + 2);

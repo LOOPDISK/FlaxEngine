@@ -55,7 +55,9 @@ namespace Flax.Build.Projects.VisualStudio
             }
 
             // Try to reuse the existing project guid from solution file
-            vsProject.ProjectGuid = GetProjectGuid(solutionPath, vsProject.Name);
+            vsProject.ProjectGuid = GetProjectGuid(vsProject.Path, vsProject.Name);
+            if (vsProject.ProjectGuid == Guid.Empty)
+                vsProject.ProjectGuid = GetProjectGuid(solutionPath, vsProject.Name);
             if (vsProject.ProjectGuid == Guid.Empty)
                 vsProject.ProjectGuid = Guid.NewGuid();
 
@@ -130,6 +132,8 @@ namespace Flax.Build.Projects.VisualStudio
             // Configurations
             foreach (var configuration in project.Configurations)
             {
+                if (configuration.Equals(defaultConfiguration))
+                    continue;
                 WriteConfiguration(project, csProjectFileContent, projectDirectory, configuration);
             }
 
@@ -307,6 +311,7 @@ namespace Flax.Build.Projects.VisualStudio
             }
             csProjectFileContent.AppendLine(string.Format("    <DocumentationFile>{0}\\{1}.CSharp.xml</DocumentationFile>", outputPath, project.BaseName));
             csProjectFileContent.AppendLine("    <UseVSHostingProcess>true</UseVSHostingProcess>");
+            csProjectFileContent.AppendLine(string.Format("    <FlaxConfiguration>{0}</FlaxConfiguration>", configuration.ConfigurationName));
 
             csProjectFileContent.AppendLine("  </PropertyGroup>");
 

@@ -202,6 +202,12 @@ namespace Flax.Build
         public static bool ProjectFormatVS2022 = false;
 
         /// <summary>
+        /// Generates Visual Studio 2026 project format files. Valid only with -genproject option.
+        /// </summary>
+        [CommandLine("vs2026", "Generates Visual Studio 2026 project format files. Valid only with -genproject option.")]
+        public static bool ProjectFormatVS2026 = false;
+
+        /// <summary>
         /// Generates Visual Studio Code project format files. Valid only with -genproject option.
         /// </summary>
         [CommandLine("vscode", "Generates Visual Studio Code project format files. Valid only with -genproject option.")]
@@ -275,6 +281,12 @@ namespace Flax.Build
         /// </summary>
         [CommandLine("useDotNet", "1 to enable .NET support in build, 0 to enable Mono support in build")]
         public static bool UseDotNet = true;
+
+        /// <summary>
+        /// True if enable logging in Release game builds.
+        /// </summary>
+        [CommandLine("useLogInRelease", "Can be used to disable logging in Release game builds")]
+        public static bool UseLogInRelease = true;
 
         public static bool WithCSharp(NativeCpp.BuildOptions options)
         {

@@ -285,86 +285,84 @@ namespace
             nodes->RootMotion.Orientation.Normalize();
         }
     }
-
-    Matrix ComputeWorldMatrixRecursive(const SkeletonData& skeleton, int32 index, Matrix localMatrix)
-    {
-        const auto& node = skeleton.Nodes[index];
-        index = node.ParentIndex;
-        while (index != -1)
-        {
-            const auto& parent = skeleton.Nodes[index];
-            localMatrix *= parent.LocalTransform.GetWorld();
-            index = parent.ParentIndex;
-        }
-        return localMatrix;
-    }
-
-    Matrix ComputeInverseParentMatrixRecursive(const SkeletonData& skeleton, int32 index)
-    {
-        Matrix inverseParentMatrix = Matrix::Identity;
-        const auto& node = skeleton.Nodes[index];
-        if (node.ParentIndex != -1)
-        {
-            inverseParentMatrix = ComputeWorldMatrixRecursive(skeleton, index, inverseParentMatrix);
-            inverseParentMatrix = Matrix::Invert(inverseParentMatrix);
-        }
-        return inverseParentMatrix;
-    }
 }
 
-void RetargetSkeletonNode(const SkeletonData& sourceSkeleton, const SkeletonData& targetSkeleton, const SkinnedModel::SkeletonMapping& sourceMapping, Transform& node, int32 targetIndex)
+// Utility for retargeting animation poses between skeletons.
+struct Retargeting
 {
-    // sourceSkeleton - skeleton of Anim Graph (Base Locomotion pack)
-    // targetSkeleton - visual mesh skeleton (City Characters pack)
-    // target - anim graph input/output transformation of that node
-    const auto& targetNode = targetSkeleton.Nodes[targetIndex];
-    const int32 sourceIndex = sourceMapping.NodesMapping[targetIndex];
-    if (sourceIndex == -1)
+private:
+    const Matrix* _sourcePosePtr, * _targetPosePtr;
+    const SkeletonData* _sourceSkeleton, *_targetSkeleton;
+    const SkinnedModel::SkeletonMapping* _sourceMapping;
+
+public:
+    void Init(const SkeletonData& sourceSkeleton, const SkeletonData& targetSkeleton, const SkinnedModel::SkeletonMapping& sourceMapping)
     {
-        // Use T-pose
-        node = targetNode.LocalTransform;
-        return;
+        ASSERT_LOW_LAYER(targetSkeleton.Nodes.Count() == sourceMapping.NodesMapping.Length());
+        
+        // Cache world-space poses for source and target skeletons to avoid redundant calculations during retargeting
+        _sourcePosePtr = sourceSkeleton.GetNodesPose().Get();
+        _targetPosePtr = targetSkeleton.GetNodesPose().Get();
+
+        _sourceSkeleton = &sourceSkeleton;
+        _targetSkeleton = &targetSkeleton;
+        _sourceMapping = &sourceMapping;
     }
-    const auto& sourceNode = sourceSkeleton.Nodes[sourceIndex];
 
-    // [Reference: https://wickedengine.net/2022/09/animation-retargeting/comment-page-1/]
-
-    // Calculate T-Pose of source node, target node and target parent node
-    Matrix bindMatrix = ComputeWorldMatrixRecursive(sourceSkeleton, sourceIndex, sourceNode.LocalTransform.GetWorld());
-    Matrix inverseBindMatrix = Matrix::Invert(bindMatrix);
-    Matrix targetMatrix = ComputeWorldMatrixRecursive(targetSkeleton, targetIndex, targetNode.LocalTransform.GetWorld());
-    Matrix inverseParentMatrix = ComputeInverseParentMatrixRecursive(targetSkeleton, targetIndex);
-
-    // Target node animation is world-space difference of the animated source node inside the target's parent node world-space
-    Matrix localMatrix = inverseBindMatrix * ComputeWorldMatrixRecursive(sourceSkeleton, sourceIndex, node.GetWorld());
-    localMatrix = targetMatrix * localMatrix * inverseParentMatrix;
-
-    // Extract local node transformation
-    localMatrix.Decompose(node);
-}
-
-void RetargetSkeletonPose(const SkeletonData& sourceSkeleton, const SkeletonData& targetSkeleton, const SkinnedModel::SkeletonMapping& mapping, const Transform* sourceNodes, Transform* targetNodes)
-{
-    // TODO: cache source and target skeletons world-space poses for faster retargeting (use some pooled memory)
-    ASSERT_LOW_LAYER(targetSkeleton.Nodes.Count() == mapping.NodesMapping.Length());
-    for (int32 targetIndex = 0; targetIndex < targetSkeleton.Nodes.Count(); targetIndex++)
+    void RetargetNode(const Transform& source, Transform& target, int32 sourceIndex, int32 targetIndex)
     {
-        auto& targetNode = targetSkeleton.Nodes.Get()[targetIndex];
-        const int32 sourceIndex = mapping.NodesMapping.Get()[targetIndex];
-        Transform node;
+        // sourceSkeleton - skeleton of Anim Graph
+        // targetSkeleton - visual mesh skeleton
+        // target - anim graph input/output transformation of that node
+        const SkeletonNode& targetNode = _targetSkeleton->Nodes.Get()[targetIndex];
         if (sourceIndex == -1)
         {
             // Use T-pose
-            node = targetNode.LocalTransform;
+            target = targetNode.LocalTransform;
         }
         else
         {
-            // Retarget
-            node = sourceNodes[sourceIndex];
-            RetargetSkeletonNode(sourceSkeleton, targetSkeleton, mapping, node, targetIndex);
+            // [Reference: https://wickedengine.net/2022/09/animation-retargeting/comment-page-1/]
+
+            // Calculate T-Pose of source node, target node and target parent node
+            const Matrix* sourcePosePtr = _sourcePosePtr;
+            const Matrix* targetPosePtr = _targetPosePtr;
+            const Matrix& bindMatrix = sourcePosePtr[sourceIndex];
+            const Matrix& targetMatrix = targetPosePtr[targetIndex];
+            Matrix inverseParentMatrix;
+            if (targetNode.ParentIndex != -1)
+                Matrix::Invert(targetPosePtr[targetNode.ParentIndex], inverseParentMatrix);
+            else
+                inverseParentMatrix = Matrix::Identity;
+
+            // Target node animation is world-space difference of the animated source node inside the target's parent node world-space
+            const SkeletonNode& sourceNode = _sourceSkeleton->Nodes.Get()[sourceIndex];
+            Matrix localMatrix = source.GetWorld();
+            if (sourceNode.ParentIndex != -1)
+                localMatrix = localMatrix * sourcePosePtr[sourceNode.ParentIndex];
+            localMatrix = Matrix::Invert(bindMatrix) * localMatrix;
+            localMatrix = targetMatrix * localMatrix * inverseParentMatrix;
+
+            // Extract local node transformation
+            localMatrix.Decompose(target);
         }
-        targetNodes[targetIndex] = node;
     }
+
+    FORCE_INLINE void RetargetPose(const Transform* sourceNodes, Transform* targetNodes)
+    {
+        for (int32 targetIndex = 0; targetIndex < _targetSkeleton->Nodes.Count(); targetIndex++)
+        {
+            const int32 sourceIndex = _sourceMapping->NodesMapping.Get()[targetIndex];
+            RetargetNode(sourceNodes[sourceIndex], targetNodes[targetIndex], sourceIndex, targetIndex);
+        }
+    }
+};
+
+void RetargetSkeletonPose(const SkeletonData& sourceSkeleton, const SkeletonData& targetSkeleton, const SkinnedModel::SkeletonMapping& mapping, const Transform* sourceNodes, Transform* targetNodes)
+{
+    Retargeting retargeting;
+    retargeting.Init(sourceSkeleton, targetSkeleton, mapping);
+    retargeting.RetargetPose(sourceNodes, targetNodes);
 }
 
 AnimGraphTraceEvent& AnimGraphContext::AddTraceEvent(const AnimGraphNode* node)
@@ -422,11 +420,19 @@ void AnimGraphExecutor::ProcessAnimEvents(AnimGraphNode* node, bool loop, float 
             const float duration = k.Value.Duration > 1 ? k.Value.Duration : 0.0f;
 #define ADD_OUTGOING_EVENT(type) context.Data->OutgoingEvents.Add({ k.Value.Instance, (AnimatedModel*)context.Data->Object, anim, eventTime, eventDeltaTime, AnimGraphInstanceData::OutgoingEvent::type })
             if ((k.Time <= eventTimeMax && eventTimeMin <= k.Time + duration
-                && (Math::FloorToInt(animPos) != 0 && Math::CeilToInt(animPrevPos) != Math::CeilToInt(anim->GetDuration()) && Math::FloorToInt(animPrevPos) != 0 && Math::CeilToInt(animPos) != Math::CeilToInt(anim->GetDuration())))
+                && (Math::FloorToInt(animPos) != 0 && Math::CeilToInt(animPrevPos) != Math::CeilToInt(anim->GetDuration())
+                    && Math::FloorToInt(animPrevPos) != 0 && Math::CeilToInt(animPos) != Math::CeilToInt(anim->GetDuration())))
                 // Handle the edge case of an event on 0 or on max animation duration during looping
-                || (loop && duration == 0.0f && Math::CeilToInt(animPos) == Math::CeilToInt(anim->GetDuration()) && k.Time == anim->GetDuration())
+                || (!loop && duration == 0.0f && Math::CeilToInt(animPos) == Math::CeilToInt(anim->GetDuration()) && Math::CeilToInt(animPrevPos) == Math::CeilToInt(anim->GetDuration()) - 1 && Math::NearEqual(k.Time, anim->GetDuration()))
                 || (loop && Math::FloorToInt(animPos) == 0 && Math::CeilToInt(animPrevPos) == Math::CeilToInt(anim->GetDuration()) && k.Time == 0.0f)
                 || (loop && Math::FloorToInt(animPrevPos) == 0 && Math::CeilToInt(animPos) == Math::CeilToInt(anim->GetDuration()) && k.Time == 0.0f)
+                || (loop && Math::FloorToInt(animPos) == 0 && Math::CeilToInt(animPrevPos) == Math::CeilToInt(anim->GetDuration()) && Math::NearEqual(k.Time, anim->GetDuration()))
+                || (loop && Math::FloorToInt(animPrevPos) == 0 && Math::CeilToInt(animPos) == Math::CeilToInt(anim->GetDuration()) && Math::NearEqual(k.Time, anim->GetDuration()))
+                || (Math::FloorToInt(animPos) == 1 && Math::FloorToInt(animPrevPos) == 0 && k.Time == 1.0f)
+                || (Math::FloorToInt(animPos) == 0 && Math::FloorToInt(animPrevPos) == 1 && k.Time == 1.0f)
+                || (Math::CeilToInt(animPos) == Math::CeilToInt(anim->GetDuration()) && Math::CeilToInt(animPrevPos) == Math::CeilToInt(anim->GetDuration()) - 1 && Math::NearEqual(k.Time, anim->GetDuration() - 1.0f))
+                || (Math::CeilToInt(animPos) == Math::CeilToInt(anim->GetDuration()) - 1 && Math::CeilToInt(animPrevPos) == Math::CeilToInt(anim->GetDuration()) && Math::NearEqual(k.Time, anim->GetDuration() - 1.0f))
+                || (Math::FloorToInt(animPos) == 0 && Math::FloorToInt(animPrevPos) == 0 && k.Time == 0.0f)
                 )
             {
                 int32 stateIndex = -1;
@@ -599,9 +605,13 @@ void AnimGraphExecutor::ProcessAnimation(AnimGraphImpulse* nodes, AnimGraphNode*
     const bool weighted = weight < 1.0f;
     const bool retarget = mapping.SourceSkeleton && mapping.SourceSkeleton != mapping.TargetSkeleton;
     const auto emptyNodes = GetEmptyNodes();
+    Retargeting retargeting;
     SkinnedModel::SkeletonMapping sourceMapping;
     if (retarget)
+    {
         sourceMapping = _graph.BaseModel->GetSkeletonMapping(mapping.SourceSkeleton);
+        retargeting.Init(mapping.SourceSkeleton->Skeleton, mapping.TargetSkeleton->Skeleton, mapping);
+    }
     for (int32 nodeIndex = 0; nodeIndex < nodes->Nodes.Count(); nodeIndex++)
     {
         const int32 nodeToChannel = mapping.NodesMapping[nodeIndex];
@@ -615,7 +625,8 @@ void AnimGraphExecutor::ProcessAnimation(AnimGraphImpulse* nodes, AnimGraphNode*
             // Optionally retarget animation into the skeleton used by the Anim Graph
             if (retarget)
             {
-                RetargetSkeletonNode(mapping.SourceSkeleton->Skeleton, mapping.TargetSkeleton->Skeleton, sourceMapping, srcNode, nodeIndex);
+                const int32 sourceIndex = sourceMapping.NodesMapping[nodeIndex];
+                retargeting.RetargetNode(srcNode, srcNode, sourceIndex, nodeIndex);
             }
 
             // Mark node as used
@@ -852,9 +863,12 @@ Variant AnimGraphExecutor::Blend(AnimGraphNode* node, const Value& poseA, const 
     if (!ANIM_GRAPH_IS_VALID_PTR(poseB))
         nodesB = GetEmptyNodes();
 
+    const Transform* srcA = nodesA->Nodes.Get();
+    const Transform* srcB = nodesB->Nodes.Get();
+    Transform* dst = nodes->Nodes.Get();
     for (int32 i = 0; i < nodes->Nodes.Count(); i++)
     {
-        Transform::Lerp(nodesA->Nodes[i], nodesB->Nodes[i], alpha, nodes->Nodes[i]);
+        Transform::Lerp(srcA[i], srcB[i], alpha, dst[i]);
     }
     Transform::Lerp(nodesA->RootMotion, nodesB->RootMotion, alpha, nodes->RootMotion);
     nodes->Position = Math::Lerp(nodesA->Position, nodesB->Position, alpha);
@@ -1121,6 +1135,21 @@ void AnimGraphExecutor::ProcessGroupParameters(Box* box, Node* node, Value& valu
             // TODO: add warning that no parameter selected
             value = Value::Zero;
         }
+        break;
+    }
+    // Set Parameter
+    case 5:
+    {
+        // Set parameter value
+        int32 paramIndex;
+        const auto param = _graph.GetParameter((Guid)node->Values[0], paramIndex);
+        if (param)
+        {
+            context.Data->Parameters[paramIndex].Value = tryGetValue(node->GetBox(1), 1, Value::Null);
+        }
+
+        // Pass over the pose
+        value = tryGetValue(node->GetBox(2), Value::Null);
         break;
     }
     default:
@@ -1491,21 +1520,7 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         {
             const auto valueA = tryGetValue(node->GetBox(1), Value::Null);
             const auto valueB = tryGetValue(node->GetBox(2), Value::Null);
-            const auto nodes = node->GetNodes(this);
-
-            auto nodesA = static_cast<AnimGraphImpulse*>(valueA.AsPointer);
-            auto nodesB = static_cast<AnimGraphImpulse*>(valueB.AsPointer);
-            if (!ANIM_GRAPH_IS_VALID_PTR(valueA))
-                nodesA = GetEmptyNodes();
-            if (!ANIM_GRAPH_IS_VALID_PTR(valueB))
-                nodesB = GetEmptyNodes();
-
-            for (int32 i = 0; i < nodes->Nodes.Count(); i++)
-            {
-                Transform::Lerp(nodesA->Nodes[i], nodesB->Nodes[i], alpha, nodes->Nodes[i]);
-            }
-            Transform::Lerp(nodesA->RootMotion, nodesB->RootMotion, alpha, nodes->RootMotion);
-            value = nodes;
+            value = Blend(node, valueA, valueB, alpha, AlphaBlendMode::Linear);
         }
 
         break;
@@ -2222,35 +2237,38 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         // [2]: int Pose Count
         // [3]: AlphaBlendMode Mode
 
-        // Prepare
         auto& bucket = context.Data->State[node->BucketIndex].BlendPose;
-        const int32 poseIndex = (int32)tryGetValue(node->GetBox(1), node->Values[0]);
+        const int16 poseIndex = (int32)tryGetValue(node->GetBox(1), node->Values[0]);
         const float blendDuration = (float)tryGetValue(node->GetBox(2), node->Values[1]);
         const int32 poseCount = Math::Clamp(node->Values[2].AsInt, 0, MaxBlendPoses);
         const AlphaBlendMode mode = (AlphaBlendMode)node->Values[3].AsInt;
-
-        // Skip if nothing to blend
         if (poseCount == 0 || poseIndex < 0 || poseIndex >= poseCount)
-        {
             break;
+
+        // Check if swap transition end points
+        if (bucket.PreviousBlendPoseIndex == poseIndex && bucket.BlendPoseIndex != poseIndex && bucket.TransitionPosition >= ANIM_GRAPH_BLEND_THRESHOLD)
+        {
+            bucket.TransitionPosition = blendDuration - bucket.TransitionPosition;
+            Swap(bucket.BlendPoseIndex, bucket.PreviousBlendPoseIndex);
         }
 
         // Check if transition is not active (first update, pose not changing or transition ended)
         bucket.TransitionPosition += context.DeltaTime;
+        bucket.BlendPoseIndex = poseIndex;
         if (bucket.PreviousBlendPoseIndex == -1 || bucket.PreviousBlendPoseIndex == poseIndex || bucket.TransitionPosition >= blendDuration || blendDuration <= ANIM_GRAPH_BLEND_THRESHOLD)
         {
             bucket.TransitionPosition = 0.0f;
+            bucket.BlendPoseIndex = poseIndex;
             bucket.PreviousBlendPoseIndex = poseIndex;
-            value = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + poseIndex), Value::Null);
+            value = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + bucket.BlendPoseIndex), Value::Null);
             break;
         }
-        ASSERT(bucket.PreviousBlendPoseIndex >= 0 && bucket.PreviousBlendPoseIndex < poseCount);
 
         // Blend two animations
         {
             const float alpha = bucket.TransitionPosition / blendDuration;
             const auto valueA = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + bucket.PreviousBlendPoseIndex), Value::Null);
-            const auto valueB = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + poseIndex), Value::Null);
+            const auto valueB = tryGetValue(node->GetBox(FirstBlendPoseBoxIndex + bucket.BlendPoseIndex), Value::Null);
             value = Blend(node, valueA, valueB, alpha, mode);
         }
 
@@ -2905,10 +2923,14 @@ void AnimGraphExecutor::ProcessGroupAnimation(Box* boxBase, Node* nodeBase, Valu
         {
             if (bucket.LoopsLeft == 0)
             {
-                // End playing animation
+                // End playing animation and reset bucket params
                 value = tryGetValue(node->GetBox(1), Value::Null);
                 bucket.Index = -1;
                 slot.Animation = nullptr;
+                bucket.TimePosition = 0.0f;
+                bucket.BlendInPosition = 0.0f;
+                bucket.BlendOutPosition = 0.0f;
+                bucket.LoopsDone = 0;
                 return;
             }
 
@@ -3399,9 +3421,15 @@ void AnimGraphExecutor::ProcessGroupFunction(Box* boxBase, Node* node, Value& va
     // Function Input
     case 1:
     {
+        // Skip when graph is too small (eg. preview) and fallback with default value from the function graph
+        if (context.GraphStack.Count() < 2)
+        {
+            value = tryGetValue(node->TryGetBox(1), Value::Zero);
+            break;
+        }
+
         // Find the function call
         AnimGraphNode* functionCallNode = nullptr;
-        ASSERT(context.GraphStack.Count() >= 2);
         Graph* graph;
         for (int32 i = context.CallStack.Count() - 1; i >= 0; i--)
         {
