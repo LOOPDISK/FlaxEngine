@@ -30,6 +30,14 @@ void SliderJoint::SetLimit(const LimitLinearRange& value)
         PhysicsBackend::SetSliderJointLimit(_joint, value);
 }
 
+void SliderJoint::SetProjection(bool useProjection, float linearTolerance, float angularTolerance)
+{
+    if (_joint)
+    {
+        PhysicsBackend::SetSliderJointProjection(_joint, useProjection, linearTolerance, angularTolerance);
+    }
+}
+
 float SliderJoint::GetCurrentPosition() const
 {
     return _joint ? PhysicsBackend::GetSliderJointPosition(_joint) : 0.0f;

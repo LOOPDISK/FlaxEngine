@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
 namespace Flax.Build
@@ -115,7 +116,7 @@ namespace Flax.Build
             /// Init with a proper message.
             /// </summary>
             public MissingException()
-            : base(string.IsNullOrEmpty(Configuration.Dotnet) ? $"Missing .NET SDK {MinimumVersion} (or higher)." : $"Missing .NET SDK {Configuration.Dotnet}.")
+            : base(string.IsNullOrEmpty(Configuration.Dotnet) ? $"Missing .NET SDK {MinimumVersion} (or higher) for {Platform.BuildTargetPlatform} {Platform.BuildTargetArchitecture}." : $"Missing .NET SDK {Configuration.Dotnet}.")
             {
             }
         }
@@ -135,7 +136,7 @@ namespace Flax.Build
         /// <summary>
         /// The maximum SDK version.
         /// </summary>
-        public static Version MaximumVersion => new Version(9, 0);
+        public static Version MaximumVersion => new Version(10, 0);
 
         /// <inheritdoc />
         public override TargetPlatform[] Platforms
@@ -166,6 +167,7 @@ namespace Flax.Build
         /// </summary>
         public string CSharpLanguageVersion => Version.Major switch
         {
+            _ when Version.Major >= 10 => "14.0",
             _ when Version.Major >= 9 => "13.0",
             _ when Version.Major >= 8 => "12.0",
             _ when Version.Major >= 7 => "11.0",
@@ -186,7 +188,7 @@ namespace Flax.Build
 
             // Find system-installed SDK
             string dotnetPath = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-            string rid, ridFallback, arch;
+            string arch;
             IEnumerable<string> dotnetSdkVersions = null, dotnetRuntimeVersions = null;
             switch (architecture)
             {
@@ -208,8 +210,6 @@ namespace Flax.Build
             {
             case TargetPlatform.Windows:
             {
-                rid = $"win-{arch}";
-                ridFallback = "";
 #pragma warning disable CA1416
                 if (string.IsNullOrEmpty(dotnetPath))
                 {
@@ -217,25 +217,29 @@ namespace Flax.Build
                     using RegistryKey sdkVersionsKey = baseKey.OpenSubKey($@"SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\{arch}\sdk");
                     using RegistryKey runtimeKey = baseKey.OpenSubKey(@$"SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\{arch}\sharedfx\Microsoft.NETCore.App");
                     using RegistryKey hostKey = baseKey.OpenSubKey(@$"SOFTWARE\dotnet\Setup\InstalledVersions\{arch}\sharedhost");
-                    dotnetPath = (string)hostKey.GetValue("Path");
-                    dotnetSdkVersions = sdkVersionsKey.GetValueNames();
-                    dotnetRuntimeVersions = runtimeKey.GetValueNames();
+                    dotnetPath = (string)hostKey?.GetValue("Path");
+                    dotnetSdkVersions = sdkVersionsKey?.GetValueNames() ?? Enumerable.Empty<string>();
+                    dotnetRuntimeVersions = runtimeKey?.GetValueNames() ?? Enumerable.Empty<string>();
+
+                    if (string.IsNullOrEmpty(dotnetPath))
+                    {
+                        // The sharedhost registry key seems to be deprecated, assume the default installation location instead
+                        var defaultPath = Path.Combine(Path.GetPathRoot(Environment.SystemDirectory), "Program Files", "dotnet");
+                        if (File.Exists(Path.Combine(defaultPath, "dotnet.exe")))
+                            dotnetPath = defaultPath;
+                    }
                 }
 #pragma warning restore CA1416
                 break;
             }
             case TargetPlatform.Linux:
             {
-                rid = $"linux-{arch}";
-                ridFallback = Utilities.ReadProcessOutput("dotnet", "--info").Split('\n').FirstOrDefault(x => x.StartsWith(" RID:"), "").Replace("RID:", "").Trim();
                 if (string.IsNullOrEmpty(dotnetPath))
                     dotnetPath ??= SearchForDotnetLocationLinux();
                 break;
             }
             case TargetPlatform.Mac:
             {
-                rid = $"osx-{arch}";
-                ridFallback = "";
                 if (string.IsNullOrEmpty(dotnetPath))
                 {
                     dotnetPath = "/usr/local/share/dotnet/"; // Officially recommended dotnet location
@@ -249,7 +253,6 @@ namespace Flax.Build
                 }
                 if (Flax.Build.Platforms.MacPlatform.BuildingForx64)
                 {
-                    rid = "osx-x64";
                     dotnetPath = Path.Combine(dotnetPath, "x64");
                     architecture = TargetArchitecture.x64;
                 }
@@ -274,7 +277,7 @@ namespace Flax.Build
             dotnetRuntimeVersions = MergeVersions(dotnetRuntimeVersions, GetVersions(Path.Combine(dotnetPath, "shared", "Microsoft.NETCore.App")));
 
             dotnetSdkVersions = dotnetSdkVersions.Where(x => File.Exists(Path.Combine(dotnetPath, "sdk", x, ".version")));
-            dotnetRuntimeVersions = dotnetRuntimeVersions.Where(x => File.Exists(Path.Combine(dotnetPath, "shared", "Microsoft.NETCore.App", x, ".version")));
+            dotnetRuntimeVersions = dotnetRuntimeVersions.Where(x => File.Exists(Path.Combine(dotnetPath, "shared", "Microsoft.NETCore.App", x, "System.dll")));
             dotnetRuntimeVersions = dotnetRuntimeVersions.Where(x => Directory.Exists(Path.Combine(dotnetPath, "packs", "Microsoft.NETCore.App.Ref", x)));
 
             dotnetSdkVersions = dotnetSdkVersions.OrderByDescending(ParseVersion);
@@ -322,6 +325,20 @@ namespace Flax.Build
             Version = ParseVersion(dotnetSdkVersion);
             VersionName = dotnetSdkVersion;
             RuntimeVersionName = dotnetRuntimeVersion;
+
+            string rid, ridFallback = "";
+            switch (platform)
+            {
+            case TargetPlatform.Windows: rid = $"win-{arch}"; break;
+            case TargetPlatform.Linux:
+            {
+                rid = RuntimeInformation.RuntimeIdentifier;
+                ridFallback = $"linux-{arch}";
+                break;
+            }
+            case TargetPlatform.Mac: rid = Flax.Build.Platforms.MacPlatform.BuildingForx64 ? "osx-x64" : $"osx-{arch}"; break;
+            default: throw new InvalidPlatformException(platform);
+            }
 
             // Pick SDK runtime
             if (!TryAddHostRuntime(platform, architecture, rid) && !TryAddHostRuntime(platform, architecture, ridFallback))

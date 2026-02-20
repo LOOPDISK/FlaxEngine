@@ -927,6 +927,131 @@ float nrand(float2 n)
 	return frac(sin(dot(n.xy, float2(12.9898, 78.233)))* 43758.5453);
 }
 
+// OFFICIAL FLAXENGINE VERSION
+//// Applies exposure, color grading and tone mapping to the input.
+//// Combines it with the results of the bloom pass and other postFx.
+//META_PS(true, FEATURE_LEVEL_ES2)
+//META_PERMUTATION_1(NO_GRADING_LUT=1)
+//META_PERMUTATION_1(USE_VOLUME_LUT=1)
+//META_PERMUTATION_1(USE_VOLUME_LUT=0)
+//float4 PS_Composite(Quad_VS2PS input) : SV_Target
+//{
+//	float2 uv = input.TexCoord;
+//	float3 lensLight = 0;
+//	float4 color;
+//
+//	// Chromatic Abberation
+//    BRANCH
+//	if (ChromaticDistortion > 0)
+//	{
+//		const float MAX_DIST_PX = 24.0;
+//		float max_distort_px = MAX_DIST_PX * ChromaticDistortion;
+//		float2 max_distort = InvInputSize * max_distort_px;
+//		float2 min_distort = 0.5 * max_distort;
+//
+//		float2 oversiz = distort(float2(1.0, 1.0), 1.0, min_distort, max_distort);
+//		uv = remap(uv, 1.0 - oversiz, oversiz);
+//
+//		int iterations = (int)lerp(3, 10, ChromaticDistortion);
+//		float stepsiz = 1.0 / (float(iterations) - 1.0);
+//		float rnd = nrand(uv + Time);
+//		float t = rnd * stepsiz;
+//
+//		float4 sumcol = 0;
+//		float4 sumw = 0;
+//		for (int i = 0; i < iterations; i++)
+//		{
+//			float4 w = float4(spectrum_offset(t), 1);
+//			sumw += w;
+//			float2 uvd = distort(uv, t, min_distort, max_distort);
+//			sumcol += Input0.Sample(SamplerLinearClamp, uvd) * w;
+//			t += stepsiz;
+//		}
+//		sumcol /= sumw;
+//		color = sumcol + (rnd / 255.0);
+//	}
+//	else
+//	{
+//		color = Input0.Sample(SamplerPointClamp, uv);
+//	}
+//
+//	// Lens Flares
+//	BRANCH
+//	if (LensFlareIntensity > 0)
+//	{
+//		// Get lens flare color
+//		float3 lensFlares = Input3.Sample(SamplerLinearClamp, uv).rgb * LensFlareIntensity;
+//
+//		// Get lens star color and mix it with lens flares
+//		float2 lensStarTexcoord = uv - 0.5;
+//		lensStarTexcoord = mul(lensStarTexcoord, (float2x2)LensFlareStarMat).xy;
+//		lensStarTexcoord += 0.5;
+//		float3 lensStar = LensStar.Sample(SamplerLinearClamp, lensStarTexcoord).rgb;
+//		lensFlares *= lensStar * 2 + 0.5;
+//
+//		// Accumulate final lens flares lght
+//		lensLight += lensFlares * 1.5f;
+//		color.rgb += lensFlares;
+//	}
+//
+//    // Bloom
+//    BRANCH
+//    if (BloomIntensity > 0)
+//    {
+//        // Sample the final bloom result
+//        float3 bloom = Input2.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+//        bloom = bloom * BloomIntensity;
+//        lensLight += max(0, bloom * 3.0f + (-1.0f * 3.0f));
+//        color.rgb += bloom;
+//    }
+//
+//	// Lens Dirt
+//	float3 lensDirt = LensDirt.SampleLevel(SamplerLinearClamp, uv, 0).rgb;
+//	color.rgb += lensDirt * (lensLight * LensDirtIntensity);
+//
+//
+//#if !NO_GRADING_LUT
+//	color.rgb = ColorLookupTable(color.rgb);
+//#endif
+//
+//	// Film Grain
+//	BRANCH
+//	if (GrainAmount > 0)
+//	{
+//		// Calculate noise
+//		float2 rotCoordsR = coordRot(uv, GrainTime);
+//		float noise = pnoise2D(rotCoordsR * (InputSize / GrainParticleSize), GrainTime);
+//
+//		// Noisiness response curve based on scene luminance
+//		float luminance = Luminance(saturate(color.rgb));
+//		luminance += smoothstep(0.2, 0.0, luminance);
+//
+//		// Add noise to the final color
+//		noise = lerp(noise, 0, min(pow(luminance, 4.0), 100));
+//		color.rgb += noise * GrainAmount;
+//	}
+//
+//	// Vignette
+//	BRANCH
+//	if (VignetteIntensity > 0)
+//	{
+//		float2 uvCircle = uv * (1 - uv);
+//		float uvCircleScale = uvCircle.x * uvCircle.y * 16.0f;
+//		float mask = lerp(1, pow(uvCircleScale, VignetteShapeFactor), VignetteIntensity);
+//		color.rgb = lerp(VignetteColor, color.rgb, mask);
+//	}
+//
+//	// Screen fade
+//	color.rgb = lerp(color.rgb, ScreenFadeColor.rgb, ScreenFadeColor.a);
+//
+//	// Saturate color since it will be rendered to the screen
+//	color.rgb = saturate(color.rgb);
+//
+//	// Return final pixel color (preserve input alpha)
+//	return color;
+//}
+
+
 // Applies exposure, color grading and tone mapping to the input.
 // Combines it with the results of the bloom pass and other postFx.
 META_PS(true, FEATURE_LEVEL_ES2)

@@ -21,7 +21,8 @@
 #endif
 
 GPU_CB_STRUCT(Data {
-    Matrix WVP;
+    Matrix WorldViewProjection;
+    Matrix InvViewProjection;
     Float3 ViewOffset;
     float Padding;
     ShaderGBufferData GBuffer;
@@ -34,9 +35,6 @@ GPU_CB_STRUCT(Data {
 
 Sky::Sky(const SpawnParams& params)
     : Actor(params)
-    , _shader(nullptr)
-    , _psSky(nullptr)
-    , _psFog(nullptr)
 {
     _drawNoCulling = 1;
     _drawCategory = SceneRendering::PreRender;
@@ -56,7 +54,6 @@ Sky::Sky(const SpawnParams& params)
 Sky::~Sky()
 {
     SAFE_DELETE_GPU_RESOURCE(_psSky);
-    SAFE_DELETE_GPU_RESOURCE(_psFog);
 }
 
 void Sky::InitConfig(ShaderAtmosphericFogData& config) const
@@ -95,7 +92,7 @@ void Sky::Draw(RenderContext& renderContext)
     if (HasContentLoaded() && EnumHasAnyFlags(renderContext.View.Flags, ViewFlags::Sky))
     {
         // Ensure to have pipeline state cache created
-        if (_psSky == nullptr || _psFog == nullptr)
+        if (_psSky == nullptr)
         {
             const auto shader = _shader->GetShader();
 
@@ -117,21 +114,6 @@ void Sky::Draw(RenderContext& renderContext)
                     LOG(Warning, "Cannot create graphics pipeline state object for '{0}'.", ToString());
                 }
             }
-            if (_psFog == nullptr)
-            {
-                _psFog = GPUDevice::Instance->CreatePipelineState();
-
-                GPUPipelineState::Description psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
-                psDesc.PS = shader->GetPS("PS_Fog");
-                psDesc.DepthWriteEnable = false;
-                psDesc.DepthClipEnable = false;
-                psDesc.BlendMode = BlendingMode::Additive;
-
-                if (_psFog->Init(psDesc))
-                {
-                    LOG(Warning, "Cannot create graphics pipeline state object for '{0}'.", ToString());
-                }
-            }
         }
 
         // Register for the sky and fog pass
@@ -143,7 +125,6 @@ void Sky::Draw(RenderContext& renderContext)
 
 void Sky::Serialize(SerializeStream& stream, const void* otherObj)
 {
-    // Base
     Actor::Serialize(stream, otherObj);
 
     SERIALIZE_GET_OTHER_OBJ(Sky);
@@ -158,7 +139,6 @@ void Sky::Serialize(SerializeStream& stream, const void* otherObj)
 
 void Sky::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
 {
-    // Base
     Actor::Deserialize(stream, modifier);
 
     DESERIALIZE_MEMBER(Sun, SunLight);
@@ -181,39 +161,7 @@ bool Sky::IntersectsItself(const Ray& ray, Real& distance, Vector3& normal)
 
 void Sky::DrawFog(GPUContext* context, RenderContext& renderContext, GPUTextureView* output)
 {
-    // Get precomputed cache and bind it to the pipeline
-    AtmosphereCache cache;
-    if (!AtmospherePreCompute::GetCache(&cache))
-        return;
-    context->BindSR(4, cache.Transmittance);
-    context->BindSR(5, cache.Irradiance);
-    context->BindSR(6, cache.Inscatter->ViewVolume());
-
-    // Bind GBuffer inputs
-    context->BindSR(0, renderContext.Buffers->GBuffer0);
-    context->BindSR(1, renderContext.Buffers->GBuffer1);
-    context->BindSR(2, renderContext.Buffers->GBuffer2);
-    context->BindSR(3, renderContext.Buffers->DepthBuffer);
-
-    // Setup constants data
-    Data data;
-    GBufferPass::SetInputs(renderContext.View, data.GBuffer);
-    data.ViewOffset = renderContext.View.Origin + GetPosition();
-    InitConfig(data.Fog);
-    data.Fog.AtmosphericFogSunPower *= SunLight ? SunLight->Brightness : 1.0f;
-    bool useSpecularLight = EnumHasAnyFlags(renderContext.View.Flags, ViewFlags::SpecularLight);
-    if (!useSpecularLight)
-    {
-        data.Fog.AtmosphericFogSunDiscScale = 0;
-    }
-
-    // Bind pipeline
-    auto cb = _shader->GetShader()->GetCB(0);
-    context->UpdateCB(cb, &data);
-    context->BindCB(0, cb);
-    context->SetState(_psFog);
-    context->SetRenderTarget(output);
-    context->DrawFullscreenTriangle();
+    MISSING_CODE("sky fog");
 }
 
 bool Sky::IsDynamicSky() const
@@ -239,16 +187,16 @@ void Sky::ApplySky(GPUContext* context, RenderContext& renderContext, const Matr
     // Setup constants data
     Matrix m;
     Data data = {};  // Zero-initialize to avoid garbage in padding
-    Matrix::Multiply(world, renderContext.View.Frustum.GetMatrix(), m);
-    Matrix::Transpose(m, data.WVP);
+    Matrix::Multiply(world, renderContext.View.ViewProjection(), m);
+    Matrix::Transpose(m, data.WorldViewProjection);
+    Matrix::Transpose(renderContext.View.IVP, data.InvViewProjection);
     GBufferPass::SetInputs(renderContext.View, data.GBuffer);
     data.ViewOffset = renderContext.View.Origin + GetPosition();
     InitConfig(data.Fog);
     data.HorizonColor = HorizonColor.ToFloat3();
     data.ZenithColor = ZenithColor.ToFloat3();
     //data.Fog.AtmosphericFogSunPower *= SunLight ? SunLight->Brightness : 1.0f;
-    bool useSpecularLight = EnumHasAnyFlags(renderContext.View.Flags, ViewFlags::SpecularLight);
-    if (!useSpecularLight)
+    if (EnumHasNoneFlags(renderContext.View.Flags, ViewFlags::SpecularLight))
     {
         // Hide sun disc if specular light is disabled
         data.Fog.AtmosphericFogSunDiscScale = 0;
@@ -263,11 +211,8 @@ void Sky::ApplySky(GPUContext* context, RenderContext& renderContext, const Matr
 
 void Sky::EndPlay()
 {
-    // Cleanup
     SAFE_DELETE_GPU_RESOURCE(_psSky);
-    SAFE_DELETE_GPU_RESOURCE(_psFog);
 
-    // Base
     Actor::EndPlay();
 }
 
@@ -278,7 +223,6 @@ void Sky::OnEnable()
     GetSceneRendering()->AddViewportIcon(this);
 #endif
 
-    // Base
     Actor::OnEnable();
 }
 
@@ -289,13 +233,11 @@ void Sky::OnDisable()
 #endif
     GetSceneRendering()->RemoveActor(this, _sceneRenderingKey);
 
-    // Base
     Actor::OnDisable();
 }
 
 void Sky::OnTransformChanged()
 {
-    // Base
     Actor::OnTransformChanged();
 
     _box = BoundingBox(_transform.Translation);

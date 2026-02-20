@@ -9,6 +9,7 @@
 #include "SkeletonData.h"
 #include "BlendShape.h"
 #include "Engine/Animations/AnimationData.h"
+#include "Engine/Core/Collections/Dictionary.h"
 
 class WriteStream;
 
@@ -327,7 +328,15 @@ struct FLAXENGINE_API MaterialSlotEntry
     {
         float Value = 0.5f;
         int32 TextureIndex = -1;
+        uint8 Channel = 0;
     } Roughness;
+
+    struct
+    {
+        float Value = 0.0f;
+        int32 TextureIndex = -1;
+        uint8 Channel = 0;
+    } Metalness;
 
     struct
     {
@@ -335,6 +344,7 @@ struct FLAXENGINE_API MaterialSlotEntry
     } Normals;
 
     bool TwoSided = false;
+    bool Wireframe = false;
 
     bool UsesProperties() const;
     static float ShininessToRoughness(float shininess);
@@ -491,7 +501,8 @@ public:
     {
         Float32,
         Float16,
-    } PositionFormat = PositionFormats::Float32;
+        Automatic,
+    } PositionFormat = PositionFormats::Automatic;
 
     // See ModelTool::TexCoordFormats
     enum class TexCoordFormats
