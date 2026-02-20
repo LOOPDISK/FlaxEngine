@@ -36,8 +36,8 @@ float WhiteTemp;
 float WhiteTint;
 
 float ColorVibrance;
-float2 Dummy;
 float LutWeight;
+float2 Dummy;
 META_CB_END
 
 Texture2D LutTexture : register(t0);

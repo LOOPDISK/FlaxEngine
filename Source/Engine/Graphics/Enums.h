@@ -1088,7 +1088,7 @@ API_ENUM(Attributes="Flags") enum class ViewFlags : uint64
     /// <summary>
     /// Shows/hides light debug shapes.
     /// </summary>
-    LightsDebug = 1 << 32,
+    LightsDebug = 1 << 29,
 
     /// <summary>
     /// Shows/hides particle effects.

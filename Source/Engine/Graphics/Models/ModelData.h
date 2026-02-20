@@ -9,6 +9,7 @@
 #include "SkeletonData.h"
 #include "BlendShape.h"
 #include "Engine/Animations/AnimationData.h"
+#include "Engine/Core/Collections/Dictionary.h"
 
 class WriteStream;
 
