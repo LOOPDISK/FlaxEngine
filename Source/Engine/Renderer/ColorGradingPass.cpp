@@ -36,8 +36,8 @@ GPU_CB_STRUCT(Data{
     float WhiteTint;
 
     float ColorVibrance;
-    Float2 Dummy;
     float LutWeight;
+    Float2 Dummy;
 
     void Init(const PostProcessSettings& settings, GPUTexture*& lut)
     {
