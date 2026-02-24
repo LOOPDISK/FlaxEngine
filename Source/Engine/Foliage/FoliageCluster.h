@@ -8,13 +8,13 @@
 #include "Engine/Core/Math/BoundingSphere.h"
 
 /// <summary>
-/// Represents a single foliage cluster that contains a sub clusters organized in quad-tree or if it's a leaf node it contains a set of foliage instances.
+/// Represents a single foliage cluster that contains a sub clusters organized in oct-tree or if it's a leaf node it contains a set of foliage instances.
 /// </summary>
 class FLAXENGINE_API FoliageCluster
 {
 public:
     /// <summary>
-    /// The cluster bounds (in world space). Made of subdivided parent node in quad-tree.
+    /// The cluster bounds (in world space). Made of subdivided parent node in oct-tree.
     /// </summary>
     BoundingBox Bounds;
 
@@ -34,14 +34,15 @@ public:
     float MaxCullDistance;
 
     /// <summary>
-    /// Flag used by clusters that are not typical quad-tree nodes but have no volume (eg. lots of instances placed on top of each other).
+    /// Flag used by clusters that are not typical oct-tree nodes but have no volume (eg. lots of instances placed on top of each other).
     /// </summary>
     int32 IsMinor : 1;
+    int32 WasCulled : 1;
 
     /// <summary>
     /// The child clusters. If any element is valid then all are created.
     /// </summary>
-    FoliageCluster* Children[4];
+    FoliageCluster* Children[8];
 
     /// <summary>
     /// The allocated foliage instances within this cluster.

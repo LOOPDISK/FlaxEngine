@@ -23,6 +23,9 @@
 #include "Engine/Serialization/Serialization.h"
 #include "Engine/Utilities/Encryption.h"
 
+#include "Engine/Debug/DebugDraw.h"
+#include <Engine/Graphics/Graphics.h>
+
 #define FOLIAGE_GET_DRAW_MODES(renderContext, type) (type.DrawModes & renderContext.View.Pass & renderContext.View.GetShadowsDrawPassMask(type.ShadowsMode))
 #define FOLIAGE_CAN_DRAW(renderContext, type) (type.IsReady() && FOLIAGE_GET_DRAW_MODES(renderContext, type) != DrawPass::None && type.Model->CanBeRendered())
 
@@ -53,6 +56,10 @@ void Foliage::AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_S
            cluster->Children[idx]->Instances.Add(&instance); \
            return; \
         }
+        CHECK_CHILD(7);
+        CHECK_CHILD(6);
+        CHECK_CHILD(5);
+        CHECK_CHILD(4);
         CHECK_CHILD(3);
         CHECK_CHILD(2);
         CHECK_CHILD(1);
@@ -75,6 +82,10 @@ void Foliage::AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_S
             CHECK_CHILD(1);
             CHECK_CHILD(2);
             CHECK_CHILD(3);
+            CHECK_CHILD(4);
+            CHECK_CHILD(5);
+            CHECK_CHILD(6);
+            CHECK_CHILD(7);
 #undef CHECK_CHILD
         }
     }
@@ -89,20 +100,28 @@ void Foliage::AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_S
     {
         // Subdivide cluster
         const int32 count = clusters.Count();
-        clusters.Resize(count + 4);
+        clusters.Resize(count + 8);
         cluster->Children[0] = &clusters[count + 0];
         cluster->Children[1] = &clusters[count + 1];
         cluster->Children[2] = &clusters[count + 2];
         cluster->Children[3] = &clusters[count + 3];
+        cluster->Children[4] = &clusters[count + 4];
+        cluster->Children[5] = &clusters[count + 5];
+        cluster->Children[6] = &clusters[count + 6];
+        cluster->Children[7] = &clusters[count + 7];
 
         // Setup children
         const Vector3 min = cluster->Bounds.Minimum;
         const Vector3 max = cluster->Bounds.Maximum;
         const Vector3 size = max - min;
-        cluster->Children[0]->Init(BoundingBox(min, min + size * Vector3(0.5f, 1.0f, 0.5f)));
-        cluster->Children[1]->Init(BoundingBox(min + size * Vector3(0.5f, 0.0f, 0.5f), max));
-        cluster->Children[2]->Init(BoundingBox(min + size * Vector3(0.5f, 0.0f, 0.0f), min + size * Vector3(1.0f, 1.0f, 0.5f)));
-        cluster->Children[3]->Init(BoundingBox(min + size * Vector3(0.0f, 0.0f, 0.5f), min + size * Vector3(0.5f, 1.0f, 1.0f)));
+        cluster->Children[0]->Init(BoundingBox(min, min + size * 0.5f));
+        cluster->Children[1]->Init(BoundingBox(min + size * Vector3(0.5f, 0.0f, 0.0f), min + size * Vector3(1.0f, 0.5f, 0.5f)));
+        cluster->Children[2]->Init(BoundingBox(min + size * Vector3(0.0f, 0.0f, 0.5f), min + size * Vector3(0.5f, 0.5f, 1.0f)));
+        cluster->Children[3]->Init(BoundingBox(min + size * Vector3(0.5f, 0.0f, 0.5f), min + size * Vector3(1.0f, 0.5f, 1.0f)));
+        cluster->Children[4]->Init(BoundingBox(min + size * Vector3(0.0f, 0.5f, 0.0f), min + size * Vector3(0.5f, 1.0f, 0.5f)));
+        cluster->Children[5]->Init(BoundingBox(min + size * Vector3(0.5f, 0.5f, 0.0f), min + size * Vector3(1.0f, 1.0f, 0.5f)));
+        cluster->Children[6]->Init(BoundingBox(min + size * Vector3(0.0f, 0.5f, 0.5f), min + size * Vector3(0.5f, 1.0f, 1.0f)));
+        cluster->Children[7]->Init(BoundingBox(min + size * 0.5f, max));
         if (cluster->IsMinor || size.MinValue() < 1.0f)
         {
             // Mark children as minor to avoid infinite subdivision
@@ -111,6 +130,10 @@ void Foliage::AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_S
             cluster->Children[1]->IsMinor = true;
             cluster->Children[2]->IsMinor = true;
             cluster->Children[3]->IsMinor = true;
+            cluster->Children[4]->IsMinor = true;
+            cluster->Children[5]->IsMinor = true;
+            cluster->Children[6]->IsMinor = true;
+            cluster->Children[7]->IsMinor = true;
         }
 
         // Move instances to a proper cells
@@ -158,6 +181,49 @@ void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instan
         instanceData.Store(world, world, instance.Lightmap.UVsArea, drawCall.Surface.GeometrySize, instance.Random, worldDeterminantSign, lodDitherFactor);
     }
 }
+bool Foliage::CheckOcclusion(FoliageCluster* cluster, const BoundingSphere& bounds) const
+{
+    if (_hzb)
+    {
+        if (!_checkOcclusion)
+        { // return the last HZB occlusion result
+            return cluster->WasCulled;
+        }
+        if (_hzb->CheckOcclusion(bounds))
+        {
+            cluster->WasCulled = true;
+            return true;
+        }
+        else
+        {
+            cluster->WasCulled = false;
+            return false;
+        }
+    }
+    return false;
+}
+
+bool Foliage::CheckOcclusion(FoliageInstance& instance, const BoundingSphere& bounds) const
+{
+    if (_hzb)
+    {
+        if (!_checkOcclusion)
+        { // return the last HZB occlusion result
+            return instance.WasCulled;
+        }
+        if (_hzb->CheckOcclusion(bounds))
+        {
+            instance.WasCulled = true;
+            return true;
+        }
+        else
+        {
+            instance.WasCulled = false;
+            return false;
+        }
+    }
+    return false;
+}
 
 void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const
 {
@@ -167,7 +233,7 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
         return;
     const Vector3 viewOrigin = renderContext.View.Origin;
 
-    //DebugDraw::DrawBox(cluster->Bounds, Color::Red);
+   // DebugDraw::DrawWireBox(cluster->Bounds, Color(1,0,0,0.5f));
 
     // Draw visible children
     if (cluster->Children[0])
@@ -176,16 +242,31 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
         ASSERT_LOW_LAYER(cluster->Instances.IsEmpty());
 
         BoundingBox box;
+        BoundingSphere bounds;
 #define DRAW_CLUSTER(idx) \
         box = cluster->Children[idx]->TotalBounds; \
         box.Minimum -= viewOrigin; \
         box.Maximum -= viewOrigin; \
+        bounds = cluster->Children[idx]->TotalBoundsSphere; \
+        bounds.Center -= viewOrigin; \
 		if (renderContext.View.CullingFrustum.Intersects(box)) \
-			DrawCluster(renderContext, cluster->Children[idx], type, drawCallsLists, result)
+            if (!CheckOcclusion(cluster->Children[idx], bounds)) \
+            { \
+			    DrawCluster(renderContext, cluster->Children[idx], type, drawCallsLists, result); \
+            }
+            //else \
+            //{ \
+            //    bounds.Center += viewOrigin; \
+            //    DebugDraw::DrawSphere(bounds, Color(1, 0, 1, 0.2f), 0, false); \
+            //}
         DRAW_CLUSTER(0);
         DRAW_CLUSTER(1);
         DRAW_CLUSTER(2);
         DRAW_CLUSTER(3);
+        DRAW_CLUSTER(4);
+        DRAW_CLUSTER(5);
+        DRAW_CLUSTER(6);
+        DRAW_CLUSTER(7);
 #undef 	DRAW_CLUSTER
     }
     else
@@ -203,6 +284,11 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
             if (Float3::Distance(lodView->Position, sphere.Center) - (float)sphere.Radius < instance.CullDistance &&
                 renderContext.View.CullingFrustum.Intersects(sphere))
             {
+                if (CheckOcclusion(instance, sphere))
+                {
+                //    DebugDraw::DrawSphere(instance.Bounds, Color(1, 0, 0, 0.2f), 0, false);
+                    continue;
+                }
                 const auto modelFrame = instance.DrawState.PrevFrame + 1;
 
                 // Select a proper LOD index (model may be culled)
@@ -331,6 +417,10 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
         DRAW_CLUSTER(1);
         DRAW_CLUSTER(2);
         DRAW_CLUSTER(3);
+        DRAW_CLUSTER(4);
+        DRAW_CLUSTER(5);
+        DRAW_CLUSTER(6);
+        DRAW_CLUSTER(7);
 #undef 	DRAW_CLUSTER
     }
     else
@@ -393,6 +483,10 @@ void Foliage::DrawClusterGlobalSDF(class GlobalSignDistanceFieldPass* globalSDF,
         DRAW_CLUSTER(1);
         DRAW_CLUSTER(2);
         DRAW_CLUSTER(3);
+        DRAW_CLUSTER(4);
+        DRAW_CLUSTER(5);
+        DRAW_CLUSTER(6);
+        DRAW_CLUSTER(7);
 #undef 	DRAW_CLUSTER
     }
     else
@@ -424,6 +518,10 @@ void Foliage::DrawClusterGlobalSA(GlobalSurfaceAtlasPass* globalSA, const Vector
         DRAW_CLUSTER(1);
         DRAW_CLUSTER(2);
         DRAW_CLUSTER(3);
+        DRAW_CLUSTER(4);
+        DRAW_CLUSTER(5);
+        DRAW_CLUSTER(6);
+        DRAW_CLUSTER(7);
 #undef 	DRAW_CLUSTER
     }
     else
@@ -803,7 +901,7 @@ void Foliage::OnFoliageTypeModelLoaded(int32 index)
     if (!hasAnyInstance)
         return;
 
-    // Refresh quad-tree
+    // Refresh oct-tree
 #if FOLIAGE_USE_SINGLE_QUAD_TREE
     RebuildClusters();
 #else
@@ -829,7 +927,7 @@ void Foliage::OnFoliageTypeModelLoaded(int32 index)
     {
         PROFILE_CPU_NAMED("Create Clusters");
 
-        // Create clusters for foliage type quad tree
+        // Create clusters for foliage type oct tree
         const float globalDensityScale = GetGlobalDensityScale();
         for (auto i = Instances.Begin(); i.IsNotEnd(); ++i)
         {
@@ -1276,6 +1374,37 @@ void Foliage::Draw(RenderContextBatch& renderContextBatch)
 
         // Run async job for each foliage type
         _renderContextBatch = &renderContextBatch;
+        // check HZB
+        auto& mainContext = _renderContextBatch->GetMainContext();
+        const auto& view = mainContext.View;
+        _hzb = mainContext.Task->OcclusionInfo;
+
+        // bypass occlusion culling from Graphics Settings
+        if (!Graphics::OcclusionCulling) _hzb = nullptr;
+
+        _checkOcclusion = false;
+        if (view.StaticFlagsMask != StaticFlags::Occluder)
+        {
+            // don't do the hzb occlusion check if it already did it with the same data last time
+            if (_hzb != nullptr)
+            {
+                if ((_hzb->Id == _lastHZBId && _hzb->CurrentFrameIndex == _lastHZBFrame))
+                {
+                    _checkOcclusion = false;
+                }
+                else
+                {
+                    _checkOcclusion = true;
+                    _lastHZBId = _hzb->Id;
+                    _lastHZBFrame = _hzb->CurrentFrameIndex;
+                }
+            }
+        }
+
+        //for (int i = 0; i < FoliageTypes.Count(); i++)
+        //{
+        //    DrawFoliageJob(i);
+        //}
         Function<void(int32)> func;
         func.Bind<Foliage, &Foliage::DrawFoliageJob>(this);
         const int64 waitLabel = JobSystem::Dispatch(func, FoliageTypes.Count());

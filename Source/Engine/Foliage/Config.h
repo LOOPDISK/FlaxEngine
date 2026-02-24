@@ -23,4 +23,4 @@ struct FoliageInstance;
 #define FOLIAGE_CLUSTER_CHUNKS_SIZE (2048)
 
 // Size of the cluster container for instances
-#define FOLIAGE_CLUSTER_CAPACITY (64)
+#define FOLIAGE_CLUSTER_CAPACITY (32)
