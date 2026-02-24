@@ -8,6 +8,7 @@
 #include "FoliageType.h"
 #include "Engine/Core/Memory/ArenaAllocation.h"
 #include "Engine/Level/Actor.h"
+#include "Engine/Renderer/HierarchialZBufferPass.h"
 
 /// <summary>
 /// Represents a foliage actor that contains a set of instanced meshes.
@@ -157,6 +158,12 @@ public:
     API_PROPERTY() static void SetGlobalDensityScale(float value);
 
 private:
+    int _lastHZBId = -1;
+    int _lastHZBFrame = -1;
+    bool _checkOcclusion = true;
+    HZBData* _hzb = nullptr;
+    bool CheckOcclusion(FoliageCluster* cluster, const BoundingSphere& bounds) const;
+    bool CheckOcclusion(FoliageInstance& instance, const BoundingSphere& bounds) const;
     void AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_SIZE>& clusters, FoliageCluster* cluster, FoliageInstance& instance);
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE && FOLIAGE_USE_DRAW_CALLS_BATCHING
     struct DrawKey

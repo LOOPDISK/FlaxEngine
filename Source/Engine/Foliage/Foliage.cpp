@@ -23,6 +23,9 @@
 #include "Engine/Serialization/Serialization.h"
 #include "Engine/Utilities/Encryption.h"
 
+#include "Engine/Debug/DebugDraw.h"
+#include <Engine/Graphics/Graphics.h>
+
 #define FOLIAGE_GET_DRAW_MODES(renderContext, type) (type.DrawModes & renderContext.View.Pass & renderContext.View.GetShadowsDrawPassMask(type.ShadowsMode))
 #define FOLIAGE_CAN_DRAW(renderContext, type) (type.IsReady() && FOLIAGE_GET_DRAW_MODES(renderContext, type) != DrawPass::None && type.Model->CanBeRendered())
 
@@ -158,6 +161,49 @@ void Foliage::DrawInstance(RenderContext& renderContext, FoliageInstance& instan
         instanceData.Store(world, world, instance.Lightmap.UVsArea, drawCall.Surface.GeometrySize, instance.Random, worldDeterminantSign, lodDitherFactor);
     }
 }
+bool Foliage::CheckOcclusion(FoliageCluster* cluster, const BoundingSphere& bounds) const
+{
+    if (_hzb)
+    {
+        if (!_checkOcclusion)
+        { // return the last HZB occlusion result
+            return cluster->WasCulled;
+        }
+        if (_hzb->CheckOcclusion(bounds))
+        {
+            cluster->WasCulled = true;
+            return true;
+        }
+        else
+        {
+            cluster->WasCulled = false;
+            return false;
+        }
+    }
+    return false;
+}
+
+bool Foliage::CheckOcclusion(FoliageInstance& instance, const BoundingSphere& bounds) const
+{
+    if (_hzb)
+    {
+        if (!_checkOcclusion)
+        { // return the last HZB occlusion result
+            return instance.WasCulled;
+        }
+        if (_hzb->CheckOcclusion(bounds))
+        {
+            instance.WasCulled = true;
+            return true;
+        }
+        else
+        {
+            instance.WasCulled = false;
+            return false;
+        }
+    }
+    return false;
+}
 
 void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster, const FoliageType& type, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const
 {
@@ -167,7 +213,7 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
         return;
     const Vector3 viewOrigin = renderContext.View.Origin;
 
-    //DebugDraw::DrawBox(cluster->Bounds, Color::Red);
+    //DebugDraw::DrawWireBox(cluster->Bounds, Color(1,0,0,0.5f));
 
     // Draw visible children
     if (cluster->Children[0])
@@ -176,11 +222,14 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
         ASSERT_LOW_LAYER(cluster->Instances.IsEmpty());
 
         BoundingBox box;
+        BoundingSphere bounds;
 #define DRAW_CLUSTER(idx) \
         box = cluster->Children[idx]->TotalBounds; \
         box.Minimum -= viewOrigin; \
         box.Maximum -= viewOrigin; \
-		if (renderContext.View.CullingFrustum.Intersects(box)) \
+        bounds = cluster->Children[idx]->TotalBoundsSphere; \
+        bounds.Center -= viewOrigin; \
+		if (renderContext.View.CullingFrustum.Intersects(box) && !CheckOcclusion(cluster->Children[idx], bounds)) \
 			DrawCluster(renderContext, cluster->Children[idx], type, drawCallsLists, result)
         DRAW_CLUSTER(0);
         DRAW_CLUSTER(1);
@@ -203,6 +252,11 @@ void Foliage::DrawCluster(RenderContext& renderContext, FoliageCluster* cluster,
             if (Float3::Distance(lodView->Position, sphere.Center) - (float)sphere.Radius < instance.CullDistance &&
                 renderContext.View.CullingFrustum.Intersects(sphere))
             {
+                if (CheckOcclusion(instance, sphere))
+                {
+                //    DebugDraw::DrawSphere(instance.Bounds, Color(1, 0, 0, 0.2f), 0, false);
+                    continue;
+                }
                 const auto modelFrame = instance.DrawState.PrevFrame + 1;
 
                 // Select a proper LOD index (model may be culled)
@@ -1276,6 +1330,33 @@ void Foliage::Draw(RenderContextBatch& renderContextBatch)
 
         // Run async job for each foliage type
         _renderContextBatch = &renderContextBatch;
+        // check HZB
+        auto& mainContext = _renderContextBatch->GetMainContext();
+        const auto& view = mainContext.View;
+        _hzb = mainContext.Task->OcclusionInfo;
+
+        // bypass occlusion culling from Graphics Settings
+        if (!Graphics::OcclusionCulling) _hzb = nullptr;
+
+        _checkOcclusion = false;
+        if (view.StaticFlagsMask != StaticFlags::Occluder)
+        {
+            // don't do the hzb occlusion check if it already did it with the same data last time
+            if (_hzb != nullptr)
+            {
+                if ((_hzb->Id == _lastHZBId && _hzb->CurrentFrameIndex == _lastHZBFrame))
+                {
+                    _checkOcclusion = false;
+                }
+                else
+                {
+                    _checkOcclusion = true;
+                    _lastHZBId = _hzb->Id;
+                    _lastHZBFrame = _hzb->CurrentFrameIndex;
+                }
+            }
+        }
+
         Function<void(int32)> func;
         func.Bind<Foliage, &Foliage::DrawFoliageJob>(this);
         const int64 waitLabel = JobSystem::Dispatch(func, FoliageTypes.Count());
