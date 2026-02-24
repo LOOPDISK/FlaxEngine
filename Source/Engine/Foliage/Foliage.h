@@ -29,7 +29,7 @@ public:
 
 #if FOLIAGE_USE_SINGLE_QUAD_TREE
     /// <summary>
-    /// The root cluster. Contains all the instances and it's the starting point of the quad-tree hierarchy. Null if no foliage added. It's read-only.
+    /// The root cluster. Contains all the instances and it's the starting point of the oct-tree hierarchy. Null if no foliage added. It's read-only.
     /// </summary>
     FoliageCluster* Root = nullptr;
 
@@ -127,7 +127,7 @@ public:
     void OnFoliageTypeModelLoaded(int32 index);
 
     /// <summary>
-    /// Rebuilds the foliage clusters used as internal acceleration structures (quad tree).
+    /// Rebuilds the foliage clusters used as internal acceleration structures (oct tree).
     /// </summary>
     API_FUNCTION() void RebuildClusters();
 

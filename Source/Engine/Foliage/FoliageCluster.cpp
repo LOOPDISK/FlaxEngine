@@ -16,6 +16,10 @@ void FoliageCluster::Init(const BoundingBox& bounds)
     Children[1] = nullptr;
     Children[2] = nullptr;
     Children[3] = nullptr;
+    Children[4] = nullptr;
+    Children[5] = nullptr;
+    Children[6] = nullptr;
+    Children[7] = nullptr;
 
     Instances.Clear();
 }
@@ -46,6 +50,10 @@ void FoliageCluster::UpdateTotalBoundsAndCullDistance()
         Children[1]->UpdateTotalBoundsAndCullDistance();
         Children[2]->UpdateTotalBoundsAndCullDistance();
         Children[3]->UpdateTotalBoundsAndCullDistance();
+        Children[4]->UpdateTotalBoundsAndCullDistance();
+        Children[5]->UpdateTotalBoundsAndCullDistance();
+        Children[6]->UpdateTotalBoundsAndCullDistance();
+        Children[7]->UpdateTotalBoundsAndCullDistance();
 
         if (Instances.HasItems())
             BoundingBox::Merge(TotalBounds, Children[0]->TotalBounds, TotalBounds);
@@ -54,6 +62,10 @@ void FoliageCluster::UpdateTotalBoundsAndCullDistance()
         BoundingBox::Merge(TotalBounds, Children[1]->TotalBounds, TotalBounds);
         BoundingBox::Merge(TotalBounds, Children[2]->TotalBounds, TotalBounds);
         BoundingBox::Merge(TotalBounds, Children[3]->TotalBounds, TotalBounds);
+        BoundingBox::Merge(TotalBounds, Children[4]->TotalBounds, TotalBounds);
+        BoundingBox::Merge(TotalBounds, Children[5]->TotalBounds, TotalBounds);
+        BoundingBox::Merge(TotalBounds, Children[6]->TotalBounds, TotalBounds);
+        BoundingBox::Merge(TotalBounds, Children[7]->TotalBounds, TotalBounds);
 
         if (Instances.HasItems())
             MaxCullDistance = Math::Max(MaxCullDistance, Children[0]->MaxCullDistance);
@@ -62,6 +74,10 @@ void FoliageCluster::UpdateTotalBoundsAndCullDistance()
         MaxCullDistance = Math::Max(MaxCullDistance, Children[1]->MaxCullDistance);
         MaxCullDistance = Math::Max(MaxCullDistance, Children[2]->MaxCullDistance);
         MaxCullDistance = Math::Max(MaxCullDistance, Children[3]->MaxCullDistance);
+        MaxCullDistance = Math::Max(MaxCullDistance, Children[4]->MaxCullDistance);
+        MaxCullDistance = Math::Max(MaxCullDistance, Children[5]->MaxCullDistance);
+        MaxCullDistance = Math::Max(MaxCullDistance, Children[6]->MaxCullDistance);
+        MaxCullDistance = Math::Max(MaxCullDistance, Children[7]->MaxCullDistance);
     }
 
     BoundingSphere::FromBox(TotalBounds, TotalBoundsSphere);
@@ -75,11 +91,19 @@ void FoliageCluster::UpdateCullDistance()
         Children[1]->UpdateCullDistance();
         Children[2]->UpdateCullDistance();
         Children[3]->UpdateCullDistance();
+        Children[4]->UpdateCullDistance();
+        Children[5]->UpdateCullDistance();
+        Children[6]->UpdateCullDistance();
+        Children[7]->UpdateCullDistance();
 
         MaxCullDistance = Children[0]->MaxCullDistance;
         MaxCullDistance = Math::Max(MaxCullDistance, Children[1]->MaxCullDistance);
         MaxCullDistance = Math::Max(MaxCullDistance, Children[2]->MaxCullDistance);
         MaxCullDistance = Math::Max(MaxCullDistance, Children[3]->MaxCullDistance);
+        MaxCullDistance = Math::Max(MaxCullDistance, Children[4]->MaxCullDistance);
+        MaxCullDistance = Math::Max(MaxCullDistance, Children[5]->MaxCullDistance);
+        MaxCullDistance = Math::Max(MaxCullDistance, Children[6]->MaxCullDistance);
+        MaxCullDistance = Math::Max(MaxCullDistance, Children[7]->MaxCullDistance);
     }
     else if (Instances.HasItems())
     {
@@ -116,6 +140,10 @@ bool FoliageCluster::Intersects(Foliage* foliage, const Ray& ray, Real& distance
         CHECK_CHILD(1);
         CHECK_CHILD(2);
         CHECK_CHILD(3);
+        CHECK_CHILD(4);
+        CHECK_CHILD(5);
+        CHECK_CHILD(6);
+        CHECK_CHILD(7);
 #undef CHECK_CHILD
     }
     else
