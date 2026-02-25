@@ -1324,7 +1324,7 @@ Asset* Content::LoadAsync(const Guid& id, const ScriptingTypeHandle& type)
     AssetInfo assetInfo;
     if (!GetAssetInfo(id, assetInfo))
     {
-        LOG(Warning, "Invalid or missing asset ({0}, {1}).", id, type.ToString());
+        LOG(Warning, "Missing asset (id: {0}, type: {1}). The asset may have been deleted, renamed, or reimported with a different ID. Check the referencing asset below for stale references.", id, type.ToString());
         LogContext::Print(LogType::Warning);
         LOAD_FAILED();
     }

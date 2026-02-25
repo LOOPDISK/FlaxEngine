@@ -581,6 +581,11 @@ protected:
 
 public:
     /// <summary>
+    /// The debug name of this (sub)graph (e.g. state name). Used in error logging.
+    /// </summary>
+    String DebugName;
+
+    /// <summary>
     /// The sub graphs nested in this graph.
     /// </summary>
     Array<AnimSubGraph*, InlinedAllocation<32>> SubGraphs;
