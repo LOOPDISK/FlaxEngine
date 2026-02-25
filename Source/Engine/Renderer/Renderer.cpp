@@ -767,9 +767,22 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         context->ResetSR();
     }
 
-    // Run forward pass
+    // Apply depth haze before forward pass so it doesn't affect translucent surfaces (e.g. glass)
     auto frameBuffer = RenderTargetPool::Get(tempDesc);
     RENDER_TARGET_POOL_SET_NAME(frameBuffer, "FrameBuffer");
+    bool useDepthHaze = EnumHasAnyFlags(renderContext.View.Flags, ViewFlags::DepthHaze) &&
+                        renderContext.List->Settings.DepthHaze.Enabled &&
+                        renderContext.List->Settings.DepthHaze.Intensity > 0.0f;
+    if (useDepthHaze)
+    {
+        auto tempBuffer = RenderTargetPool::Get(tempDesc);
+        RENDER_TARGET_POOL_SET_NAME(tempBuffer, "TempBuffer.DepthHaze");
+        PostProcessingPass::Instance()->RenderDepthHaze(renderContext, lightBuffer, tempBuffer);
+        Swap(lightBuffer, tempBuffer);
+        RenderTargetPool::Release(tempBuffer);
+    }
+
+    // Run forward pass
     ForwardPass::Instance()->Render(renderContext, lightBuffer, frameBuffer);
 
     // Material and Custom PostFx
@@ -795,17 +808,6 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
     // Material and Custom PostFx
     auto tempBuffer = RenderTargetPool::Get(tempDesc);
     RENDER_TARGET_POOL_SET_NAME(tempBuffer, "TempBuffer");
-
-    // Apply depth haze before UI rendering (BeforePostProcessingPass is where UI is rendered)
-    // This ensures depth haze doesn't affect UI elements
-    bool useDepthHaze = EnumHasAnyFlags(renderContext.View.Flags, ViewFlags::DepthHaze) &&
-                        renderContext.List->Settings.DepthHaze.Enabled &&
-                        renderContext.List->Settings.DepthHaze.Intensity > 0.0f;
-    if (useDepthHaze)
-    {
-        PostProcessingPass::Instance()->RenderDepthHaze(renderContext, frameBuffer, tempBuffer);
-        Swap(frameBuffer, tempBuffer);
-    }
 
     // Material and Custom PostFx (UI is rendered here at BeforePostProcessingPass location)
     renderContext.List->RunMaterialPostFxPass(context, renderContext, MaterialPostFxLocation::BeforePostProcessingPass, frameBuffer, tempBuffer);
