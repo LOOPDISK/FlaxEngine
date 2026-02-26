@@ -19,6 +19,20 @@ namespace FlaxEditor.Content
         public override bool CanDuplicate => false;
 
         /// <summary>
+        /// Gets or sets whether the file system watcher raises events.
+        /// Used to suppress notifications during batch import operations.
+        /// </summary>
+        public bool WatcherEnabled
+        {
+            get => _watcher?.EnableRaisingEvents ?? false;
+            set
+            {
+                if (_watcher != null)
+                    _watcher.EnableRaisingEvents = value;
+            }
+        }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="MainContentTreeNode"/> class.
         /// </summary>
         /// <param name="parent">The parent project.</param>

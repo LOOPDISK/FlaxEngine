@@ -370,7 +370,7 @@ bool ParticleEmitterGraphCPUExecutor::ComputeBounds(ParticleEmitter* emitter, Pa
 
 void ParticleEmitterGraphCPUExecutor::Draw(ParticleEmitter* emitter, ParticleEffect* effect, ParticleEmitterInstance& data, RenderContext& renderContext, Matrix& transform)
 {
-    if (!emitter->IsUsingLights || _graph._attrPosition == -1)
+    if (!emitter->IsUsingLights || _graph._attrPosition == -1 || data.Version != _graph.Version)
         return;
 
     // Prepare particles buffer access
@@ -443,6 +443,10 @@ void ParticleEmitterGraphCPUExecutor::DrawDebug(ParticleEmitter* emitter, Partic
 
 void ParticleEmitterGraphCPUExecutor::Update(ParticleEmitter* emitter, ParticleEffect* effect, ParticleEmitterInstance& data, float dt, bool canSpawn)
 {
+    // Skip update if graph was reloaded since last sync (data is stale, will re-sync next frame)
+    if (data.Version != _graph.Version)
+        return;
+
     // Prepare data
     Init(emitter, effect, data, dt);
     auto& context = Context.Get();
@@ -586,6 +590,10 @@ void ParticleEmitterGraphCPUExecutor::Update(ParticleEmitter* emitter, ParticleE
 
 int32 ParticleEmitterGraphCPUExecutor::UpdateSpawn(ParticleEmitter* emitter, ParticleEffect* effect, ParticleEmitterInstance& data, float dt)
 {
+    // Skip if graph was reloaded since last sync (data is stale, will re-sync next frame)
+    if (data.Version != _graph.Version)
+        return 0;
+
     PROFILE_CPU_NAMED("Spawn");
 
     // Prepare data

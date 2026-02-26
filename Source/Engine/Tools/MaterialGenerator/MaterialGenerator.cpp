@@ -242,6 +242,8 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             ADD_FEATURE(DistortionFeature);
         if (!isOpaque && EnumHasAnyFlags(materialInfo.FeaturesFlags, MaterialFeaturesFlags::GlobalIllumination))
             ADD_FEATURE(GlobalIlluminationFeature);
+        if (EnumHasAnyFlags(materialInfo.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride))
+            ADD_FEATURE(WeaponFOVOverrideFeature);
         ADD_FEATURE(ForwardShadingFeature);
         break;
     case MaterialDomain::Deformable:

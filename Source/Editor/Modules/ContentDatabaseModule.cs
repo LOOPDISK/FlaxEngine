@@ -25,6 +25,7 @@ namespace FlaxEditor.Modules
         private int _itemsCreated;
         private int _itemsDeleted;
         private readonly HashSet<MainContentTreeNode> _dirtyNodes = new HashSet<MainContentTreeNode>();
+        private int _fileWatcherSuppressCount;
 
         /// <summary>
         /// The project directory.
@@ -1242,6 +1243,8 @@ namespace FlaxEditor.Modules
                 if (!failed)
                     FlaxEngine.Scripting.InvokeOnUpdate(() => OnImportFileDone(path));
             };
+            Editor.ContentImporting.ImportingQueueBegin += OnImportingQueueBegin;
+            Editor.ContentImporting.ImportingQueueEnd += OnImportingQueueEnd;
             _enableEvents = true;
             _rebuildInitFlag = true;
         }
@@ -1300,6 +1303,67 @@ namespace FlaxEditor.Modules
             {
                 Editor.Instance.Thumbnails.DeletePreview(assetItem);
             }
+        }
+
+        /// <summary>
+        /// Suppresses FileSystemWatcher events during bulk operations.
+        /// Uses reference counting for nested calls.
+        /// </summary>
+        private void SuppressFileSystemWatchers()
+        {
+            _fileWatcherSuppressCount++;
+            if (_fileWatcherSuppressCount == 1)
+            {
+                foreach (var project in Projects)
+                {
+                    if (project.Content != null)
+                        project.Content.WatcherEnabled = false;
+                    if (project.Source != null)
+                        project.Source.WatcherEnabled = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Resumes FileSystemWatcher events and triggers content rescan.
+        /// </summary>
+        private void ResumeFileSystemWatchers()
+        {
+            if (_fileWatcherSuppressCount > 0)
+                _fileWatcherSuppressCount--;
+
+            if (_fileWatcherSuppressCount == 0)
+            {
+                foreach (var project in Projects)
+                {
+                    if (project.Content != null)
+                        project.Content.WatcherEnabled = true;
+                    if (project.Source != null)
+                        project.Source.WatcherEnabled = true;
+                }
+
+                // Trigger rescan via existing dirty nodes mechanism
+                lock (_dirtyNodes)
+                {
+                    foreach (var project in Projects)
+                    {
+                        if (project.Content != null)
+                            _dirtyNodes.Add(project.Content);
+                        if (project.Source != null)
+                            _dirtyNodes.Add(project.Source);
+                    }
+                }
+            }
+        }
+
+        private void OnImportingQueueBegin()
+        {
+            FlaxEngine.Scripting.InvokeOnUpdate(SuppressFileSystemWatchers);
+        }
+
+        private void OnImportingQueueEnd()
+        {
+            FlaxEngine.Scripting.InvokeOnUpdate(ResumeFileSystemWatchers);
         }
 
         internal void OnDirectoryEvent(MainContentTreeNode node, FileSystemEventArgs e)
@@ -1401,6 +1465,8 @@ namespace FlaxEditor.Modules
             FlaxEngine.Content.AssetDisposing -= OnContentAssetDisposing;
             ScriptsBuilder.ScriptsReload -= OnScriptsReload;
             ScriptsBuilder.ScriptsReloadEnd -= OnScriptsReloadEnd;
+            Editor.ContentImporting.ImportingQueueBegin -= OnImportingQueueBegin;
+            Editor.ContentImporting.ImportingQueueEnd -= OnImportingQueueEnd;
 
             // Disable events
             _enableEvents = false;

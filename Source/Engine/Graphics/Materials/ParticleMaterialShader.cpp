@@ -49,6 +49,7 @@ void ParticleMaterialShader::Bind(BindParameters& params)
     auto context = params.GPUContext;
     auto& view = params.RenderContext.View;
     auto& drawCall = *params.DrawCall;
+    const uint32 sortedIndicesOffset = drawCall.Particle.Module->SortedIndicesOffset;
     Span<byte> cb(_cbData.Get(), _cbData.Count());
     ASSERT_LOW_LAYER(cb.Length() >= sizeof(ParticleMaterialShaderData));
     auto materialData = reinterpret_cast<ParticleMaterialShaderData*>(cb.Get());
@@ -102,7 +103,8 @@ void ParticleMaterialShader::Bind(BindParameters& params)
         static StringView ParticleModelFacingModeOffset(TEXT("ModelFacingMode"));
 
         materialData->WorldMatrix.SetMatrixTranspose(drawCall.World);
-        materialData->SortedIndicesOffset = drawCall.Particle.Particles->GPU.SortedIndices && params.RenderContext.View.Pass != DrawPass::Depth ? drawCall.Particle.Module->SortedIndicesOffset : 0xFFFFFFFF;
+        const bool isDepthPass = params.RenderContext.View.Pass == DrawPass::Depth || params.RenderContext.View.Pass == DrawPass::WeaponDepth;
+        materialData->SortedIndicesOffset = drawCall.Particle.Particles->GPU.SortedIndices && !isDepthPass ? sortedIndicesOffset : 0xFFFFFFFF;
         materialData->PerInstanceRandom = drawCall.PerInstanceRandom;
         materialData->ParticleStride = drawCall.Particle.Particles->Stride;
         materialData->PositionOffset = drawCall.Particle.Particles->Layout->FindAttributeOffset(ParticlePosition, ParticleAttribute::ValueTypes::Float3);
@@ -120,7 +122,8 @@ void ParticleMaterialShader::Bind(BindParameters& params)
 
     // Select pipeline state based on current pass and render mode
     bool wireframe = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::Wireframe) || view.Mode == ViewMode::Wireframe;
-    CullMode cullMode = view.Pass == DrawPass::Depth ? CullMode::TwoSided : _info.CullMode;
+    const bool isParticleDepthPass = view.Pass == DrawPass::Depth || view.Pass == DrawPass::WeaponDepth;
+    CullMode cullMode = isParticleDepthPass ? CullMode::TwoSided : _info.CullMode;
     PipelineStateCache* psCache = nullptr;
     switch (drawCall.Particle.Module->TypeID)
     {
@@ -186,7 +189,10 @@ void ParticleMaterialShader::Unload()
 
 bool ParticleMaterialShader::Load()
 {
-    _drawModes = DrawPass::Depth | DrawPass::Forward | DrawPass::QuadOverdraw;
+    // Use WeaponDepth instead of Depth for weapon FOV override materials (no world shadow casting)
+    const bool useWeaponFOV = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride);
+    const DrawPass depthPass = useWeaponFOV ? DrawPass::WeaponDepth : DrawPass::Depth;
+    _drawModes = depthPass | DrawPass::Forward | DrawPass::QuadOverdraw;
     GPUPipelineState::Description psDesc = GPUPipelineState::Description::Default;
     psDesc.DepthEnable = (_info.FeaturesFlags & MaterialFeaturesFlags::DisableDepthTest) == MaterialFeaturesFlags::None;
     psDesc.DepthWriteEnable = (_info.FeaturesFlags & MaterialFeaturesFlags::DisableDepthWrite) == MaterialFeaturesFlags::None;
@@ -263,11 +269,6 @@ bool ParticleMaterialShader::Load()
 
     // Lazy initialization
     _cacheVolumetricFog.Desc.PS = nullptr;
-
-#if PLATFORM_PS5
-    // Fix shader binding issues on forward shading materials on PS5
-    _drawModes = DrawPass::None;
-#endif
 
     return false;
 }

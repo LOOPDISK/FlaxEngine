@@ -120,30 +120,21 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
 #endif
 
     // Calculate view space and world space positions
+    float rawDepth = SampleZ(uv);
 #if defined(USE_GBUFFER_CUSTOM_DATA)
-    // Check if GBuffer3 contains a valid camera-relative world position (alpha == 1.0)
-    if (abs(gBuffer3.a - 1.0) < 0.01)
+    if (result.ShadingModel == SHADING_MODEL_WEAPON)
     {
-        // Reconstruct absolute world position from camera-relative position
-        // GBuffer3 stores (WorldPosition - ViewPos), where ViewPos is the camera's world position
-        // So add the camera's world position (gBuffer.ViewPos) back to get absolute world position
+        // Weapon pixels: world position from GBuffer3, undo depth remapping (0.01x) for view position
         result.WorldPos = gBuffer3.rgb + gBuffer.ViewPos;
-
-        // Now convert world position back to view space
-        // This is the inverse of: worldPos = mul(float4(viewPos, 1), InvViewMatrix).xyz
-        // We need to apply the view matrix (inverse of InvViewMatrix)
-        // Since viewPos is in camera space, we can derive it from the world position
-        result.ViewPos = GetViewPos(gBuffer, uv); // Still use depth for view pos as it's more accurate
+        result.ViewPos = GetViewPos(gBuffer, uv, rawDepth * 100.0);
     }
     else
     {
-        // Fall back to depth reconstruction for non-weapon geometry
-        result.ViewPos = GetViewPos(gBuffer, uv);
+        result.ViewPos = GetViewPos(gBuffer, uv, rawDepth);
         result.WorldPos = mul(float4(result.ViewPos, 1), gBuffer.InvViewMatrix).xyz;
     }
 #else
-    // Standard depth reconstruction when no custom G-buffer data
-    result.ViewPos = GetViewPos(gBuffer, uv);
+    result.ViewPos = GetViewPos(gBuffer, uv, rawDepth);
     result.WorldPos = mul(float4(result.ViewPos, 1), gBuffer.InvViewMatrix).xyz;
 #endif
 
@@ -163,30 +154,22 @@ GBufferSample SampleGBufferFast(GBufferData gBuffer, float2 uv)
     result.ShadingModel = (int)(gBuffer1.a * 4.999);
 
     // Calculate view space and world space positions
+    float rawDepth = SampleZ(uv);
 #if defined(USE_GBUFFER_CUSTOM_DATA)
-    // Sample custom data to check for stored world position
-    float4 gBuffer3 = SAMPLE_RT(GBuffer3, uv);
-
-    // Check if GBuffer3 contains a valid camera-relative world position (alpha == 1.0)
-    if (abs(gBuffer3.a - 1.0) < 0.01)
+    if (result.ShadingModel == SHADING_MODEL_WEAPON)
     {
-        // Reconstruct absolute world position from camera-relative position
-        // GBuffer3 stores (WorldPosition - ViewPos), where ViewPos is the camera's world position
-        // So add the camera's world position (gBuffer.ViewPos) back to get absolute world position
+        // Weapon pixels: world position from GBuffer3, undo depth remapping (0.01x) for view position
+        float4 gBuffer3 = SAMPLE_RT(GBuffer3, uv);
         result.WorldPos = gBuffer3.rgb + gBuffer.ViewPos;
-
-        // Still use depth for view pos as it's more accurate
-        result.ViewPos = GetViewPos(gBuffer, uv);
+        result.ViewPos = GetViewPos(gBuffer, uv, rawDepth * 100.0);
     }
     else
     {
-        // Fall back to depth reconstruction for non-weapon geometry
-        result.ViewPos = GetViewPos(gBuffer, uv);
+        result.ViewPos = GetViewPos(gBuffer, uv, rawDepth);
         result.WorldPos = mul(float4(result.ViewPos, 1), gBuffer.InvViewMatrix).xyz;
     }
 #else
-    // Standard depth reconstruction when no custom G-buffer data
-    result.ViewPos = GetViewPos(gBuffer, uv);
+    result.ViewPos = GetViewPos(gBuffer, uv, rawDepth);
     result.WorldPos = mul(float4(result.ViewPos, 1), gBuffer.InvViewMatrix).xyz;
 #endif
 

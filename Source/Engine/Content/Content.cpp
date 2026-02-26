@@ -1289,7 +1289,8 @@ Asset* Content::LoadAsync(const Guid& id, const ScriptingTypeHandle& type)
         // Validate type
         if (IsAssetTypeIdInvalid(type, result->GetTypeHandle()) && !result->Is(type))
         {
-            LOG(Warning, "Different loaded asset type! Asset: \'{0}\'. Expected type: {1}", result->ToString(), type.ToString());
+            const String context = LogContext::FormatContext();
+            LOG(Warning, "Asset type mismatch: '{0}' loaded as {1}, expected {2}{3}", result->GetPath(), result->GetTypeName(), type.ToString(), context);
             LogContext::Print(LogType::Warning);
             return nullptr;
         }
@@ -1324,7 +1325,8 @@ Asset* Content::LoadAsync(const Guid& id, const ScriptingTypeHandle& type)
     AssetInfo assetInfo;
     if (!GetAssetInfo(id, assetInfo))
     {
-        LOG(Warning, "Invalid or missing asset ({0}, {1}).", id, type.ToString());
+        const String context = LogContext::FormatContext();
+        LOG(Warning, "Missing asset of type {1} (ID={0}){2}. It may have been deleted, renamed, or reimported with a different ID.", id, type.ToString(), context);
         LogContext::Print(LogType::Warning);
         LOAD_FAILED();
     }

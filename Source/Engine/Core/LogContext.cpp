@@ -106,6 +106,51 @@ void LogContext::Print(LogType verbosity)
 #endif
 }
 
+String LogContext::FormatContext()
+{
+    auto& stack = GlobalLogContexts.Get();
+    if (stack.Count == 0)
+        return String::Empty;
+    StringBuilder msg;
+    for (int32 index = (int32)stack.Count - 1; index >= 0; index--)
+    {
+        LogContextData& context = stack.Ptr[index];
+
+        // Skip duplicates
+        if (index < (int32)stack.Count - 1 && stack.Ptr[stack.Count - 1] == context)
+            continue;
+
+        if (context.ObjectID != Guid::Empty)
+        {
+            if (ScriptingObject* object = Scripting::TryFindObject(context.ObjectID))
+            {
+                const StringAnsiView typeName(object->GetType().Fullname);
+                if (Asset* asset = ScriptingObject::Cast<Asset>(object))
+                {
+                    msg.AppendFormat(TEXT(" in asset '{}' ({})"), asset->GetPath(), asset->GetTypeName());
+                }
+                else if (Actor* actor = ScriptingObject::Cast<Actor>(object))
+                {
+                    msg.AppendFormat(TEXT(" in actor '{}' ({})"), actor->GetNamePath(), String(typeName));
+                }
+                else if (Script* script = ScriptingObject::Cast<Script>(object))
+                {
+                    msg.AppendFormat(TEXT(" in script '{}' ({})"), script->GetNamePath(), String(typeName));
+                }
+                else
+                {
+                    msg.AppendFormat(TEXT(" in object ({})"), String(typeName));
+                }
+            }
+            else if (Asset* asset = Content::GetAsset(context.ObjectID))
+            {
+                msg.AppendFormat(TEXT(" in asset '{}' ({})"), asset->GetPath(), asset->GetTypeName());
+            }
+        }
+    }
+    return msg.ToString();
+}
+
 void LogContext::Push(const Guid& id)
 {
     LogContextData context;

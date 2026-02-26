@@ -385,7 +385,7 @@ VertexOutput VS(ModelInput input)
 	output.Geometry.WorldPosition += material.PositionOffset;
 	output.Geometry.PrevWorldPosition += material.PositionOffset;
 #if USE_WEAPON_FOV_OVERRIDE
-	// Apply weapon FOV override if enabled
+	// Re-project with updated world position after offset (reuse aspect from above)
 	aspect = (float)ScreenSize.x / (float)ScreenSize.y;
 	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
 #else
@@ -574,7 +574,7 @@ VertexOutput VS_Skinned(ModelInput_Skinned input)
 	output.Geometry.WorldPosition += material.PositionOffset;
 	output.Geometry.PrevWorldPosition += material.PositionOffset;
 #if USE_WEAPON_FOV_OVERRIDE
-	// Apply weapon FOV override if enabled
+	// Re-project with updated world position after offset (reuse aspect from above)
 	aspect = (float)ScreenSize.x / (float)ScreenSize.y;
 	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
 #else

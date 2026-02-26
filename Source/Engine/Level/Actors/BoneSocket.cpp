@@ -47,9 +47,20 @@ void BoneSocket::UpdateTransformation()
         auto& nodes = parent->GraphInstance.NodesPose;
         Transform t;
         if (nodes.IsValidIndex(_index))
+        {
             nodes.Get()[_index].Decompose(t);
-        else
+        }
+        else if (parent->SkinnedModel->Skeleton.Nodes.IsValidIndex(_index))
+        {
             t = parent->SkinnedModel->Skeleton.GetNodeTransform(_index);
+        }
+        else
+        {
+            LOG(Error, "BoneSocket '{}' on AnimatedModel '{}': cached node index {} is invalid (skeleton has {} nodes, node name '{}' not found). Skeleton may have changed after reimport.",
+                GetNamePath(), parent->GetNamePath(), _index, parent->SkinnedModel->Skeleton.Nodes.Count(), _node);
+            _index = -1;
+            return;
+        }
         if (!_useScale)
             t.Scale = _localTransform.Scale;
         SetLocalTransform(t);

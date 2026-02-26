@@ -132,6 +132,19 @@ namespace FlaxEditor.Modules
             }
         }
 
+        /// <summary>
+        /// Reimports the specified <see cref="BinaryAssetItem"/> item using a pre-resolved source file path, bypassing the missing file dialog.
+        /// </summary>
+        /// <param name="item">The item.</param>
+        /// <param name="resolvedImportPath">The resolved source file path to import from.</param>
+        public void Reimport(BinaryAssetItem item, string resolvedImportPath)
+        {
+            if (item != null && System.IO.File.Exists(resolvedImportPath))
+            {
+                Import(resolvedImportPath, item.Path, true);
+            }
+        }
+
         internal bool GetReimportPath(string contextName, ref string importPath, bool skipSettingsDialog = false)
         {
             // Check if input file is missing

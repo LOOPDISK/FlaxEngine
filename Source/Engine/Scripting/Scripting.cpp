@@ -946,7 +946,8 @@ ScriptingObject* Scripting::FindObject(Guid id, const MClass* type)
         // Check type
         if (!type || result->Is(type))
             return result;
-        LOG(Warning, "Found scripting object with ID={0} of type {1} that doesn't match type {2}", id, String(result->GetType().Fullname), String(type->GetFullName()));
+        const String context = LogContext::FormatContext();
+        LOG(Warning, "Type mismatch for object (ID={0}): found {1}, expected {2}{3}", id, String(result->GetType().Fullname), String(type->GetFullName()), context);
         LogContext::Print(LogType::Warning);
         return nullptr;
     }
@@ -956,7 +957,11 @@ ScriptingObject* Scripting::FindObject(Guid id, const MClass* type)
     {
         result = Content::LoadAsync<Asset>(id);
         if (!result)
-            LOG(Warning, "Unable to find scripting object with ID={0}", id);
+        {
+            const String context = LogContext::FormatContext();
+            LOG(Warning, "Missing object (ID={0}){1}", id, context);
+            LogContext::Print(LogType::Warning);
+        }
         return result;
     }
     if (type == ScriptingObject::GetStaticClass() || type->IsSubClassOf(Asset::GetStaticClass()))
@@ -966,7 +971,8 @@ ScriptingObject* Scripting::FindObject(Guid id, const MClass* type)
             return asset;
     }
 
-    LOG(Warning, "Unable to find scripting object with ID={0}. Required type {1}", id, String(type->GetFullName()));
+    const String context = LogContext::FormatContext();
+    LOG(Warning, "Missing {1} (ID={0}){2}", id, String(type->GetFullName()), context);
     LogContext::Print(LogType::Warning);
     return nullptr;
 }

@@ -60,10 +60,17 @@ API_CLASS(Static) class FLAXENGINE_API LogContext
     API_FUNCTION() static LogContextData Get();
 
     /// <summary>
-    /// Prints the current log context to the log. Does nothing it 
+    /// Prints the current log context to the log. Does nothing if the context stack is empty.
     /// </summary>
     /// <param name="verbosity">The verbosity of the log.</param>
     API_FUNCTION() static void Print(LogType verbosity);
+
+    /// <summary>
+    /// Formats the current log context into a compact, human-readable string.
+    /// Returns an empty string if the context stack is empty.
+    /// </summary>
+    /// <returns>Formatted context string, e.g. " in actor 'Foo' in asset 'Bar.prefab'"</returns>
+    API_FUNCTION() static String FormatContext();
 };
 
 /// <summary>

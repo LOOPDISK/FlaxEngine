@@ -2030,9 +2030,44 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
                 indices.Resize(srcMeshIndexCount);
                 int32 dstMeshIndexCount = {};
                 if (options.SloppyOptimization)
+                {
                     dstMeshIndexCount = (int32)meshopt_simplifySloppy(indices.Get(), srcMesh->Indices.Get(), srcMeshIndexCount, (const float*)srcMesh->Positions.Get(), srcMeshVertexCount, sizeof(Float3), dstMeshIndexCountTarget, options.LODTargetError);
+                }
                 else
-                    dstMeshIndexCount = (int32)meshopt_simplify(indices.Get(), srcMesh->Indices.Get(), srcMeshIndexCount, (const float*)srcMesh->Positions.Get(), srcMeshVertexCount, sizeof(Float3), dstMeshIndexCountTarget, options.LODTargetError);
+                {
+                    // Build simplification flags
+                    unsigned int simplifyOptions = 0;
+                    if (options.LockBorder)
+                        simplifyOptions |= meshopt_SimplifyLockBorder;
+                    if (options.ErrorAbsolute)
+                        simplifyOptions |= meshopt_SimplifyErrorAbsolute;
+
+                    if (options.PreserveUVs && srcMesh->UVs.HasItems())
+                    {
+                        // Pack UV channels as attributes for meshopt_simplifyWithAttributes
+                        int32 uvChannelCount = srcMesh->UVs.Count();
+                        int32 attributeCount = uvChannelCount * 2; // 2 floats (U, V) per channel
+                        Array<float> attributes;
+                        attributes.Resize(srcMeshVertexCount * attributeCount);
+                        Array<float> attributeWeights;
+                        attributeWeights.Resize(attributeCount);
+                        for (int32 ch = 0; ch < uvChannelCount; ch++)
+                        {
+                            for (int32 v = 0; v < srcMeshVertexCount; v++)
+                            {
+                                attributes[v * attributeCount + ch * 2 + 0] = srcMesh->UVs[ch][v].X;
+                                attributes[v * attributeCount + ch * 2 + 1] = srcMesh->UVs[ch][v].Y;
+                            }
+                            attributeWeights[ch * 2 + 0] = options.UVWeight;
+                            attributeWeights[ch * 2 + 1] = options.UVWeight;
+                        }
+                        dstMeshIndexCount = (int32)meshopt_simplifyWithAttributes(indices.Get(), srcMesh->Indices.Get(), srcMeshIndexCount, (const float*)srcMesh->Positions.Get(), srcMeshVertexCount, sizeof(Float3), attributes.Get(), sizeof(float) * attributeCount, attributeWeights.Get(), attributeCount, nullptr, dstMeshIndexCountTarget, options.LODTargetError, simplifyOptions, nullptr);
+                    }
+                    else
+                    {
+                        dstMeshIndexCount = (int32)meshopt_simplify(indices.Get(), srcMesh->Indices.Get(), srcMeshIndexCount, (const float*)srcMesh->Positions.Get(), srcMeshVertexCount, sizeof(Float3), dstMeshIndexCountTarget, options.LODTargetError, simplifyOptions, nullptr);
+                    }
+                }
                 if (dstMeshIndexCount <= 0 || dstMeshIndexCount > indices.Count())
                     continue;
                 indices.Resize(dstMeshIndexCount);
