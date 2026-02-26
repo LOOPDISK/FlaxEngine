@@ -49,6 +49,8 @@ API_STRUCT(NoPod) struct FLAXENGINE_API FoliageInstance
     /// </summary>
     LightmapEntry Lightmap;
 
+    int32 WasCulled : 1;
+
 public:
     bool operator==(const FoliageInstance& v) const
     {

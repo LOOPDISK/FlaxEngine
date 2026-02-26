@@ -8,6 +8,7 @@
 #include "FoliageType.h"
 #include "Engine/Core/Memory/ArenaAllocation.h"
 #include "Engine/Level/Actor.h"
+#include "Engine/Renderer/HierarchialZBufferPass.h"
 
 /// <summary>
 /// Represents a foliage actor that contains a set of instanced meshes.
@@ -28,7 +29,7 @@ public:
 
 #if FOLIAGE_USE_SINGLE_QUAD_TREE
     /// <summary>
-    /// The root cluster. Contains all the instances and it's the starting point of the quad-tree hierarchy. Null if no foliage added. It's read-only.
+    /// The root cluster. Contains all the instances and it's the starting point of the oct-tree hierarchy. Null if no foliage added. It's read-only.
     /// </summary>
     FoliageCluster* Root = nullptr;
 
@@ -126,7 +127,7 @@ public:
     void OnFoliageTypeModelLoaded(int32 index);
 
     /// <summary>
-    /// Rebuilds the foliage clusters used as internal acceleration structures (quad tree).
+    /// Rebuilds the foliage clusters used as internal acceleration structures (oct tree).
     /// </summary>
     API_FUNCTION() void RebuildClusters();
 
@@ -157,6 +158,12 @@ public:
     API_PROPERTY() static void SetGlobalDensityScale(float value);
 
 private:
+    int _lastHZBId = -1;
+    int _lastHZBFrame = -1;
+    bool _checkOcclusion = true;
+    HZBData* _hzb = nullptr;
+    bool CheckOcclusion(FoliageCluster* cluster, const BoundingSphere& bounds) const;
+    bool CheckOcclusion(FoliageInstance& instance, const BoundingSphere& bounds) const;
     void AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_SIZE>& clusters, FoliageCluster* cluster, FoliageInstance& instance);
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE && FOLIAGE_USE_DRAW_CALLS_BATCHING
     struct DrawKey
