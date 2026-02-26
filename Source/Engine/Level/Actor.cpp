@@ -1193,9 +1193,17 @@ void Actor::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
             {
                 Guid tmpId;
                 if (_prefabObjectID.IsValid())
-                    LOG(Warning, "Missing parent actor {0} for \'{1}\', prefab object {2}", parentId, ToString(), _prefabObjectID);
+                {
+                    String prefabPath;
+                    if (Asset* prefab = Content::GetAsset(_prefabID))
+                        prefabPath = prefab->GetPath();
+                    if (prefabPath.HasChars())
+                        LOG(Warning, "Missing parent actor (ID={0}) for '{1}' in prefab '{2}' (prefab object {3})", parentId, ToString(), prefabPath, _prefabObjectID);
+                    else
+                        LOG(Warning, "Missing parent actor (ID={0}) for '{1}' (prefab object {2})", parentId, ToString(), _prefabObjectID);
+                }
                 else if (!modifier->IdsMapping.TryGet(parentId, tmpId) || tmpId.IsValid()) // Skip warning if object was mapped to empty id (intentionally ignored)
-                    LOG(Warning, "Missing parent actor {0} for \'{1}\'", parentId, ToString());
+                    LOG(Warning, "Missing parent actor (ID={0}) for '{1}'", parentId, ToString());
             }
         }
     }

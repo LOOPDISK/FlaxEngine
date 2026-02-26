@@ -134,6 +134,7 @@ void RenderSpotLightData::SetShaderData(ShaderLightData& data, bool useShadow) c
     data.FalloffExponent = FallOffExponent;
     data.InverseSquared = UseInverseSquaredFalloff ? 1.0f : 0.0f;
     data.RadiusInv = 1.0f / Radius;
+    data.WeaponShadowsBufferAddress = useShadow ? WeaponShadowsBufferAddress : 0;
 }
 
 void RenderPointLightData::SetShaderData(ShaderLightData& data, bool useShadow) const

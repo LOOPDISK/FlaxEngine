@@ -736,7 +736,8 @@ DEFINE_INTERNAL_CALL(MObject*) ObjectInternal_FindObject(Guid* id, MTypeObject* 
         {
             if (!skipLog)
             {
-                LOG(Warning, "Found scripting object with ID={0} of type {1} that doesn't match type {2}", *id, String(obj->GetType().Fullname), String(klass->GetFullName()));
+                const String context = LogContext::FormatContext();
+                LOG(Warning, "Type mismatch for object (ID={0}): found {1}, expected {2}{3}", *id, String(obj->GetType().Fullname), String(klass->GetFullName()), context);
                 LogContext::Print(LogType::Warning);
             }
             return nullptr;
@@ -746,13 +747,14 @@ DEFINE_INTERNAL_CALL(MObject*) ObjectInternal_FindObject(Guid* id, MTypeObject* 
 
     if (!skipLog)
     {
+        const String context = LogContext::FormatContext();
         if (klass)
         {
-            LOG(Warning, "Unable to find scripting object with ID={0} of type {1}", *id, String(klass->GetFullName()));
+            LOG(Warning, "Missing {1} (ID={0}){2}", *id, String(klass->GetFullName()), context);
         }
         else
         {
-            LOG(Warning, "Unable to find scripting object with ID={0}", *id);
+            LOG(Warning, "Missing object (ID={0}){1}", *id, context);
         }
         LogContext::Print(LogType::Warning);
     }
