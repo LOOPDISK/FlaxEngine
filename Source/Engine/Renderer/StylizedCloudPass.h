@@ -29,7 +29,8 @@ private:
         Float2 DepthRange;
         float DistanceSharpenStart;
         float DistanceSharpenEnd;
-        Float3 Padding0;
+        float DistortionScrollSpeed;
+        Float2 Padding0;
         Matrix ViewProjection;
         Matrix InvViewProjection;
         });

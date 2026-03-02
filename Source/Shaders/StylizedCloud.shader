@@ -25,7 +25,8 @@ float Time;
 float2 DepthRange;
 float DistanceSharpenStart;
 float DistanceSharpenEnd;
-float3 Padding0;
+float DistortionScrollSpeed;
+float2 Padding0;
 float4x4 ViewProjection;
 float4x4 InvViewProjection;
 META_CB_END
@@ -129,7 +130,11 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
             // to the cloud's world position regardless of camera translation.
             // Time offset provides subtle drift so clouds feel alive.
             float3 dir = normalize(worldPos);
-            float2 noise = DistortionCube.SampleLevel(SamplerLinearWrap, dir + float3(Time * 0.01f, 0, 0), 0).rg * 2.0f - 1.0f;
+            float angle = Time * DistortionScrollSpeed;
+            float s, c;
+            sincos(angle, s, c);
+            float3 rotDir = float3(dir.x * c - dir.z * s, dir.y, dir.x * s + dir.z * c);
+            float2 noise = DistortionCube.SampleLevel(SamplerLinearWrap, rotDir, 0).rg * 2.0f - 1.0f;
             cloudUV = saturate(cloudUV + noise * DistortionStrength * TexelSize * 8.0f);
         }
     }

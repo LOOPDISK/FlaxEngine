@@ -11,6 +11,7 @@
 #include "Engine/Graphics/RenderTargetPool.h"
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/Materials/IMaterial.h"
+#include "Engine/Graphics/Materials/StylizedCloudMaterialShader.h"
 #include "Engine/Renderer/GBufferPass.h"
 #include "Engine/Renderer/RenderList.h"
 
@@ -161,8 +162,9 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     data.DepthRange = Float2(renderContext.View.Near, renderContext.View.Far);
     data.DistanceSharpenStart = settings->StylizedCloudDistanceSharpenStart;
     data.DistanceSharpenEnd = settings->StylizedCloudDistanceSharpenEnd;
-    data.Padding0 = Float3::Zero;
-    data.Time = Time::GetGameTime();
+    data.DistortionScrollSpeed = settings->StylizedCloudDistortionScrollSpeed;
+    data.Padding0 = Float2::Zero;
+    data.Time = Time::Draw.UnscaledTime.GetTotalSeconds();
     Matrix::Transpose(renderContext.View.ViewProjection(), data.ViewProjection);
     Matrix::Transpose(renderContext.View.IVP, data.InvViewProjection);
 
@@ -175,19 +177,46 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     context->SetRenderTarget(cloudHwDepth->View(), Span<GPUTextureView*>(prePassTargets, ARRAY_COUNT(prePassTargets)));
 
     // Prepare lighting custom data for material binding
-    // Layout: [0]=SunDirection, [1]=(SunIntensity, SkyIntensity, 0), [2]=SunColor, [3]=SkyColor
-    Float3 customData[4];
-    customData[0] = sunDirection;
-    customData[1] = Float3(sunIntensity, skyIntensity, 0.0f);
-    customData[2] = sunColor;
-    customData[3] = skyColor;
+    StylizedCloudCustomData customData;
+    customData.SunDirection = sunDirection;
+    customData.SunIntensity = sunIntensity;
+    customData.SunColor = sunColor;
+    customData.SkyIntensity = skyIntensity;
+    customData.SkyColor = skyColor;
+
+    // Gather local lights (point + spot)
+    customData.LocalLightCount = 0;
+    for (int32 i = 0; i < renderContext.List->PointLights.Count() && customData.LocalLightCount < STYLIZED_CLOUD_MAX_LOCAL_LIGHTS; i++)
+    {
+        const auto& light = renderContext.List->PointLights[i];
+        auto& dst = customData.LocalLights[customData.LocalLightCount++];
+        dst.Position = light.Position;
+        dst.Radius = light.Radius;
+        dst.Color = light.Color;
+        dst.FalloffExponent = light.FallOffExponent;
+        dst.Direction = Float3::Zero;
+        dst.SpotCosOuterCone = -1.0f;
+        dst.SpotInvCosConeDiff = 0.0f;
+    }
+    for (int32 i = 0; i < renderContext.List->SpotLights.Count() && customData.LocalLightCount < STYLIZED_CLOUD_MAX_LOCAL_LIGHTS; i++)
+    {
+        const auto& light = renderContext.List->SpotLights[i];
+        auto& dst = customData.LocalLights[customData.LocalLightCount++];
+        dst.Position = light.Position;
+        dst.Radius = light.Radius;
+        dst.Color = light.Color;
+        dst.FalloffExponent = light.FallOffExponent;
+        dst.Direction = light.Direction;
+        dst.SpotCosOuterCone = light.CosOuterCone;
+        dst.SpotInvCosConeDiff = light.InvCosConeDifference;
+    }
 
     // Iterate draw calls from the StylizedCloud list
     const auto* drawCallsData = renderContext.List->DrawCalls.Get();
     const auto* listData = cloudDrawList.Indices.Get();
     constexpr int32 vbMax = ARRAY_COUNT(DrawCall::Geometry.VertexBuffers);
     IMaterial::BindParameters bindParams(context, renderContext);
-    bindParams.CustomData = customData;
+    bindParams.CustomData = &customData;
     bindParams.BindViewData();
 
     for (int32 i = 0; i < cloudDrawList.Indices.Count(); i++)

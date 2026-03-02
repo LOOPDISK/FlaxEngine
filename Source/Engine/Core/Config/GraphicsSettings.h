@@ -172,6 +172,12 @@ public:
     float StylizedCloudDistanceSharpenEnd = 100000.0f;
 
     /// <summary>
+    /// Speed of the distortion noise drift for stylized clouds. Higher values make the noise scroll faster.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3075), DefaultValue(0.01f), Limit(0, 1), EditorDisplay(\"Stylized Clouds\", \"Distortion Scroll Speed\")")
+    float StylizedCloudDistortionScrollSpeed = 0.01f;
+
+    /// <summary>
     /// Cubemap texture used for edge distortion noise on stylized clouds (RG channels, 0-1 remapped to -1..1). Requires non-zero Distortion Strength.
     /// </summary>
     API_FIELD(Attributes="EditorOrder(3070), EditorDisplay(\"Stylized Clouds\", \"Distortion Cube Map\")")

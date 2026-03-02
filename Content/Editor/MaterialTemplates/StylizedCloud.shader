@@ -11,6 +11,20 @@
 #include "./Flax/StylizedCloud.hlsl"
 @7
 
+#define STYLIZED_CLOUD_MAX_LOCAL_LIGHTS 8
+
+struct CloudLocalLight
+{
+	float3 Position;
+	float Radius;
+	float3 Color;
+	float FalloffExponent;
+	float3 Direction;
+	float SpotCosOuterCone;
+	float SpotInvCosConeDiff;
+	float3 LightPadding;
+};
+
 // Primary constant buffer (with additional material parameters)
 META_CB_BEGIN(0, Data)
 float4x4 WorldMatrix;
@@ -22,7 +36,9 @@ float SkyIntensity;
 float3 SkyColor;
 float Time;
 float PerInstanceRandom;
-float3 Padding;
+int LocalLightCount;
+float2 Padding;
+CloudLocalLight LocalLights[STYLIZED_CLOUD_MAX_LOCAL_LIGHTS];
 @1META_CB_END
 
 // Shader resources
@@ -247,6 +263,33 @@ CloudPrePassOutput PS_CloudPrePass(Cloud_VS2PS input)
 	float3 lightColor = sun * (0.1f + 0.9f * wrappedNoL)
 	                   + sky * (0.15f + 0.85f * hemi);
 	lightColor += sun * (rim * 0.2f);
+
+	// Local lights (point + spot)
+	for (int li = 0; li < LocalLightCount; li++)
+	{
+		float3 lightVec = LocalLights[li].Position - input.WorldPos;
+		float dist = length(lightVec);
+		float3 lDir = lightVec / max(dist, 0.001f);
+		float atten = pow(saturate(1.0f - dist / max(LocalLights[li].Radius, 0.001f)), LocalLights[li].FalloffExponent);
+
+		// Spot cone attenuation
+		if (LocalLights[li].SpotCosOuterCone > -0.5f)
+		{
+			float cosAngle = dot(-lDir, LocalLights[li].Direction);
+			atten *= saturate((cosAngle - LocalLights[li].SpotCosOuterCone) * LocalLights[li].SpotInvCosConeDiff);
+		}
+
+		// Clouds are translucent: use a large normal-independent glow
+		// plus a soft directional term for shape definition.
+		float localNoL = dot(n, lDir);
+		float localWrapped = saturate((localNoL + 0.25f) / 1.25f);
+		float translucent = 0.55f; // omnidirectional scatter (glows from inside)
+		float directional = 0.45f * localWrapped;
+		// Forward scattering: bright halo when looking toward light through cloud
+		float VdotL = saturate(dot(v, -lDir));
+		float forwardScatter = pow(VdotL, 4.0f) * 0.35f;
+		lightColor += LocalLights[li].Color * atten * (translucent + directional + forwardScatter);
+	}
 
 	// Combine material outputs with lighting
 	float3 finalColor = material.Color * lightColor + material.Emissive;
