@@ -244,7 +244,7 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
         box.Minimum -= context.ViewOrigin; \
         box.Maximum -= context.ViewOrigin; \
         bounds = cluster->Children[idx]->TotalBoundsSphere; \
-        bounds.Center -= viewOrigin; \
+        bounds.Center -= context.ViewOrigin; \
 		if (context.RenderContext.View.CullingFrustum.Intersects(box)) \
             if (!CheckOcclusion(cluster->Children[idx], bounds)) \
             { \
@@ -254,9 +254,8 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
             //{ \
             //    bounds.Center += viewOrigin; \
             //    DebugDraw::DrawSphere(bounds, Color(1, 0, 1, 0.2f), 0, false); \
-            //}
-		if (context.RenderContext.View.CullingFrustum.Intersects(box)) \
-			DrawCluster(context, cluster->Children[idx], drawCallsLists, result)
+            //} 
+
         DRAW_CLUSTER(0);
         DRAW_CLUSTER(1);
         DRAW_CLUSTER(2);
