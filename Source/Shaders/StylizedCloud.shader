@@ -83,12 +83,15 @@ float4 PS_GaussianBlur(Quad_VS2PS input) : SV_Target0
     float2 dir = float2(0, TexelSize.y);
 #endif
 
+    // Scale step size so 13 taps always span the full gaussian (3*sigma radius)
+    float stepScale = max(sigma / 6.0f, 1.0f);
+
     float4 accum = 0;
     float accumWeight = 0;
     UNROLL
     for (int i = -6; i <= 6; i++)
     {
-        float fi = (float)i;
+        float fi = (float)i * stepScale;
         float2 uv = saturate(input.TexCoord + dir * fi);
         float4 c = SAMPLE_RT_LINEAR(CloudColor, uv);
         float d = SAMPLE_RT(CloudDepth, uv).r;
@@ -189,7 +192,9 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
                 float3 rotDir = float3(dir.x * c - dir.z * s, dir.y, dir.x * s + dir.z * c);
                 noise = DistortionCube.SampleLevel(SamplerLinearWrap, rotDir, 0).rg * 2.0f - 1.0f;
             }
-            cloudUV = saturate(cloudUV + noise * DistortionStrength * TexelSize * 8.0f * depthCompensation);
+            // Fade distortion by cloud alpha so edges don't offset into empty space
+            float edgeAlpha = SAMPLE_RT_LINEAR(CloudColor, input.TexCoord).a;
+            cloudUV = saturate(cloudUV + noise * DistortionStrength * TexelSize * 8.0f * depthCompensation * saturate(edgeAlpha * 3.0f));
         }
     }
 
@@ -217,7 +222,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
     if (cloudLinearDepth >= (sceneLinearDepthCenter + softRejectDistance))
         return 0;
 
-    float alpha = saturate((cloud.a - AlphaThreshold) / max(1.0f - AlphaThreshold, 1e-4f));
+    float alpha = smoothstep(AlphaThreshold, saturate(AlphaThreshold + 0.15f), cloud.a);
     // Fade cloud near geometry intersections to avoid hard clipping seams.
     float intersectionFade = saturate((sceneLinearDepthSoft - cloudLinearDepth) / max(SoftIntersectionDistance, 1.0f));
     alpha *= intersectionFade;
