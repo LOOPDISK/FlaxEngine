@@ -30,7 +30,8 @@ private:
         float DistanceSharpenStart;
         float DistanceSharpenEnd;
         float DistortionScrollSpeed;
-        Float2 Padding0;
+        int32 DistortionMode;
+        float NoiseScale;
         Matrix ViewProjection;
         Matrix InvViewProjection;
         });

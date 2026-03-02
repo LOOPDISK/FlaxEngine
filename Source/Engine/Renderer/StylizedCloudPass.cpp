@@ -111,14 +111,19 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     const auto colorDesc = GPUTextureDescription::New2D(quarterWidth, quarterHeight, PixelFormat::R16G16B16A16_Float);
     const auto depthDesc = GPUTextureDescription::New2D(quarterWidth, quarterHeight, PixelFormat::R32_Float);
     const auto hwDepthDesc = GPUTextureDescription::New2D(quarterWidth, quarterHeight, GPU_DEPTH_BUFFER_PIXEL_FORMAT, GPUTextureFlags::DepthStencil);
+    const auto originDesc = GPUTextureDescription::New2D(quarterWidth, quarterHeight, PixelFormat::R16G16B16A16_Float);
     auto cloudColor = RenderTargetPool::Get(colorDesc);
     auto cloudDepth = RenderTargetPool::Get(depthDesc);
     auto cloudHwDepth = RenderTargetPool::Get(hwDepthDesc);
+    auto cloudOrigin = RenderTargetPool::Get(originDesc);
+    auto cloudNormal = RenderTargetPool::Get(colorDesc);
     auto tempColor = RenderTargetPool::Get(colorDesc);
     auto tempDepth = RenderTargetPool::Get(depthDesc);
     RENDER_TARGET_POOL_SET_NAME(cloudColor, "StylizedCloud.CloudColor");
     RENDER_TARGET_POOL_SET_NAME(cloudDepth, "StylizedCloud.CloudDepth");
     RENDER_TARGET_POOL_SET_NAME(cloudHwDepth, "StylizedCloud.CloudHwDepth");
+    RENDER_TARGET_POOL_SET_NAME(cloudOrigin, "StylizedCloud.CloudOrigin");
+    RENDER_TARGET_POOL_SET_NAME(cloudNormal, "StylizedCloud.CloudNormal");
     RENDER_TARGET_POOL_SET_NAME(tempColor, "StylizedCloud.TempColor");
     RENDER_TARGET_POOL_SET_NAME(tempDepth, "StylizedCloud.TempDepth");
 
@@ -163,7 +168,8 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     data.DistanceSharpenStart = settings->StylizedCloudDistanceSharpenStart;
     data.DistanceSharpenEnd = settings->StylizedCloudDistanceSharpenEnd;
     data.DistortionScrollSpeed = settings->StylizedCloudDistortionScrollSpeed;
-    data.Padding0 = Float2::Zero;
+    data.DistortionMode = (int32)settings->StylizedCloudDistortionMode;
+    data.NoiseScale = settings->StylizedCloudNoiseScale;
     data.Time = Time::Draw.UnscaledTime.GetTotalSeconds();
     Matrix::Transpose(renderContext.View.ViewProjection(), data.ViewProjection);
     Matrix::Transpose(renderContext.View.IVP, data.InvViewProjection);
@@ -172,8 +178,10 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     context->SetViewportAndScissors((float)quarterWidth, (float)quarterHeight);
     context->Clear(cloudColor->View(), Color::Transparent);
     context->Clear(cloudDepth->View(), Color(renderContext.View.Far));
+    context->Clear(cloudOrigin->View(), Color::Transparent);
+    context->Clear(cloudNormal->View(), Color::Transparent);
     context->ClearDepth(cloudHwDepth->View());
-    GPUTextureView* prePassTargets[] = { cloudColor->View(), cloudDepth->View() };
+    GPUTextureView* prePassTargets[] = { cloudColor->View(), cloudDepth->View(), cloudOrigin->View(), cloudNormal->View() };
     context->SetRenderTarget(cloudHwDepth->View(), Span<GPUTextureView*>(prePassTargets, ARRAY_COUNT(prePassTargets)));
 
     // Prepare lighting custom data for material binding
@@ -278,6 +286,8 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     context->BindSR(2, renderContext.Buffers->DepthBuffer);
     auto distortionCubeMap = settings->StylizedCloudDistortionCubeMap.Get();
     context->BindSR(3, distortionCubeMap ? distortionCubeMap->GetTexture() : nullptr);
+    context->BindSR(4, cloudOrigin->View());
+    context->BindSR(5, cloudNormal->View());
     context->SetViewportAndScissors((float)frameBuffer->Width(), (float)frameBuffer->Height());
     context->SetRenderTarget(frameBuffer->View());
     context->SetState(_psComposite);
@@ -290,6 +300,8 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     RenderTargetPool::Release(cloudColor);
     RenderTargetPool::Release(cloudDepth);
     RenderTargetPool::Release(cloudHwDepth);
+    RenderTargetPool::Release(cloudOrigin);
+    RenderTargetPool::Release(cloudNormal);
     RenderTargetPool::Release(tempColor);
     RenderTargetPool::Release(tempDepth);
     context->SetViewportAndScissors(renderContext.Task->GetViewport());

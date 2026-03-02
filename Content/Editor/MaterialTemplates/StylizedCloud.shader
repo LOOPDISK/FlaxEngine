@@ -180,6 +180,8 @@ struct CloudPrePassOutput
 {
 	float4 Color : SV_Target0;
 	float Depth : SV_Target1;
+	float3 Origin : SV_Target2;
+	float4 Normal : SV_Target3;
 };
 
 // Pre-pass mesh vertex shader
@@ -296,6 +298,8 @@ CloudPrePassOutput PS_CloudPrePass(Cloud_VS2PS input)
 	float density = material.Opacity * material.Mask;
 
 	output.Color = float4(finalColor, max(density, 0.0f));
+	output.Origin = WorldMatrix[3].xyz;
+	output.Normal = float4(n, 0);
 	// Linearize device depth using per-view constants: ViewInfo.w / (depth - ViewInfo.z)
 	float linearDepth = ViewInfo.w / (input.Position.z - ViewInfo.z);
 	output.Depth = linearDepth * max(ViewFar, 1.0f);

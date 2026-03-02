@@ -11,6 +11,37 @@ class CubeTexture;
 class FontAsset;
 
 /// <summary>
+/// Noise locking mode for stylized cloud distortion.
+/// </summary>
+API_ENUM() enum class StylizedCloudDistortionMode
+{
+    /// <summary>
+    /// Cubemap lookup from view direction (camera-relative). Scrolls when the camera moves, as in Sea of Thieves.
+    /// </summary>
+    ViewRelative = 0,
+
+    /// <summary>
+    /// Cubemap lookup direction from world origin. World-stable, but can have axis-dependent seam artifacts.
+    /// </summary>
+    WorldOrigin = 1,
+
+    /// <summary>
+    /// Cubemap lookup direction from each cloud mesh's object origin. Radial per cloud, no axis artifacts.
+    /// </summary>
+    CloudOrigin = 2,
+
+    /// <summary>
+    /// Reflected view direction off cloud surface normal. View-dependent look with much less translation scrolling.
+    /// </summary>
+    ReflectedView = 3,
+
+    /// <summary>
+    /// Procedural 3D value noise based on world position. No cubemap needed, fully world-stable, no seams.
+    /// </summary>
+    Procedural3D = 4,
+};
+
+/// <summary>
 /// Graphics rendering settings.
 /// </summary>
 API_CLASS(sealed, Namespace="FlaxEditor.Content.Settings", NoConstructor) class FLAXENGINE_API GraphicsSettings : public SettingsBase
@@ -132,14 +163,20 @@ public:
     /// <summary>
     /// Base gaussian blur sigma for stylized cloud softness.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(3000), DefaultValue(2.5f), Limit(0, 20), EditorDisplay(\"Stylized Clouds\", \"Blur Sigma\")")
+    API_FIELD(Attributes="EditorOrder(3000), DefaultValue(2.5f), Limit(0, 100), EditorDisplay(\"Stylized Clouds\", \"Blur Sigma\")")
     float StylizedCloudBlurSigma = 2.5f;
 
     /// <summary>
     /// How much the blur increases with depth for stylized clouds.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(3010), DefaultValue(4.0f), Limit(0, 20), EditorDisplay(\"Stylized Clouds\", \"Blur Depth Scale\")")
+    API_FIELD(Attributes="EditorOrder(3010), DefaultValue(4.0f), Limit(0, 100), EditorDisplay(\"Stylized Clouds\", \"Blur Depth Scale\")")
     float StylizedCloudBlurDepthScale = 4.0f;
+
+    /// <summary>
+    /// How the distortion noise cubemap direction is computed for stylized clouds.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3015), DefaultValue(StylizedCloudDistortionMode.CloudOrigin), EditorDisplay(\"Stylized Clouds\", \"Distortion Mode\")")
+    StylizedCloudDistortionMode StylizedCloudDistortionMode = StylizedCloudDistortionMode::CloudOrigin;
 
     /// <summary>
     /// Edge distortion noise strength for stylized clouds. Set to 0 to disable.
@@ -178,9 +215,15 @@ public:
     float StylizedCloudDistortionScrollSpeed = 0.01f;
 
     /// <summary>
+    /// Spatial scale of the 3D procedural noise. Smaller values produce larger noise features. Only used with Procedural3D distortion mode.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3076), DefaultValue(0.02f), Limit(0.001f, 1.0f), EditorDisplay(\"Stylized Clouds\", \"Noise Scale\")")
+    float StylizedCloudNoiseScale = 0.02f;
+
+    /// <summary>
     /// Cubemap texture used for edge distortion noise on stylized clouds (RG channels, 0-1 remapped to -1..1). Requires non-zero Distortion Strength.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(3070), EditorDisplay(\"Stylized Clouds\", \"Distortion Cube Map\")")
+    API_FIELD(Attributes="EditorOrder(3080), EditorDisplay(\"Stylized Clouds\", \"Distortion Cube Map\")")
     SoftAssetReference<CubeTexture> StylizedCloudDistortionCubeMap;
 
     /// <summary>

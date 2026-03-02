@@ -26,7 +26,8 @@ float2 DepthRange;
 float DistanceSharpenStart;
 float DistanceSharpenEnd;
 float DistortionScrollSpeed;
-float2 Padding0;
+int DistortionMode;
+float NoiseScale;
 float4x4 ViewProjection;
 float4x4 InvViewProjection;
 META_CB_END
@@ -35,8 +36,30 @@ Texture2D CloudColor : register(t0);
 Texture2D CloudDepth : register(t1);
 Texture2D SceneDepth : register(t2);
 TextureCube DistortionCube : register(t3);
+Texture2D CloudOrigin : register(t4);
+Texture2D CloudNormal : register(t5);
 
 DECLARE_GBUFFERDATA_ACCESS(GBuffer)
+
+float CloudHash(float3 p)
+{
+    p = frac(p * float3(0.1031f, 0.1030f, 0.0973f));
+    p += dot(p, p.yxz + 33.33f);
+    return frac((p.x + p.y) * p.z);
+}
+
+float CloudNoise3D(float3 p)
+{
+    float3 i = floor(p);
+    float3 f = frac(p);
+    f = f * f * (3.0f - 2.0f * f);
+    return lerp(
+        lerp(lerp(CloudHash(i + float3(0,0,0)), CloudHash(i + float3(1,0,0)), f.x),
+             lerp(CloudHash(i + float3(0,1,0)), CloudHash(i + float3(1,1,0)), f.x), f.y),
+        lerp(lerp(CloudHash(i + float3(0,0,1)), CloudHash(i + float3(1,0,1)), f.x),
+             lerp(CloudHash(i + float3(0,1,1)), CloudHash(i + float3(1,1,1)), f.x), f.y),
+        f.z);
+}
 
 float CloudGaussian(float x, float sigma)
 {
@@ -116,26 +139,57 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
     GBufferData gBufferData = GetGBufferData();
     const float viewFar = max(GBuffer.ViewFar, 1.0f);
 
-    // UV distortion: offset cloud sampling UVs using world-space cubemap noise
+    // UV distortion: offset cloud sampling UVs using noise
     float2 cloudUV = input.TexCoord;
     if (DistortionStrength > 0.0001f)
     {
-        // Use undistorted depth to reconstruct world position for cubemap lookup
         float preDistortDepth = SAMPLE_RT(CloudDepth, input.TexCoord).r;
         if (preDistortDepth < (DepthRange.y - 1.0f))
         {
             float depthRaw = LinearZ2DeviceDepth(gBufferData, preDistortDepth / viewFar);
             float3 worldPos = GetWorldPos(gBufferData, input.TexCoord, depthRaw);
-            // Use world-space direction from origin, not camera — noise stays pinned
-            // to the cloud's world position regardless of camera translation.
-            // Time offset provides subtle drift so clouds feel alive.
-            float3 dir = normalize(worldPos);
-            float angle = Time * DistortionScrollSpeed;
-            float s, c;
-            sincos(angle, s, c);
-            float3 rotDir = float3(dir.x * c - dir.z * s, dir.y, dir.x * s + dir.z * c);
-            float2 noise = DistortionCube.SampleLevel(SamplerLinearWrap, rotDir, 0).rg * 2.0f - 1.0f;
-            cloudUV = saturate(cloudUV + noise * DistortionStrength * TexelSize * 8.0f);
+            float depthCompensation = 500.0f / max(preDistortDepth, 1.0f);
+            float2 noise;
+            if (DistortionMode == 4)
+            {
+                // Procedural3D: 3D value noise from world position, no cubemap needed
+                float3 scroll = float3(Time * DistortionScrollSpeed, 0, Time * DistortionScrollSpeed * 0.7f);
+                float3 noisePos = worldPos * NoiseScale + scroll;
+                noise = float2(
+                    CloudNoise3D(noisePos) * 2.0f - 1.0f,
+                    CloudNoise3D(noisePos + 137.531f) * 2.0f - 1.0f
+                );
+            }
+            else
+            {
+                // Cubemap-based modes
+                float3 dir;
+                if (DistortionMode == 3)
+                {
+                    float3 viewDir = normalize(worldPos - gBufferData.ViewPos);
+                    float3 n = normalize(SAMPLE_RT(CloudNormal, input.TexCoord).rgb);
+                    dir = reflect(viewDir, n);
+                }
+                else if (DistortionMode == 2)
+                {
+                    float3 origin = SAMPLE_RT(CloudOrigin, input.TexCoord).rgb;
+                    dir = normalize(worldPos - origin);
+                }
+                else if (DistortionMode == 1)
+                {
+                    dir = normalize(worldPos);
+                }
+                else
+                {
+                    dir = normalize(worldPos - gBufferData.ViewPos);
+                }
+                float angle = Time * DistortionScrollSpeed;
+                float s, c;
+                sincos(angle, s, c);
+                float3 rotDir = float3(dir.x * c - dir.z * s, dir.y, dir.x * s + dir.z * c);
+                noise = DistortionCube.SampleLevel(SamplerLinearWrap, rotDir, 0).rg * 2.0f - 1.0f;
+            }
+            cloudUV = saturate(cloudUV + noise * DistortionStrength * TexelSize * 8.0f * depthCompensation);
         }
     }
 
