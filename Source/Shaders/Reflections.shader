@@ -166,4 +166,12 @@ float4 PS_CombinePass(Quad_VS2PS input) : SV_Target0
 	float3 finalDiffuse = normalizedDiffuse * diffuseColor * gBuffer.AO;
 
 	return float4(finalSpecular + finalDiffuse, 0);
+
+	//// Sample reflections buffer
+	//float3 reflections = SAMPLE_RT(Reflections, input.TexCoord).rgb;
+	//
+	//// Calculate reflection color
+	//reflections *= GetReflectionSpecularLighting(PreIntegratedGF, gBufferData.ViewPos, gBuffer);
+	//
+	//return float4(reflections, 0);
 }

@@ -10,6 +10,7 @@
 #include "Engine/Engine/Time.h"
 #include "Engine/Engine/EngineService.h"
 #include "Engine/Profiler/ProfilerCPU.h"
+#include "Engine/Profiler/ProfilerMemory.h"
 #include "Engine/Serialization/Serialization.h"
 #include "Engine/Threading/Threading.h"
 
@@ -117,6 +118,8 @@ PhysicalMaterial::~PhysicalMaterial()
 
 bool PhysicsService::Init()
 {
+    PROFILE_MEM(Physics);
+
     // Initialize backend
     if (PhysicsBackend::Init())
         return true;
@@ -153,6 +156,7 @@ void PhysicsService::Dispose()
 
 PhysicsScene* Physics::FindOrCreateScene(const StringView& name)
 {
+    PROFILE_MEM(Physics);
     auto scene = FindScene(name);
     if (scene == nullptr)
     {
@@ -175,6 +179,7 @@ PhysicsScene* Physics::CreateGeneratorScene(const StringView& name)
     auto scene = New<PhysicsScene>();
     auto settings = New<PhysicsSettings>();
     settings->EnableEnhancedDeterminism = true;
+    settings->EnableSubstepping = true;
     settings->SolverType = PhysicsSolverType::TemporalGaussSeidelSolver;
     if (scene->Init(name, *settings))
     {
@@ -270,6 +275,7 @@ bool Physics::IsDuringSimulation()
 void Physics::FlushRequests()
 {
     PROFILE_CPU_NAMED("Physics.FlushRequests");
+    PROFILE_MEM(Physics);
     for (PhysicsScene* scene : Scenes)
         PhysicsBackend::FlushRequests(scene->GetPhysicsScene());
     PhysicsBackend::FlushRequests();
@@ -518,6 +524,7 @@ PhysicsStatistics PhysicsScene::GetStatistics() const
 
 bool PhysicsScene::Init(const StringView& name, const PhysicsSettings& settings)
 {
+    PROFILE_MEM(Physics);
     if (_scene)
     {
         PhysicsBackend::DestroyScene(_scene);
@@ -546,6 +553,11 @@ void PhysicsScene::CollectResults()
     ASSERT(IsInMainThread());
     PhysicsBackend::EndSimulateScene(_scene);
     _isDuringSimulation = false;
+}
+
+void PhysicsScene::FlushSpatialChanges()
+{
+    PhysicsBackend::FlushQueryUpdates(_scene);
 }
 
 bool PhysicsScene::LineCast(const Vector3& start, const Vector3& end, uint32 layerMask, bool hitTriggers)

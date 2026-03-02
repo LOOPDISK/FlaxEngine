@@ -35,7 +35,7 @@ bool DeferredMaterialShader::CanUseLightmap() const
 bool DeferredMaterialShader::CanUseInstancing(InstancingHandler& handler) const
 {
     handler = { SurfaceDrawCallHandler::GetHash, SurfaceDrawCallHandler::CanBatch, };
-    return true;
+    return _instanced;
 }
 
 void DeferredMaterialShader::Bind(BindParameters& params)
@@ -48,6 +48,8 @@ void DeferredMaterialShader::Bind(BindParameters& params)
 
     // Setup features
     const bool useLightmap = _info.BlendMode == MaterialBlendMode::Opaque && LightmapFeature::Bind(params, cb, srv);
+    if (_info.ShadingModel == MaterialShadingModel::CustomLit)
+        ForwardShadingFeature::Bind(params, cb, srv);
 
     // Setup parameters
     MaterialParameter::BindMeta bindMeta;
@@ -90,13 +92,10 @@ void DeferredMaterialShader::Bind(BindParameters& params)
     if (IsRunningRadiancePass)
         cullMode = CullMode::TwoSided;
 #endif
-    if (cullMode != CullMode::TwoSided && drawCall.WorldDeterminantSign < 0)
+    if (cullMode != CullMode::TwoSided && drawCall.WorldDeterminant)
     {
         // Invert culling when scale is negative
-        if (cullMode == CullMode::Normal)
-            cullMode = CullMode::Inverted;
-        else
-            cullMode = CullMode::Normal;
+        cullMode = cullMode == CullMode::Normal ? CullMode::Inverted : CullMode::Normal;
     }
     ASSERT_LOW_LAYER(!(useSkinning && params.Instanced)); // No support for instancing skinned meshes
     const auto cache = params.Instanced ? &_cacheInstanced : &_cache;
@@ -106,6 +105,7 @@ void DeferredMaterialShader::Bind(BindParameters& params)
 
     // Bind pipeline
     context->SetState(state);
+    context->SetStencilRef(drawCall.StencilValue);
 }
 
 void DeferredMaterialShader::Unload()
@@ -119,6 +119,9 @@ void DeferredMaterialShader::Unload()
 
 bool DeferredMaterialShader::Load()
 {
+    // TODO: support instancing when using ForwardShadingFeature
+    _instanced = _info.BlendMode == MaterialBlendMode::Opaque && _info.ShadingModel != MaterialShadingModel::CustomLit;
+
     bool failed = false;
     auto psDesc = GPUPipelineState::Description::Default;
     psDesc.DepthWriteEnable = (_info.FeaturesFlags & MaterialFeaturesFlags::DisableDepthWrite) == MaterialFeaturesFlags::None;
@@ -138,6 +141,10 @@ bool DeferredMaterialShader::Load()
         psDesc.DS = _shader->GetDS("DS");
     }
 #endif
+
+    psDesc.StencilEnable = true;
+    psDesc.StencilReadMask = 0;
+    psDesc.StencilPassOp = StencilOperation::Replace;
 
     // GBuffer Pass
     psDesc.VS = _shader->GetVS("VS");
@@ -161,6 +168,9 @@ bool DeferredMaterialShader::Load()
     psDesc.VS = _shader->GetVS("VS_Skinned");
     psDesc.PS = _shader->GetPS("PS_GBuffer");
     _cache.DefaultSkinned.Init(psDesc);
+
+    psDesc.StencilEnable = false;
+    psDesc.StencilPassOp = StencilOperation::Keep;
 
 #if USE_EDITOR
     if (_shader->HasShader("PS_QuadOverdraw"))
@@ -198,6 +208,7 @@ bool DeferredMaterialShader::Load()
     psDesc.DepthWriteEnable = true;
     psDesc.DepthEnable = true;
     psDesc.DepthFunc = ComparisonFunc::Less;
+    psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::None;
     psDesc.HS = nullptr;
     psDesc.DS = nullptr;
     GPUShaderProgramVS* instancedDepthPassVS;

@@ -390,6 +390,7 @@ void Camera::Draw(RenderContext& renderContext)
         BoundingSphere::FromBox(_previewModelBox, draw.Bounds);
         draw.Bounds.Center -= renderContext.View.Origin;
         draw.PerInstanceRandom = GetPerInstanceRandom();
+        draw.StencilValue = 0;
         draw.LODBias = 0;
         draw.ForcedLOD = -1;
         draw.SortOrder = 0;

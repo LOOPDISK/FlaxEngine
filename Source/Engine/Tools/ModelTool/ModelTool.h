@@ -148,9 +148,11 @@ public:
     API_ENUM(Attributes="HideInEditor") enum class PositionFormat
     {
         // XYZ channels with 32-bit precision (12 bytes per vertex).
-        Float32,
-        // XYZ(W) channels with 12-bit precision (8 bytes per vertex).
-        Float16,
+        Float32 = 0,
+        // XYZ(W) channels with 16-bit precision (8 bytes per vertex).
+        Float16 = 1,
+        // Selects the most memory-efficient format that can represent positions within a max error defined in project Build Settings.
+        Automatic = 2,
     };
 
     /// <summary>
@@ -159,9 +161,9 @@ public:
     API_ENUM(Attributes="HideInEditor") enum class TexCoordFormats
     {
         // XY channels with 16-bit precision (4 bytes per vertex).
-        Float16,
+        Float16 = 0,
         // XY channels with 8-bit precision (2 bytes per vertex). Valid only for normalized UVs within range [0; 1], scaled or negative UVs won't work.
-        UNorm8,
+        UNorm8 = 1,
     };
 
     /// <summary>
@@ -219,6 +221,9 @@ public:
         // If specified, all meshes that name starts with this prefix in the name will be imported as a separate collision data asset (excluded used for rendering).
         API_FIELD(Attributes="EditorOrder(100), EditorDisplay(\"Geometry\"), VisibleIf(nameof(ShowGeometry))")
         String CollisionMeshesPrefix = TEXT("");
+        // If specified, all meshes that name ends with this postfix in the name will be imported as a separate collision data asset (excluded used for rendering).
+        API_FIELD(Attributes="EditorOrder(101), EditorDisplay(\"Geometry\"), VisibleIf(nameof(ShowGeometry))")
+        String CollisionMeshesPostfix = TEXT("");
         // The type of collision that should be generated if the mesh has a collision prefix specified.
         API_FIELD(Attributes="EditorOrder(105), EditorDisplay(\"Geometry\"), VisibleIf(nameof(ShowGeometry))")
         CollisionDataType CollisionType = CollisionDataType::ConvexMesh;
@@ -226,7 +231,7 @@ public:
     public:
         // The imported vertex positions data format to use by meshes. Changing this affects memory usage of the mesh data, performance and overall quality.
         API_FIELD(Attributes = "EditorOrder(200), EditorDisplay(\"Data Format\"), VisibleIf(nameof(ShowGeometry))")
-        PositionFormat PositionFormat = PositionFormat::Float32;
+        PositionFormat PositionFormat = PositionFormat::Automatic;
         // The imported vertex texture coordinates data format to use by meshes. Changing this affects memory usage of the mesh data, performance and overall quality.
         API_FIELD(Attributes = "EditorOrder(205), EditorDisplay(\"Data Format\"), VisibleIf(nameof(ShowGeometry))")
         TexCoordFormats TexCoordFormat = TexCoordFormats::Float16;
@@ -302,6 +307,18 @@ public:
         // Only used if Sloppy is false. Target error is an approximate measure of the deviation from the original mesh using distance normalized to [0..1] range (e.g. 1e-2f means that simplifier will try to maintain the error to be below 1% of the mesh extents).
         API_FIELD(Attributes="EditorOrder(1150), EditorDisplay(\"Level Of Detail\"), VisibleIf(nameof(SloppyOptimization), true), VisibleIf(nameof(ShowGeometry)), Limit(0.01f, 1, 0.001f)")
         float LODTargetError = 0.05f;
+        // If checked, vertices on topological borders (edges without a paired triangle) will not be moved during simplification. Useful for meshes that tile or share edges with other meshes.
+        API_FIELD(Attributes="EditorOrder(1160), EditorDisplay(\"Level Of Detail\", \"Lock Border\"), VisibleIf(nameof(SloppyOptimization), true), VisibleIf(nameof(ShowGeometry))")
+        bool LockBorder = false;
+        // If checked, the target error will be treated as absolute rather than relative to the mesh extents.
+        API_FIELD(Attributes="EditorOrder(1170), EditorDisplay(\"Level Of Detail\", \"Error Absolute\"), VisibleIf(nameof(SloppyOptimization), true), VisibleIf(nameof(ShowGeometry))")
+        bool ErrorAbsolute = false;
+        // If checked, UV channels will be included in the simplification error metric to preserve UV layout. Essential for trimsheets and atlased textures.
+        API_FIELD(Attributes="EditorOrder(1180), EditorDisplay(\"Level Of Detail\", \"Preserve UVs\"), VisibleIf(nameof(SloppyOptimization), true), VisibleIf(nameof(ShowGeometry))")
+        bool PreserveUVs = false;
+        // The weight of UV attributes in the simplification error metric. Higher values preserve UVs more aggressively at the cost of geometric quality. Only used when Preserve UVs is enabled.
+        API_FIELD(Attributes="EditorOrder(1190), EditorDisplay(\"Level Of Detail\", \"UV Weight\"), VisibleIf(nameof(PreserveUVs)), VisibleIf(nameof(SloppyOptimization), true), VisibleIf(nameof(ShowGeometry)), Limit(0.001f, 1, 0.001f)")
+        float UVWeight = 0.01f;
 
     public: // Materials
 

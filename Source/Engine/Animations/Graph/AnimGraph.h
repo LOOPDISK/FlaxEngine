@@ -241,7 +241,8 @@ public:
     struct BlendPoseBucket
     {
         float TransitionPosition;
-        int32 PreviousBlendPoseIndex;
+        int16 BlendPoseIndex;
+        int16 PreviousBlendPoseIndex;
     };
 
     struct StateMachineBucket
@@ -580,6 +581,11 @@ protected:
 
 public:
     /// <summary>
+    /// The debug name of this (sub)graph (e.g. state name). Used in error logging.
+    /// </summary>
+    String DebugName;
+
+    /// <summary>
     /// The sub graphs nested in this graph.
     /// </summary>
     Array<AnimSubGraph*, InlinedAllocation<32>> SubGraphs;
@@ -812,6 +818,7 @@ public:
     {
         // Copy the node transformations
         Platform::MemoryCopy(dstNodes->Nodes.Get(), srcNodes->Nodes.Get(), sizeof(Transform) * _skeletonNodesCount);
+        dstNodes->RootMotion = srcNodes->RootMotion;
 
         // Copy the animation playback state
         dstNodes->Position = srcNodes->Position;

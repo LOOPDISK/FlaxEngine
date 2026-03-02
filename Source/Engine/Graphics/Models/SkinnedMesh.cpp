@@ -154,10 +154,13 @@ void SkeletonData::Swap(SkeletonData& other)
 {
     Nodes.Swap(other.Nodes);
     Bones.Swap(other.Bones);
+    Dirty();
+    other.Dirty();
 }
 
 Transform SkeletonData::GetNodeTransform(int32 nodeIndex) const
 {
+    CHECK_RETURN(Nodes.IsValidIndex(nodeIndex), Transform::Identity);
     const int32 parentIndex = Nodes[nodeIndex].ParentIndex;
     if (parentIndex == -1)
     {
@@ -169,6 +172,8 @@ Transform SkeletonData::GetNodeTransform(int32 nodeIndex) const
 
 void SkeletonData::SetNodeTransform(int32 nodeIndex, const Transform& value)
 {
+    CHECK(Nodes.IsValidIndex(nodeIndex));
+    Dirty();
     const int32 parentIndex = Nodes[nodeIndex].ParentIndex;
     if (parentIndex == -1)
     {
@@ -197,6 +202,39 @@ int32 SkeletonData::FindBone(int32 nodeIndex) const
             return i;
     }
     return -1;
+}
+
+const Array<Matrix>& SkeletonData::GetNodesPose() const
+{
+    // Guard with a simple atomic flag to avoid locking if the pose is up to date
+    if (Platform::AtomicRead(&_dirty))
+    {
+        ScopeLock lock(RenderContext::GPULocker);
+        if (Platform::AtomicRead(&_dirty))
+        {
+            const SkeletonNode* nodes = Nodes.Get();
+            const int32 nodesCount = Nodes.Count();
+            _cachedPose.Resize(nodesCount);
+            Matrix* posePtr = _cachedPose.Get();
+            for (int32 nodeIndex = 0; nodeIndex < nodesCount; nodeIndex++)
+            {
+                const SkeletonNode& node = nodes[nodeIndex];
+                Matrix local;
+                Matrix::Transformation(node.LocalTransform.Scale, node.LocalTransform.Orientation, node.LocalTransform.Translation, local);
+                if (node.ParentIndex != -1)
+                    Matrix::Multiply(local, posePtr[node.ParentIndex], posePtr[nodeIndex]);
+                else
+                    posePtr[nodeIndex] = local;
+            }
+            Platform::AtomicStore(&_dirty, 0);
+        }
+    }
+    return _cachedPose;
+}
+
+void SkeletonData::Dirty()
+{
+    Platform::AtomicStore(&_dirty, 1);
 }
 
 uint64 SkeletonData::GetMemoryUsage() const
@@ -312,8 +350,8 @@ void SkinnedMesh::Draw(const RenderContext& renderContext, const DrawInfo& info,
     drawCall.Surface.PrevWorld = info.DrawState->PrevWorld;
     drawCall.Surface.Skinning = info.Skinning;
     drawCall.Surface.LODDitherFactor = lodDitherFactor;
-    drawCall.WorldDeterminantSign = RenderTools::GetWorldDeterminantSign(drawCall.World);
     drawCall.PerInstanceRandom = info.PerInstanceRandom;
+    drawCall.StencilValue = info.StencilValue;
 
     // Push draw call to the render list
     renderContext.List->AddDrawCall(renderContext, drawModes, StaticFlags::None, drawCall, entry.ReceiveDecals, info.SortOrder);
@@ -353,8 +391,8 @@ void SkinnedMesh::Draw(const RenderContextBatch& renderContextBatch, const DrawI
     drawCall.Surface.PrevWorld = info.DrawState->PrevWorld;
     drawCall.Surface.Skinning = info.Skinning;
     drawCall.Surface.LODDitherFactor = lodDitherFactor;
-    drawCall.WorldDeterminantSign = RenderTools::GetWorldDeterminantSign(drawCall.World);
     drawCall.PerInstanceRandom = info.PerInstanceRandom;
+    drawCall.StencilValue = info.StencilValue;
 
     // Push draw call to the render lists
     const auto shadowsMode = entry.ShadowsMode & slot.ShadowsMode;

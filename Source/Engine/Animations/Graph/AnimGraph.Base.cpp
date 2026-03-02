@@ -21,6 +21,7 @@ AnimSubGraph* AnimGraphBase::LoadSubGraph(const void* data, int32 dataLength, co
     // Allocate graph
     // TODO: use shared allocations for graphs? eg. block allocator in AnimGraph for better performance
     auto subGraph = New<AnimSubGraph>(_graph);
+    subGraph->DebugName = name;
 
     // Load graph
     MemoryReadStream stream((const byte*)data, dataLength);
@@ -93,6 +94,7 @@ void MultiBlendBucketInit(AnimGraphInstanceData::Bucket& bucket)
 void BlendPoseBucketInit(AnimGraphInstanceData::Bucket& bucket)
 {
     bucket.BlendPose.TransitionPosition = 0.0f;
+    bucket.BlendPose.BlendPoseIndex = -1;
     bucket.BlendPose.PreviousBlendPoseIndex = -1;
 }
 
@@ -159,10 +161,15 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
             break;
         // Animation
         case 2:
+        {
             ADD_BUCKET(AnimationBucketInit);
             n->Assets.Resize(1);
-            n->Assets[0] = (Asset*)Content::LoadAsync<Animation>((Guid)n->Values[0]);
+            const Guid animId = (Guid)n->Values[0];
+            n->Assets[0] = (Asset*)Content::LoadAsync<Animation>(animId);
+            if (!n->Assets[0] && animId.IsValid())
+                LOG(Warning, "Animation Graph: failed to load Animation asset {0} in node {1} (subgraph '{2}')", animId, n->ID, DebugName);
             break;
+        }
         // Blend with Mask
         case 11:
             n->Assets.Resize(1);
@@ -177,8 +184,11 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
             n->Assets.Resize(n->Data.MultiBlend1D.Count);
             for (int32 i = 0; i < n->Data.MultiBlend1D.Count; i++)
             {
-                n->Assets[i] = Content::LoadAsync<Animation>((Guid)n->Values[i * 2 + 5]);
+                const Guid animId = (Guid)n->Values[i * 2 + 5];
+                n->Assets[i] = Content::LoadAsync<Animation>(animId);
                 n->Data.MultiBlend1D.IndicesSorted[i] = (ANIM_GRAPH_MULTI_BLEND_INDEX)(n->Assets[i] ? i : ANIM_GRAPH_MULTI_BLEND_INVALID);
+                if (!n->Assets[i] && animId.IsValid())
+                    LOG(Warning, "Animation Graph: failed to load Animation asset {0} in Multi Blend 1D node {1}, blend point {2} (subgraph '{3}')", animId, n->ID, i, DebugName);
             }
             Sorting::SortArray(n->Data.MultiBlend1D.IndicesSorted, n->Data.MultiBlend1D.Count, &SortMultiBlend1D, n);
             break;
@@ -195,12 +205,15 @@ bool AnimGraphBase::onNodeLoaded(Node* n)
             n->Assets.Resize(n->Data.MultiBlend1D.Count);
             for (int32 i = 0; i < n->Data.MultiBlend1D.Count; i++)
             {
-                n->Assets[i] = Content::LoadAsync<Animation>((Guid)n->Values[i * 2 + 5]);
+                const Guid animId = (Guid)n->Values[i * 2 + 5];
+                n->Assets[i] = Content::LoadAsync<Animation>(animId);
                 if (n->Assets[i])
                 {
                     vertices.Add(Float2(n->Values[i * 2 + 4].AsFloat4()));
                     vertexToAnim.Add((ANIM_GRAPH_MULTI_BLEND_INDEX)i);
                 }
+                else if (animId.IsValid())
+                    LOG(Warning, "Animation Graph: failed to load Animation asset {0} in Multi Blend 2D node {1}, blend point {2} (subgraph '{3}')", animId, n->ID, i, DebugName);
             }
 
             // Triangulate

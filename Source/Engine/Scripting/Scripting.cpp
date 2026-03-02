@@ -21,6 +21,7 @@
 #include "ManagedCLR/MCore.h"
 #include "ManagedCLR/MException.h"
 #include "Internal/StdTypesContainer.h"
+#include "Internal/ManagedDictionary.h"
 #include "Engine/Core/LogContext.h"
 #include "Engine/Core/ObjectsRemovalService.h"
 #include "Engine/Core/Types/TimeSpan.h"
@@ -33,6 +34,7 @@
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Serialization/JsonTools.h"
 #include "Engine/Profiler/ProfilerCPU.h"
+#include "Engine/Profiler/ProfilerMemory.h"
 
 extern void registerFlaxEngineInternalCalls();
 
@@ -174,6 +176,7 @@ void onEngineUnloading(MAssembly* assembly);
 
 bool ScriptingService::Init()
 {
+    PROFILE_MEM(Scripting);
     Stopwatch stopwatch;
 
     // Initialize managed runtime
@@ -204,12 +207,12 @@ bool ScriptingService::Init()
     // Load assemblies
     if (Scripting::Load())
     {
-        LOG(Fatal, "Scripting Engine initialization failed.");
+        LOG(Fatal, "Scripting initialization failed.");
         return true;
     }
 
     stopwatch.Stop();
-    LOG(Info, "Scripting Engine initializated! (time: {0}ms)", stopwatch.GetMilliseconds());
+    LOG(Info, "Scripting initializated! (time: {0}ms)", stopwatch.GetMilliseconds());
     return false;
 }
 
@@ -264,7 +267,7 @@ void ScriptingService::Update()
     }
     _objectsLocker.Unlock();
 
-#ifdef USE_NETCORE
+#if defined(USE_NETCORE) && !USE_EDITOR
     // Force GC to run in background periodically to avoid large blocking collections causing hitches
     if (Time::Update.TicksCount % 60 == 0)
     {
@@ -276,30 +279,35 @@ void ScriptingService::Update()
 void ScriptingService::LateUpdate()
 {
     PROFILE_CPU_NAMED("Scripting::LateUpdate");
+    PROFILE_MEM(Scripting);
     INVOKE_EVENT(LateUpdate);
 }
 
 void ScriptingService::FixedUpdate()
 {
     PROFILE_CPU_NAMED("Scripting::FixedUpdate");
+    PROFILE_MEM(Scripting);
     INVOKE_EVENT(FixedUpdate);
 }
 
 void ScriptingService::LateFixedUpdate()
 {
     PROFILE_CPU_NAMED("Scripting::LateFixedUpdate");
+    PROFILE_MEM(Scripting);
     INVOKE_EVENT(LateFixedUpdate);
 }
 
 void ScriptingService::Draw()
 {
     PROFILE_CPU_NAMED("Scripting::Draw");
+    PROFILE_MEM(Scripting);
     INVOKE_EVENT(Draw);
 }
 
 void ScriptingService::BeforeExit()
 {
     PROFILE_CPU_NAMED("Scripting::BeforeExit");
+    PROFILE_MEM(Scripting);
     INVOKE_EVENT(Exit);
 }
 
@@ -335,6 +343,7 @@ void Scripting::InvokeOnUpdate(const Function<void()>& action)
 bool Scripting::LoadBinaryModules(const String& path, const String& projectFolderPath)
 {
     PROFILE_CPU_NAMED("LoadBinaryModules");
+    PROFILE_MEM(Scripting);
     LOG(Info, "Loading binary modules from build info file {0}", path);
 
     // Read file contents
@@ -493,6 +502,7 @@ bool Scripting::LoadBinaryModules(const String& path, const String& projectFolde
             // C#
             if (managedPath.HasChars() && !((ManagedBinaryModule*)module)->Assembly->IsLoaded())
             {
+                (((ManagedBinaryModule*)module)->Assembly)->_canReload = module->CanReload;
                 if (((ManagedBinaryModule*)module)->Assembly->Load(managedPath, nativePath))
                 {
                     LOG(Error, "Failed to load C# assembly '{0}' for binary module {1}.", managedPath, name);
@@ -511,6 +521,7 @@ bool Scripting::LoadBinaryModules(const String& path, const String& projectFolde
 bool Scripting::Load()
 {
     PROFILE_CPU();
+    PROFILE_MEM(Scripting);
     // Note: this action can be called from main thread (due to Mono problems with assemblies actions from other threads)
     ASSERT(IsInMainThread());
     ScopeLock lock(BinaryModule::Locker);
@@ -518,6 +529,7 @@ bool Scripting::Load()
 #if USE_CSHARP
     // Load C# core assembly
     ManagedBinaryModule* corlib = GetBinaryModuleCorlib();
+    corlib->CanReload = false;
     if (corlib->Assembly->LoadCorlib())
     {
         LOG(Error, "Failed to load corlib C# assembly.");
@@ -558,15 +570,21 @@ bool Scripting::Load()
 #endif
 
     // Load FlaxEngine
-    const String flaxEnginePath = Globals::BinariesFolder / TEXT("FlaxEngine.CSharp.dll");
     auto* flaxEngineModule = (NativeBinaryModule*)GetBinaryModuleFlaxEngine();
     if (!flaxEngineModule->Assembly->IsLoaded())
     {
+        String flaxEnginePath = Globals::BinariesFolder / TEXT("FlaxEngine.CSharp.dll");
+#if USE_MONO_AOT
+        if (!FileSystem::FileExists(flaxEnginePath))
+            flaxEnginePath = Globals::BinariesFolder / TEXT("Dotnet") / TEXT("FlaxEngine.CSharp.dll");
+#endif
         if (flaxEngineModule->Assembly->Load(flaxEnginePath))
         {
             LOG(Error, "Failed to load FlaxEngine C# assembly.");
             return true;
         }
+        flaxEngineModule->CanReload = false;
+        flaxEngineModule->Assembly->_canReload = false;
         onEngineLoaded(flaxEngineModule->Assembly);
 
         // Insert type aliases for vector types that don't exist in C++ but are just typedef (properly redirect them to actual types)
@@ -637,6 +655,7 @@ bool Scripting::Load()
 void Scripting::Release()
 {
     PROFILE_CPU();
+    PROFILE_MEM(Scripting);
     // Note: this action can be called from main thread (due to Mono problems with assemblies actions from other threads)
     ASSERT(IsInMainThread());
 
@@ -739,6 +758,7 @@ void Scripting::Reload(bool canTriggerSceneReload)
     modules.Clear();
     _nonNativeModules.ClearDelete();
     _hasGameModulesLoaded = false;
+    ManagedDictionary::CachedTypes.Clear();
 
     // Release and create a new assembly load context for user assemblies
     MCore::UnloadScriptingAssemblyLoadContext();
@@ -904,6 +924,8 @@ ScriptingObject* Scripting::FindObject(Guid id, const MClass* type)
     if (idsMapping)
     {
         idsMapping->TryGet(id, id);
+        if (!id.IsValid())
+            return nullptr; // Skip warning if object was mapped to empty id (intentionally ignored)
     }
 
     // Try to find it
@@ -924,7 +946,8 @@ ScriptingObject* Scripting::FindObject(Guid id, const MClass* type)
         // Check type
         if (!type || result->Is(type))
             return result;
-        LOG(Warning, "Found scripting object with ID={0} of type {1} that doesn't match type {2}", id, String(result->GetType().Fullname), String(type->GetFullName()));
+        const String context = LogContext::FormatContext();
+        LOG(Warning, "Type mismatch for object (ID={0}): found {1}, expected {2}{3}", id, String(result->GetType().Fullname), String(type->GetFullName()), context);
         LogContext::Print(LogType::Warning);
         return nullptr;
     }
@@ -934,7 +957,11 @@ ScriptingObject* Scripting::FindObject(Guid id, const MClass* type)
     {
         result = Content::LoadAsync<Asset>(id);
         if (!result)
-            LOG(Warning, "Unable to find scripting object with ID={0}", id);
+        {
+            const String context = LogContext::FormatContext();
+            LOG(Warning, "Missing object (ID={0}){1}", id, context);
+            LogContext::Print(LogType::Warning);
+        }
         return result;
     }
     if (type == ScriptingObject::GetStaticClass() || type->IsSubClassOf(Asset::GetStaticClass()))
@@ -944,7 +971,8 @@ ScriptingObject* Scripting::FindObject(Guid id, const MClass* type)
             return asset;
     }
 
-    LOG(Warning, "Unable to find scripting object with ID={0}. Required type {1}", id, String(type->GetFullName()));
+    const String context = LogContext::FormatContext();
+    LOG(Warning, "Missing {1} (ID={0}){2}", id, String(type->GetFullName()), context);
     LogContext::Print(LogType::Warning);
     return nullptr;
 }
@@ -1063,6 +1091,7 @@ bool Scripting::IsTypeFromGameScripts(const MClass* type)
 
 void Scripting::RegisterObject(ScriptingObject* obj)
 {
+    PROFILE_MEM(Scripting);
     const Guid id = obj->GetID();
     ScopeLock lock(_objectsLocker);
 
@@ -1145,6 +1174,7 @@ bool initFlaxEngine()
 
 void onEngineLoaded(MAssembly* assembly)
 {
+    PROFILE_MEM(Scripting);
     if (initFlaxEngine())
     {
         LOG(Fatal, "Failed to initialize Flax Engine runtime.");

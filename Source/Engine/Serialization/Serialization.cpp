@@ -78,7 +78,10 @@ void Serialization::Deserialize(ISerializable::DeserializeStream& stream, Varian
             v.Type = VariantType::Null;
         const auto mTypeName = SERIALIZE_FIND_MEMBER(stream, "TypeName");
         if (mTypeName != stream.MemberEnd() && mTypeName->value.IsString())
+        {
             v.SetTypeName(StringAnsiView(mTypeName->value.GetStringAnsiView()));
+            v.Inline();
+        }
     }
     else
     {
@@ -790,14 +793,14 @@ void Serialization::Deserialize(ISerializable::DeserializeStream& stream, Matrix
     DESERIALIZE_HELPER(stream, "M44", v.M44, 0);
 }
 
-bool Serialization::ShouldSerialize(const SceneObject* v, const SceneObject* other)
+bool Serialization::ShouldSerializeRef(const SceneObject* v, const SceneObject* other)
 {
     bool result = v != other;
     if (result && v && other && v->HasPrefabLink() && other->HasPrefabLink())
     {
         // Special case when saving reference to prefab object and the objects are different but the point to the same prefab object
         // In that case, skip saving reference as it's defined in prefab (will be populated via IdsMapping during deserialization)
-        result &= v->GetPrefabObjectID() != other->GetPrefabObjectID();
+        result = v->GetPrefabObjectID() != other->GetPrefabObjectID();
     }
     return result;
 }

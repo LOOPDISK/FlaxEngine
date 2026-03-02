@@ -66,6 +66,14 @@ public:
     /// <remarks>Determines a limit that constrains the movement of the joint to a specific minimum and maximum distance. You must enable the limit flag on the joint in order for this to be recognized.</remarks>
     API_PROPERTY() void SetLimit(const LimitLinearRange& value);
 
+    /// <summary>
+    /// Turn on or off kinematic projection, which enforces joint constraints more strongly but less realistically.
+    /// </summary>
+    /// <param name="useProjection">Off by default.</param>
+    /// <param name="linearTolerance">The linear constraint limit to when the projection algorithm tries to correct things.</param>
+    /// <param name="angularTolerance">The angular constraint limit to when the projection algorithm tries to correct things.</param>
+    /// <returns></returns>
+    API_FUNCTION() void SetProjection(bool useProjection, float linearTolerance, float angularTolerance);
 public:
     /// <summary>
     /// Gets the current displacement of the joint along its axis.
