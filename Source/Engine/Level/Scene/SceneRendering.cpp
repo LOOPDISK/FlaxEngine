@@ -325,25 +325,26 @@ void SceneRendering::DrawActorsJob(int32)
     // bypass occlusion culling from Graphics Settings
     if (!Graphics::OcclusionCulling) hzb = nullptr;
 
-    bool skipOcclusion = true;
-    // only do occlusion on main render task's main draw
-    if (_drawCategory == SceneDrawAsync && view.StaticFlagsMask != StaticFlags::Occluder)
-    {
-        // don't do the hzb occlusion check if it already did it with the same data last time
-        if (hzb != nullptr)
-        {
-            if ((hzb->Id == _lastHZBId && hzb->CurrentFrameIndex == _lastHZBFrame))
-            {
-                skipOcclusion = true;
-            }
-            else
-            {
-                skipOcclusion = false;
-                _lastHZBId = hzb->Id;
-                _lastHZBFrame = hzb->CurrentFrameIndex;
-            }
-        }
-    }
+    bool skipOcclusion = false; // TODO: skip if it's the same as the last one. the code isn't working right for some reason.
+    //bool skipOcclusion = true;
+    //// only do occlusion on main render task's main draw
+    //if (_drawCategory == SceneDrawAsync && view.StaticFlagsMask != StaticFlags::Occluder)
+    //{
+    //    // don't do the hzb occlusion check if it already did it with the same data last time
+    //    if (hzb != nullptr)
+    //    {
+    //        if ((hzb->Id == _lastHZBId && hzb->CurrentFrameIndex == _lastHZBFrame))
+    //        {
+    //            skipOcclusion = true;
+    //        }
+    //        else
+    //        {
+    //            skipOcclusion = false;
+    //            _lastHZBId = hzb->Id;
+    //            _lastHZBFrame = hzb->CurrentFrameIndex;
+    //        }
+    //    }
+    //}
     
     if (view.StaticFlagsMask != StaticFlags::None)
     {
