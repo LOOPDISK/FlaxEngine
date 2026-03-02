@@ -1,14 +1,16 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 #include "StylizedCloudPass.h"
+#include "Engine/Content/Assets/CubeTexture.h"
 #include "Engine/Content/Content.h"
+#include "Engine/Core/Config/GraphicsSettings.h"
 #include "Engine/Engine/Time.h"
 #include "Engine/Graphics/GPUContext.h"
 #include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Graphics/RenderBuffers.h"
 #include "Engine/Graphics/RenderTargetPool.h"
 #include "Engine/Graphics/RenderTask.h"
-#include "Engine/Level/Actors/CloudVolume.h"
+#include "Engine/Graphics/Materials/IMaterial.h"
 #include "Engine/Renderer/GBufferPass.h"
 #include "Engine/Renderer/RenderList.h"
 
@@ -19,7 +21,6 @@ String StylizedCloudPass::ToString() const
 
 bool StylizedCloudPass::Init()
 {
-    _psCloudPrePass = GPUDevice::Instance->CreatePipelineState();
     _psComposite = GPUDevice::Instance->CreatePipelineState();
     _psGaussianBlur.CreatePipelineStates();
     _psBoxBlur.CreatePipelineStates();
@@ -42,11 +43,9 @@ void StylizedCloudPass::Dispose()
     // Base
     RendererPass::Dispose();
 
-    SAFE_DELETE_GPU_RESOURCE(_psCloudPrePass);
     _psGaussianBlur.Delete();
     _psBoxBlur.Delete();
     SAFE_DELETE_GPU_RESOURCE(_psComposite);
-    _distortionCubeMap = nullptr;
     _shader = nullptr;
 }
 
@@ -63,22 +62,6 @@ bool StylizedCloudPass::setupResources()
     {
         REPORT_INVALID_SHADER_PASS_CB_SIZE(shader, 0, Data);
         return true;
-    }
-    if (shader->GetCB(1)->GetSize() != sizeof(PerCloud))
-    {
-        REPORT_INVALID_SHADER_PASS_CB_SIZE(shader, 1, PerCloud);
-        return true;
-    }
-    if (!_psCloudPrePass->IsValid())
-    {
-        GPUPipelineState::Description psDesc = GPUPipelineState::Description::Default;
-        psDesc.VS = shader->GetVS("VS_CloudPrePass");
-        psDesc.PS = shader->GetPS("PS_CloudPrePass");
-        psDesc.DepthEnable = false;
-        psDesc.DepthWriteEnable = false;
-        psDesc.CullMode = CullMode::Normal;
-        if (_psCloudPrePass->Init(psDesc))
-            return true;
     }
     GPUPipelineState::Description psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
     if (!_psGaussianBlur.IsValid())
@@ -112,128 +95,123 @@ bool StylizedCloudPass::setupResources()
 
 void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameBuffer)
 {
-    if (frameBuffer == nullptr || renderContext.List->CloudVolumes.IsEmpty() || checkIfSkipPass())
+    auto& cloudDrawList = renderContext.List->DrawCallsLists[(int32)DrawCallsListType::StylizedCloud];
+    if (frameBuffer == nullptr || cloudDrawList.IsEmpty() || checkIfSkipPass())
         return;
-    if (_shader == nullptr || !_psComposite->IsValid() || !_psCloudPrePass->IsValid())
+    if (_shader == nullptr || !_psComposite->IsValid())
         return;
 
     auto context = GPUDevice::Instance->GetMainContext();
     PROFILE_GPU_CPU("Stylized Clouds");
 
-    // Allocate quarter-resolution buffers
+    // Allocate half-resolution buffers
     const int32 quarterWidth = Math::Max(1, renderContext.Buffers->GetWidth() / 2);
     const int32 quarterHeight = Math::Max(1, renderContext.Buffers->GetHeight() / 2);
     const auto colorDesc = GPUTextureDescription::New2D(quarterWidth, quarterHeight, PixelFormat::R16G16B16A16_Float);
     const auto depthDesc = GPUTextureDescription::New2D(quarterWidth, quarterHeight, PixelFormat::R32_Float);
+    const auto hwDepthDesc = GPUTextureDescription::New2D(quarterWidth, quarterHeight, GPU_DEPTH_BUFFER_PIXEL_FORMAT, GPUTextureFlags::DepthStencil);
     auto cloudColor = RenderTargetPool::Get(colorDesc);
     auto cloudDepth = RenderTargetPool::Get(depthDesc);
+    auto cloudHwDepth = RenderTargetPool::Get(hwDepthDesc);
     auto tempColor = RenderTargetPool::Get(colorDesc);
     auto tempDepth = RenderTargetPool::Get(depthDesc);
     RENDER_TARGET_POOL_SET_NAME(cloudColor, "StylizedCloud.CloudColor");
     RENDER_TARGET_POOL_SET_NAME(cloudDepth, "StylizedCloud.CloudDepth");
+    RENDER_TARGET_POOL_SET_NAME(cloudHwDepth, "StylizedCloud.CloudHwDepth");
     RENDER_TARGET_POOL_SET_NAME(tempColor, "StylizedCloud.TempColor");
     RENDER_TARGET_POOL_SET_NAME(tempDepth, "StylizedCloud.TempDepth");
 
     const auto shader = _shader->GetShader();
 
-    // Setup common constants
+    // Gather lighting data for material custom data
+    Float3 sunDirection = Float3::UnitY;
+    Float3 sunColor = Float3::One;
+    Float3 skyColor = Float3(0.4f, 0.5f, 0.7f);
+    float sunIntensity = 1.0f;
+    float skyIntensity = 0.5f;
+
+    if (renderContext.List->DirectionalLights.HasItems())
+    {
+        const auto& light = renderContext.List->DirectionalLights[0];
+        sunDirection = light.Direction;
+        sunColor = light.Color;
+    }
+    if (renderContext.List->SkyLights.HasItems())
+    {
+        const auto& skyLight = renderContext.List->SkyLights[0];
+        skyColor = skyLight.Color + skyLight.AdditiveColor;
+    }
+
+    // Setup common constants for blur/composite
+    auto* settings = GraphicsSettings::Get();
     Data data;
     GBufferPass::SetInputs(renderContext.View, data.GBuffer);
     data.TexelSize = Float2(1.0f / (float)quarterWidth, 1.0f / (float)quarterHeight);
     data.OutputSize = Float2((float)quarterWidth, (float)quarterHeight);
-    data.BlurSigmaBase = 2.5f;
-    data.BlurDepthScale = 4.0f;
-    data.SunDirection = Float3::UnitY;
-    data.SunIntensity = 1.0f;
-    data.SunColor = Float3::One;
-    data.SkyIntensity = 0.5f;
-    data.SkyColor = Float3(0.4f, 0.5f, 0.7f);
-    data.DistortionStrength = 0.0f;
-    data.AlphaThreshold = 0.3f;
-    data.SoftIntersectionDistance = 35.0f;
+    data.BlurSigmaBase = settings->StylizedCloudBlurSigma;
+    data.BlurDepthScale = settings->StylizedCloudBlurDepthScale;
+    data.SunDirection = sunDirection;
+    data.SunIntensity = sunIntensity;
+    data.SunColor = sunColor;
+    data.SkyIntensity = skyIntensity;
+    data.SkyColor = skyColor;
+    data.DistortionStrength = settings->StylizedCloudDistortionStrength;
+    data.AlphaThreshold = settings->StylizedCloudAlphaThreshold;
+    data.SoftIntersectionDistance = settings->StylizedCloudSoftIntersectionDistance;
     data.DepthRange = Float2(renderContext.View.Near, renderContext.View.Far);
-    data.DistanceSharpenStart = 50000.0f;
-    data.DistanceSharpenEnd = 100000.0f;
+    data.DistanceSharpenStart = settings->StylizedCloudDistanceSharpenStart;
+    data.DistanceSharpenEnd = settings->StylizedCloudDistanceSharpenEnd;
     data.Padding0 = Float3::Zero;
     data.Time = Time::GetGameTime();
     Matrix::Transpose(renderContext.View.ViewProjection(), data.ViewProjection);
     Matrix::Transpose(renderContext.View.IVP, data.InvViewProjection);
 
-    if (renderContext.List->DirectionalLights.HasItems())
-    {
-        // Directional lights are pre-sorted by brightness, so the first item is the strongest one.
-        const auto& light = renderContext.List->DirectionalLights[0];
-        data.SunDirection = light.Direction;
-        data.SunColor = light.Color;
-    }
-    if (renderContext.List->SkyLights.HasItems())
-    {
-        const auto& skyLight = renderContext.List->SkyLights[0];
-        data.SkyColor = skyLight.Color + skyLight.AdditiveColor;
-    }
-
-    auto cb0 = shader->GetCB(0);
-    context->UpdateCB(cb0, &data);
-    context->BindCB(0, cb0);
-
-    // Pre-pass: cloud meshes into color + depth buffers
+    // Pre-pass: render cloud meshes into color + depth buffers via material draw calls
     context->SetViewportAndScissors((float)quarterWidth, (float)quarterHeight);
     context->Clear(cloudColor->View(), Color::Transparent);
     context->Clear(cloudDepth->View(), Color(renderContext.View.Far));
+    context->ClearDepth(cloudHwDepth->View());
     GPUTextureView* prePassTargets[] = { cloudColor->View(), cloudDepth->View() };
-    context->SetRenderTarget(nullptr, Span<GPUTextureView*>(prePassTargets, ARRAY_COUNT(prePassTargets)));
-    context->SetState(_psCloudPrePass);
-    auto cb1 = shader->GetCB(1);
-    bool hasCloudSettings = false;
-    for (CloudVolume* cloud : renderContext.List->CloudVolumes)
+    context->SetRenderTarget(cloudHwDepth->View(), Span<GPUTextureView*>(prePassTargets, ARRAY_COUNT(prePassTargets)));
+
+    // Prepare lighting custom data for material binding
+    // Layout: [0]=SunDirection, [1]=(SunIntensity, SkyIntensity, 0), [2]=SunColor, [3]=SkyColor
+    Float3 customData[4];
+    customData[0] = sunDirection;
+    customData[1] = Float3(sunIntensity, skyIntensity, 0.0f);
+    customData[2] = sunColor;
+    customData[3] = skyColor;
+
+    // Iterate draw calls from the StylizedCloud list
+    const auto* drawCallsData = renderContext.List->DrawCalls.Get();
+    const auto* listData = cloudDrawList.Indices.Get();
+    constexpr int32 vbMax = ARRAY_COUNT(DrawCall::Geometry.VertexBuffers);
+    IMaterial::BindParameters bindParams(context, renderContext);
+    bindParams.CustomData = customData;
+    bindParams.BindViewData();
+
+    for (int32 i = 0; i < cloudDrawList.Indices.Count(); i++)
     {
-        if (!cloud || !cloud->CloudMesh || !cloud->CloudMesh->CanBeRendered() || cloud->CloudMesh->LODs.IsEmpty())
+        const int32 index = listData[i];
+        const DrawCall& drawCall = drawCallsData[index];
+        if (!drawCall.Material || !drawCall.Material->IsReady())
             continue;
 
-        PerCloud perCloud;
-        Real4x4 worldReal;
-        cloud->GetLocalToWorldMatrix(worldReal);
-        renderContext.View.GetWorldMatrix(worldReal);
-        Matrix world = (Matrix)worldReal;
-        Matrix::Transpose(world, perCloud.WorldMatrix);
-        perCloud.SunIntensity = cloud->SunIntensity;
-        perCloud.SkyIntensity = cloud->SkyIntensity;
-        perCloud.DistortionScale = cloud->DistortionScale;
-        perCloud.AlphaThreshold = cloud->AlphaThreshold;
-        perCloud.Density = cloud->Density;
-        perCloud.LightningColor = cloud->LightningColor.ToFloat3();
-        perCloud.LightningIntensity = cloud->LightningIntensity;
-        context->UpdateCB(cb1, &perCloud);
-        context->BindCB(1, cb1);
+        bindParams.DrawCall = &drawCall;
+        drawCall.Material->Bind(bindParams);
 
-        const auto& lod = cloud->CloudMesh->LODs[0];
-        for (int32 meshIndex = 0; meshIndex < lod.Meshes.Count(); meshIndex++)
-            lod.Meshes[meshIndex].Render(context);
-
-        if (!hasCloudSettings)
-        {
-            hasCloudSettings = true;
-            data.AlphaThreshold = cloud->AlphaThreshold;
-            data.SoftIntersectionDistance = cloud->SoftIntersectionDistance;
-            data.DistanceSharpenStart = cloud->DistanceSharpening ? cloud->SharpeningStart : data.DistanceSharpenStart;
-            data.DistanceSharpenEnd = cloud->DistanceSharpening ? cloud->SharpeningEnd : data.DistanceSharpenEnd;
-        }
-        else
-        {
-            data.AlphaThreshold = Math::Min(data.AlphaThreshold, cloud->AlphaThreshold);
-            data.SoftIntersectionDistance = Math::Min(data.SoftIntersectionDistance, cloud->SoftIntersectionDistance);
-            if (cloud->DistanceSharpening)
-            {
-                data.DistanceSharpenStart = Math::Min(data.DistanceSharpenStart, cloud->SharpeningStart);
-                data.DistanceSharpenEnd = Math::Max(data.DistanceSharpenEnd, cloud->SharpeningEnd);
-            }
-        }
-        if (_distortionCubeMap && _distortionCubeMap->IsLoaded())
-            data.DistortionStrength = Math::Max(data.DistortionStrength, cloud->DistortionScale);
+        // Bind geometry and draw
+        context->BindIB(drawCall.Geometry.IndexBuffer);
+        context->BindVB(ToSpan(drawCall.Geometry.VertexBuffers, vbMax), drawCall.Geometry.VertexBuffersOffsets);
+        context->DrawIndexed(drawCall.Draw.IndicesCount, 0, drawCall.Draw.StartIndex);
     }
+
+    context->ResetRenderTarget();
+
+    // Update blur/composite constants
+    auto cb0 = shader->GetCB(0);
     context->UpdateCB(cb0, &data);
     context->BindCB(0, cb0);
-    context->ResetRenderTarget();
 
     // Gaussian blur for cloud color
     context->BindSR(0, cloudColor->View());
@@ -269,7 +247,8 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     context->BindSR(0, cloudColor->View());
     context->BindSR(1, cloudDepth->View());
     context->BindSR(2, renderContext.Buffers->DepthBuffer);
-    context->BindSR(3, _distortionCubeMap ? _distortionCubeMap->GetTexture() : nullptr);
+    auto distortionCubeMap = settings->StylizedCloudDistortionCubeMap.Get();
+    context->BindSR(3, distortionCubeMap ? distortionCubeMap->GetTexture() : nullptr);
     context->SetViewportAndScissors((float)frameBuffer->Width(), (float)frameBuffer->Height());
     context->SetRenderTarget(frameBuffer->View());
     context->SetState(_psComposite);
@@ -279,9 +258,9 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     // Cleanup
     context->ResetSR();
     context->UnBindCB(0);
-    context->UnBindCB(1);
     RenderTargetPool::Release(cloudColor);
     RenderTargetPool::Release(cloudDepth);
+    RenderTargetPool::Release(cloudHwDepth);
     RenderTargetPool::Release(tempColor);
     RenderTargetPool::Release(tempDepth);
     context->SetViewportAndScissors(renderContext.Task->GetViewport());

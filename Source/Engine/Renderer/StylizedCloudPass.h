@@ -4,7 +4,6 @@
 
 #include "RendererPass.h"
 #include "Engine/Graphics/GPUPipelineStatePermutations.h"
-#include "Engine/Content/Assets/CubeTexture.h"
 
 /// <summary>
 /// Stylized cloud rendering service.
@@ -35,30 +34,15 @@ private:
         Matrix InvViewProjection;
         });
 
-    GPU_CB_STRUCT(PerCloud {
-        Matrix WorldMatrix;
-        float SunIntensity;
-        float SkyIntensity;
-        float DistortionScale;
-        float AlphaThreshold;
-        float Density;
-        Float3 LightningColor;
-        float LightningIntensity;
-        });
-
     AssetReference<Shader> _shader;
-    GPUPipelineState* _psCloudPrePass = nullptr;
     GPUPipelineStatePermutationsPs<2> _psGaussianBlur;
     GPUPipelineStatePermutationsPs<2> _psBoxBlur;
     GPUPipelineState* _psComposite = nullptr;
-    AssetReference<CubeTexture> _distortionCubeMap;
 
 private:
 #if COMPILE_WITH_DEV_ENV
     void OnShaderReloading(Asset* obj)
     {
-        if (_psCloudPrePass)
-            _psCloudPrePass->ReleaseGPU();
         _psGaussianBlur.Release();
         _psBoxBlur.Release();
         if (_psComposite)

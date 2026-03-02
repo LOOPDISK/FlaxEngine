@@ -494,7 +494,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
     {
         PROFILE_CPU_NAMED("Collect Draw Calls");
 
-        view.Pass = DrawPass::GBuffer | DrawPass::Forward | DrawPass::Distortion;
+        view.Pass = DrawPass::GBuffer | DrawPass::Forward | DrawPass::Distortion | DrawPass::StylizedCloud;
         if (setup.UseMotionVectors)
             view.Pass |= DrawPass::MotionVectors;
         renderContextBatch.GetMainContext() = renderContext; // Sync render context in batch with the current value

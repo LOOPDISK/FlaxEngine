@@ -3,9 +3,11 @@
 #pragma once
 
 #include "Engine/Core/Config/Settings.h"
+#include "Engine/Content/SoftAssetReference.h"
 #include "Engine/Graphics/Enums.h"
 #include "Engine/Graphics/PostProcessSettings.h"
 
+class CubeTexture;
 class FontAsset;
 
 /// <summary>
@@ -126,6 +128,54 @@ public:
     /// </summary>
     API_FIELD(Attributes="EditorOrder(2130), Limit(256, 8192), EditorDisplay(\"Global Illumination\")")
     int32 GlobalSurfaceAtlasResolution = 2048;
+
+    /// <summary>
+    /// Base gaussian blur sigma for stylized cloud softness.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3000), DefaultValue(2.5f), Limit(0, 20), EditorDisplay(\"Stylized Clouds\", \"Blur Sigma\")")
+    float StylizedCloudBlurSigma = 2.5f;
+
+    /// <summary>
+    /// How much the blur increases with depth for stylized clouds.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3010), DefaultValue(4.0f), Limit(0, 20), EditorDisplay(\"Stylized Clouds\", \"Blur Depth Scale\")")
+    float StylizedCloudBlurDepthScale = 4.0f;
+
+    /// <summary>
+    /// Edge distortion noise strength for stylized clouds. Set to 0 to disable.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3020), DefaultValue(0.0f), Limit(0, 5), EditorDisplay(\"Stylized Clouds\", \"Distortion Strength\")")
+    float StylizedCloudDistortionStrength = 0.0f;
+
+    /// <summary>
+    /// Minimum density threshold below which cloud pixels are discarded.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3030), DefaultValue(0.3f), Limit(0, 1), EditorDisplay(\"Stylized Clouds\", \"Alpha Threshold\")")
+    float StylizedCloudAlphaThreshold = 0.3f;
+
+    /// <summary>
+    /// Distance over which clouds fade near geometry intersections to avoid hard clipping.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3040), DefaultValue(35.0f), Limit(0, 500), EditorDisplay(\"Stylized Clouds\", \"Soft Intersection Distance\")")
+    float StylizedCloudSoftIntersectionDistance = 35.0f;
+
+    /// <summary>
+    /// Distance at which cloud alpha sharpening begins.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3050), DefaultValue(50000.0f), Limit(0), EditorDisplay(\"Stylized Clouds\", \"Distance Sharpen Start\")")
+    float StylizedCloudDistanceSharpenStart = 50000.0f;
+
+    /// <summary>
+    /// Distance at which cloud alpha sharpening reaches full effect.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3060), DefaultValue(100000.0f), Limit(0), EditorDisplay(\"Stylized Clouds\", \"Distance Sharpen End\")")
+    float StylizedCloudDistanceSharpenEnd = 100000.0f;
+
+    /// <summary>
+    /// Cubemap texture used for edge distortion noise on stylized clouds (RG channels, 0-1 remapped to -1..1). Requires non-zero Distortion Strength.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3070), EditorDisplay(\"Stylized Clouds\", \"Distortion Cube Map\")")
+    SoftAssetReference<CubeTexture> StylizedCloudDistortionCubeMap;
 
     /// <summary>
     /// The default Post Process settings. Can be overriden by PostFxVolume on a level locally, per camera or for a whole map.

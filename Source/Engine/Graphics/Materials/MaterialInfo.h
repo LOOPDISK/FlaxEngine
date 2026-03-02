@@ -49,6 +49,11 @@ API_ENUM() enum class MaterialDomain : byte
     /// </summary>
     VolumeParticle = 7,
 
+    /// <summary>
+    /// The stylized cloud shader. Used for mesh-based stylized cloud rendering that routes geometry through a dedicated cloud render pass with custom lighting and blur/composite post-processing.
+    /// </summary>
+    StylizedCloud = 8,
+
     API_ENUM(Attributes="HideInEditor")
     MAX
 };

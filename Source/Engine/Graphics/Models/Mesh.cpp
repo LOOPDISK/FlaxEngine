@@ -220,7 +220,7 @@ bool Mesh::Load(uint32 vertices, uint32 triangles, const void* vb0, const void* 
 
 void Mesh::Draw(const RenderContext& renderContext, MaterialBase* material, const Matrix& world, StaticFlags flags, bool receiveDecals, DrawPass drawModes, float perInstanceRandom, int8 sortOrder, uint8 stencilValue) const
 {
-    if (!material || !material->IsSurface() || !IsInitialized())
+    if (!material || !material->IsMeshMaterial() || !IsInitialized())
         return;
     drawModes &= material->GetDrawModes();
     if (drawModes == DrawPass::None)
@@ -267,7 +267,7 @@ void Mesh::Draw(const RenderContext& renderContext, const DrawInfo& info, float 
         material = slot.Material;
     else
         material = GPUDevice::Instance->GetDefaultMaterial();
-    if (!material || !material->IsSurface())
+    if (!material || !material->IsMeshMaterial())
         return;
 
     // Check if skip rendering
@@ -347,7 +347,7 @@ void Mesh::Draw(const RenderContextBatch& renderContextBatch, const DrawInfo& in
         material = slot.Material;
     else
         material = GPUDevice::Instance->GetDefaultMaterial();
-    if (!material || !material->IsSurface())
+    if (!material || !material->IsMeshMaterial())
         return;
 
     // Setup draw call

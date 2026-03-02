@@ -520,7 +520,6 @@ RenderList::RenderList(const SpawnParams& params)
     , SkyLights(4)
     , EnvironmentProbes(32)
     , Decals(64)
-    , CloudVolumes(32)
     , Sky(nullptr)
     , AtmosphericFog(nullptr)
     , Fog(nullptr)
@@ -553,7 +552,6 @@ void RenderList::Clear()
     EnvironmentProbes.Clear();
     Decals.Clear();
     VolumetricFogParticles.Clear();
-    CloudVolumes.Clear();
     Sky = nullptr;
     AtmosphericFog = nullptr;
     Fog = nullptr;
@@ -652,6 +650,10 @@ void RenderList::AddDrawCall(const RenderContext& renderContext, DrawPass drawMo
     {
         DrawCallsLists[(int32)DrawCallsListType::MotionVectors].Indices.Add(index);
     }
+    if ((drawModes & DrawPass::StylizedCloud) != DrawPass::None)
+    {
+        DrawCallsLists[(int32)DrawCallsListType::StylizedCloud].Indices.Add(index);
+    }
 }
 
 void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawPass drawModes, StaticFlags staticFlags, ShadowsCastingMode shadowsMode, const BoundingSphere& bounds, DrawCall& drawCall, bool receivesDecals, int8 sortOrder)
@@ -697,6 +699,10 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
         if ((drawModes & DrawPass::MotionVectors) != DrawPass::None && (staticFlags & StaticFlags::Transform) == StaticFlags::None)
         {
             DrawCallsLists[(int32)DrawCallsListType::MotionVectors].Indices.Add(index);
+        }
+        if ((drawModes & DrawPass::StylizedCloud) != DrawPass::None)
+        {
+            DrawCallsLists[(int32)DrawCallsListType::StylizedCloud].Indices.Add(index);
         }
     }
     for (int32 i = 1; i < renderContextBatch.Contexts.Count(); i++)

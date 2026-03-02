@@ -243,6 +243,9 @@ namespace FlaxEditor.Viewport.Previews
                     case MaterialDomain.VolumeParticle:
                         usePreviewActor = false;
                         break;
+                    case MaterialDomain.StylizedCloud:
+                        surfaceMaterial = _material;
+                        break;
                     default: throw new ArgumentOutOfRangeException();
                     }
                 }

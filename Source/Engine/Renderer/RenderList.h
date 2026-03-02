@@ -19,7 +19,6 @@ class SceneRendering;
 class LightWithShadow;
 class IPostFxSettingsProvider;
 class CubeTexture;
-class CloudVolume;
 struct RenderContext;
 struct RenderContextBatch;
 
@@ -212,6 +211,11 @@ API_ENUM() enum class DrawCallsListType
     /// Motion vectors rendering.
     /// </summary>
     MotionVectors,
+
+    /// <summary>
+    /// Stylized cloud pre-pass rendering.
+    /// </summary>
+    StylizedCloud,
 
     MAX,
 };
@@ -415,11 +419,6 @@ public:
     /// Local volumetric fog particles registered for the rendering.
     /// </summary>
     RenderListBuffer<DrawCall> VolumetricFogParticles;
-
-    /// <summary>
-    /// Stylized cloud volumes registered for rendering.
-    /// </summary>
-    Array<CloudVolume*> CloudVolumes;
 
     /// <summary>
     /// Sky/skybox renderer proxy to use (only one per frame)
