@@ -118,14 +118,12 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     auto cloudOrigin = RenderTargetPool::Get(originDesc);
     auto cloudNormal = RenderTargetPool::Get(colorDesc);
     auto tempColor = RenderTargetPool::Get(colorDesc);
-    auto tempDepth = RenderTargetPool::Get(depthDesc);
     RENDER_TARGET_POOL_SET_NAME(cloudColor, "StylizedCloud.CloudColor");
     RENDER_TARGET_POOL_SET_NAME(cloudDepth, "StylizedCloud.CloudDepth");
     RENDER_TARGET_POOL_SET_NAME(cloudHwDepth, "StylizedCloud.CloudHwDepth");
     RENDER_TARGET_POOL_SET_NAME(cloudOrigin, "StylizedCloud.CloudOrigin");
     RENDER_TARGET_POOL_SET_NAME(cloudNormal, "StylizedCloud.CloudNormal");
     RENDER_TARGET_POOL_SET_NAME(tempColor, "StylizedCloud.TempColor");
-    RENDER_TARGET_POOL_SET_NAME(tempDepth, "StylizedCloud.TempDepth");
 
     const auto shader = _shader->GetShader();
 
@@ -265,21 +263,6 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     context->DrawFullscreenTriangle();
     context->ResetRenderTarget();
 
-    // Box blur for cloud depth
-    context->BindSR(0, cloudColor->View());
-    context->BindSR(1, cloudDepth->View());
-    context->SetRenderTarget(tempDepth->View());
-    context->SetState(_psBoxBlur.Get(0));
-    context->DrawFullscreenTriangle();
-    context->ResetRenderTarget();
-
-    context->BindSR(0, cloudColor->View());
-    context->BindSR(1, tempDepth->View());
-    context->SetRenderTarget(cloudDepth->View());
-    context->SetState(_psBoxBlur.Get(1));
-    context->DrawFullscreenTriangle();
-    context->ResetRenderTarget();
-
     // Composite over frame buffer
     context->BindSR(0, cloudColor->View());
     context->BindSR(1, cloudDepth->View());
@@ -303,6 +286,5 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     RenderTargetPool::Release(cloudOrigin);
     RenderTargetPool::Release(cloudNormal);
     RenderTargetPool::Release(tempColor);
-    RenderTargetPool::Release(tempDepth);
     context->SetViewportAndScissors(renderContext.Task->GetViewport());
 }

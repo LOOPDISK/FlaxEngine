@@ -295,9 +295,10 @@ CloudPrePassOutput PS_CloudPrePass(Cloud_VS2PS input)
 
 	// Combine material outputs with lighting
 	float3 finalColor = material.Color * lightColor + material.Emissive;
-	float density = material.Opacity * material.Mask;
 
-	output.Color = float4(finalColor, max(density, 0.0f));
+	// Mask is a hard cutout; Opacity is soft density
+	clip(material.Mask - 0.5f);
+	output.Color = float4(finalColor, max(material.Opacity, 0.0f));
 	output.Origin = WorldMatrix[3].xyz;
 	output.Normal = float4(n, 0);
 	// Linearize device depth using per-view constants: ViewInfo.w / (depth - ViewInfo.z)
