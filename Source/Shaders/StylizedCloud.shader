@@ -77,7 +77,7 @@ float4 PS_GaussianBlur(Quad_VS2PS input) : SV_Target0
 {
     float centerDepth = SAMPLE_RT(CloudDepth, input.TexCoord).r;
     float depth01 = saturate(centerDepth / max(GBuffer.ViewFar, 1.0f));
-    float sigma = max(0.75f, BlurSigmaBase + depth01 * BlurDepthScale);
+    float sigma = max(0.75f, BlurSigmaBase - depth01 * BlurDepthScale);
 
 #if HORIZONTAL
     float2 dir = float2(TexelSize.x, 0);
@@ -202,6 +202,8 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
     }
 
     float4 cloud = SAMPLE_RT_LINEAR(CloudColor, cloudUV);
+    // Suppress faint alpha halo from multi-pass blur spreading into empty space.
+    cloud.a *= smoothstep(0.0f, 0.08f, cloud.a);
     if (cloud.a <= 0.0001f)
         return 0;
 
