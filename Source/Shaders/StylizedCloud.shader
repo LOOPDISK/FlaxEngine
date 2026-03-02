@@ -69,7 +69,7 @@ float CloudGaussian(float x, float sigma)
     return exp(-0.5f * (x * x) / (s * s));
 }
 
-// Depth-aware separable gaussian blur for cloud color
+// Separable gaussian blur for cloud color (sigma scales with depth)
 META_PS(true, FEATURE_LEVEL_ES2)
 META_PERMUTATION_1(HORIZONTAL=0)
 META_PERMUTATION_1(HORIZONTAL=1)
@@ -99,12 +99,7 @@ float4 PS_GaussianBlur(Quad_VS2PS input) : SV_Target0
         float fi = (float)i * stepScale;
         float2 uv = saturate(input.TexCoord + dir * fi);
         float4 c = SAMPLE_RT_LINEAR(CloudColor, uv);
-        float d = SAMPLE_RT(CloudDepth, uv).r;
-        float depthScale = max(centerDepth * 0.02f, 150.0f);
-        float depthWeightRaw = exp(-abs(d - centerDepth) / depthScale);
-        float depthIsValid = d < (DepthRange.y - 1.0f) ? 1.0f : 0.0f;
-        float depthWeight = lerp(1.0f, depthWeightRaw, depthIsValid);
-        float weight = CloudGaussian(fi, sigma) * depthWeight;
+        float weight = CloudGaussian(fi, sigma);
         accumColor += c.rgb * c.a * weight;
         accumAlpha += c.a * weight;
         accumWeight += weight;

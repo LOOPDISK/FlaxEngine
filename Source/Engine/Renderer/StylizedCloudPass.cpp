@@ -262,20 +262,29 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     context->UpdateCB(cb0, &data);
     context->BindCB(0, cb0);
 
-    // Gaussian blur for cloud color
-    context->BindSR(0, cloudColor->View());
-    context->BindSR(1, cloudDepth->View());
-    context->SetRenderTarget(tempColor->View());
-    context->SetState(_psGaussianBlur.Get(0));
-    context->DrawFullscreenTriangle();
-    context->ResetRenderTarget();
+    // Two iterations of separable gaussian blur for cloud color.
+    // A single pass only spreads alpha ~6 texels beyond the mesh edge,
+    // which creates a visible hard cutoff at the blur boundary.
+    // The second iteration blurs the already-blurred result, roughly
+    // doubling the effective radius for a smooth, wide falloff.
+    for (int32 blurIter = 0; blurIter < 2; blurIter++)
+    {
+        // Horizontal pass: cloudColor -> tempColor
+        context->BindSR(0, cloudColor->View());
+        context->BindSR(1, cloudDepth->View());
+        context->SetRenderTarget(tempColor->View());
+        context->SetState(_psGaussianBlur.Get(0));
+        context->DrawFullscreenTriangle();
+        context->ResetRenderTarget();
 
-    context->BindSR(0, tempColor->View());
-    context->BindSR(1, cloudDepth->View());
-    context->SetRenderTarget(cloudColor->View());
-    context->SetState(_psGaussianBlur.Get(1));
-    context->DrawFullscreenTriangle();
-    context->ResetRenderTarget();
+        // Vertical pass: tempColor -> cloudColor
+        context->BindSR(0, tempColor->View());
+        context->BindSR(1, cloudDepth->View());
+        context->SetRenderTarget(cloudColor->View());
+        context->SetState(_psGaussianBlur.Get(1));
+        context->DrawFullscreenTriangle();
+        context->ResetRenderTarget();
+    }
 
     // Composite over frame buffer
     context->BindSR(0, cloudColor->View());
