@@ -6,6 +6,7 @@
 #include "./Flax/GBuffer.hlsl"
 #include "./Flax/MaterialCommon.hlsl"
 #include "./Flax/StylizedCloud.hlsl"
+#include "./Flax/ExponentialHeightFog.hlsl"
 
 META_CB_BEGIN(0, Data)
 GBufferData GBuffer;
@@ -30,6 +31,7 @@ int DistortionMode;
 float NoiseScale;
 float4x4 ViewProjection;
 float4x4 InvViewProjection;
+ExponentialHeightFogData ExponentialHeightFog;
 META_CB_END
 
 Texture2D CloudColor : register(t0);
@@ -86,7 +88,10 @@ float4 PS_GaussianBlur(Quad_VS2PS input) : SV_Target0
     // Scale step size so 13 taps always span the full gaussian (3*sigma radius)
     float stepScale = max(sigma / 6.0f, 1.0f);
 
-    float4 accum = 0;
+    // Premultiplied-alpha blur: accumulate color*alpha and alpha separately
+    // so empty pixels don't darken edges, while alpha still blurs smoothly.
+    float3 accumColor = 0;
+    float accumAlpha = 0;
     float accumWeight = 0;
     UNROLL
     for (int i = -6; i <= 6; i++)
@@ -100,10 +105,13 @@ float4 PS_GaussianBlur(Quad_VS2PS input) : SV_Target0
         float depthIsValid = d < (DepthRange.y - 1.0f) ? 1.0f : 0.0f;
         float depthWeight = lerp(1.0f, depthWeightRaw, depthIsValid);
         float weight = CloudGaussian(fi, sigma) * depthWeight;
-        accum += c * weight;
+        accumColor += c.rgb * c.a * weight;
+        accumAlpha += c.a * weight;
         accumWeight += weight;
     }
-    return accum / max(accumWeight, 1e-6f);
+    float outAlpha = accumAlpha / max(accumWeight, 1e-6f);
+    float3 outColor = accumColor / max(accumAlpha, 1e-6f);
+    return float4(outColor, outAlpha);
 }
 
 // Separable box blur for cloud depth
@@ -203,8 +211,6 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
         return 0;
 
     float cloudLinearDepth = SAMPLE_RT(CloudDepth, cloudUV).r;
-    if (cloudLinearDepth >= (DepthRange.y - 1.0f))
-        return 0;
     float sceneDepthRaw = SAMPLE_RT(SceneDepth, input.TexCoord).r;
     float sceneLinearDepthCenter = LinearizeZ(gBufferData, sceneDepthRaw) * viewFar;
 
@@ -222,7 +228,10 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
     if (cloudLinearDepth >= (sceneLinearDepthCenter + softRejectDistance))
         return 0;
 
-    float alpha = smoothstep(AlphaThreshold, saturate(AlphaThreshold + 0.15f), cloud.a);
+    // Use cloud.a directly (preserves blur's soft gradient at polygon edges)
+    // then apply threshold as a floor fade rather than a re-sharpening smoothstep.
+    float alpha = saturate((cloud.a - AlphaThreshold) / max(1.0f - AlphaThreshold, 0.001f));
+
     // Fade cloud near geometry intersections to avoid hard clipping seams.
     float intersectionFade = saturate((sceneLinearDepthSoft - cloudLinearDepth) / max(SoftIntersectionDistance, 1.0f));
     alpha *= intersectionFade;
@@ -231,6 +240,15 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
     float distanceApprox = cloudLinearDepth;
     float sharpen = StylizedCloudSafeInvLerp(DistanceSharpenStart, DistanceSharpenEnd, distanceApprox);
     alpha = saturate(alpha + sharpen * 0.15f);
+
+    // Apply exponential height fog to cloud pixels
+    if (ExponentialHeightFog.FogDensity > 0)
+    {
+        float cloudDepthRaw = LinearZ2DeviceDepth(gBufferData, cloudLinearDepth / viewFar);
+        float3 cloudWorldPos = GetWorldPos(gBufferData, cloudUV, cloudDepthRaw);
+        float4 fog = GetExponentialHeightFog(ExponentialHeightFog, cloudWorldPos, gBufferData.ViewPos, 0, cloudLinearDepth);
+        cloud.rgb = cloud.rgb * fog.a + fog.rgb;
+    }
 
     return float4(cloud.rgb, alpha);
 }

@@ -17,6 +17,8 @@ struct StylizedCloudCustomData
     float SkyIntensity;
     Float3 SkyColor;
     int32 LocalLightCount;
+    uint32 ShadowsBufferAddress;
+    bool HasShadow;
 
     struct LocalLight
     {

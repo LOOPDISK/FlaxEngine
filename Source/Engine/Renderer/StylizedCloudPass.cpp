@@ -12,6 +12,7 @@
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/Materials/IMaterial.h"
 #include "Engine/Graphics/Materials/StylizedCloudMaterialShader.h"
+#include "Engine/Renderer/DrawCall.h"
 #include "Engine/Renderer/GBufferPass.h"
 #include "Engine/Renderer/RenderList.h"
 
@@ -134,11 +135,18 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     float sunIntensity = 1.0f;
     float skyIntensity = 0.5f;
 
+    bool hasShadow = false;
+    uint32 shadowsBufferAddress = 0;
     if (renderContext.List->DirectionalLights.HasItems())
     {
         const auto& light = renderContext.List->DirectionalLights[0];
         sunDirection = light.Direction;
         sunColor = light.Color;
+        if (light.HasShadow && light.ShadowsBufferAddress != 0)
+        {
+            hasShadow = true;
+            shadowsBufferAddress = light.ShadowsBufferAddress;
+        }
     }
     if (renderContext.List->SkyLights.HasItems())
     {
@@ -171,6 +179,10 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     data.Time = Time::Draw.UnscaledTime.GetTotalSeconds();
     Matrix::Transpose(renderContext.View.ViewProjection(), data.ViewProjection);
     Matrix::Transpose(renderContext.View.IVP, data.InvViewProjection);
+    if (renderContext.List->Fog)
+        renderContext.List->Fog->GetExponentialHeightFogData(renderContext.View, data.ExponentialHeightFog);
+    else
+        Platform::MemoryClear(&data.ExponentialHeightFog, sizeof(data.ExponentialHeightFog));
 
     // Pre-pass: render cloud meshes into color + depth buffers via material draw calls
     context->SetViewportAndScissors((float)quarterWidth, (float)quarterHeight);
@@ -189,6 +201,8 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     customData.SunColor = sunColor;
     customData.SkyIntensity = skyIntensity;
     customData.SkyColor = skyColor;
+    customData.ShadowsBufferAddress = shadowsBufferAddress;
+    customData.HasShadow = hasShadow;
 
     // Gather local lights (point + spot)
     customData.LocalLightCount = 0;

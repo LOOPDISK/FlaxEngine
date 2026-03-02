@@ -768,8 +768,6 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         renderContext.List->Fog->DrawFog(context, renderContext, *lightBuffer);
         context->ResetSR();
     }
-    StylizedCloudPass::Instance()->Render(renderContext, lightBuffer);
-
     // Apply depth haze before forward pass so it doesn't affect translucent surfaces (e.g. glass)
     auto frameBuffer = RenderTargetPool::Get(tempDesc);
     RENDER_TARGET_POOL_SET_NAME(frameBuffer, "FrameBuffer");
@@ -784,6 +782,8 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         Swap(lightBuffer, tempBuffer);
         RenderTargetPool::Release(tempBuffer);
     }
+
+    StylizedCloudPass::Instance()->Render(renderContext, lightBuffer);
 
     // Run forward pass
     ForwardPass::Instance()->Render(renderContext, lightBuffer, frameBuffer);

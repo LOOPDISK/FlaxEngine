@@ -11,6 +11,7 @@
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/Shaders/GPUShader.h"
 #include "Engine/Graphics/Shaders/GPUConstantBuffer.h"
+#include "Engine/Renderer/ShadowsPass.h"
 
 PACK_STRUCT(struct StylizedCloudLocalLight {
     Float3 Position;
@@ -34,7 +35,8 @@ PACK_STRUCT(struct StylizedCloudMaterialShaderData {
     float Time;
     float PerInstanceRandom;
     int32 LocalLightCount;
-    Float2 Padding;
+    uint32 ShadowsBufferAddress;
+    uint32 HasShadow;
     StylizedCloudLocalLight LocalLights[STYLIZED_CLOUD_MAX_LOCAL_LIGHTS];
     });
 
@@ -70,7 +72,6 @@ void StylizedCloudMaterialShader::Bind(BindParameters& params)
         Matrix::Transpose(view.ViewProjection(), materialData->ViewProjection);
         materialData->PerInstanceRandom = drawCall.PerInstanceRandom;
         materialData->Time = params.Time;
-        materialData->Padding = Float2::Zero;
 
         // Lighting data from custom data or defaults
         auto* customData = (StylizedCloudCustomData*)params.CustomData;
@@ -82,6 +83,8 @@ void StylizedCloudMaterialShader::Bind(BindParameters& params)
             materialData->SunColor = customData->SunColor;
             materialData->SkyColor = customData->SkyColor;
             materialData->LocalLightCount = customData->LocalLightCount;
+            materialData->ShadowsBufferAddress = customData->ShadowsBufferAddress;
+            materialData->HasShadow = customData->HasShadow ? 1 : 0;
             for (int32 i = 0; i < customData->LocalLightCount; i++)
             {
                 auto& src = customData->LocalLights[i];
@@ -104,6 +107,8 @@ void StylizedCloudMaterialShader::Bind(BindParameters& params)
             materialData->SkyIntensity = 0.5f;
             materialData->SkyColor = Float3(0.4f, 0.5f, 0.7f);
             materialData->LocalLightCount = 0;
+            materialData->ShadowsBufferAddress = 0;
+            materialData->HasShadow = 0;
         }
     }
 
@@ -112,6 +117,15 @@ void StylizedCloudMaterialShader::Bind(BindParameters& params)
     {
         context->UpdateCB(_cb, _cbData.Get());
         context->BindCB(0, _cb);
+    }
+
+    // Bind shadow resources
+    {
+        GPUTexture* shadowMapAtlas = nullptr;
+        GPUBufferView* shadowsBuffer = nullptr;
+        ShadowsPass::GetShadowAtlas(params.RenderContext.Buffers, shadowMapAtlas, shadowsBuffer);
+        context->BindSR(14, shadowsBuffer);
+        context->BindSR(15, shadowMapAtlas);
     }
 
     // Bind pipeline

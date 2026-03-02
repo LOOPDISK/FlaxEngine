@@ -9,6 +9,7 @@
 #include "./Flax/Common.hlsl"
 #include "./Flax/MaterialCommon.hlsl"
 #include "./Flax/StylizedCloud.hlsl"
+#include "./Flax/ShadowsSampling.hlsl"
 @7
 
 #define STYLIZED_CLOUD_MAX_LOCAL_LIGHTS 8
@@ -37,12 +38,16 @@ float3 SkyColor;
 float Time;
 float PerInstanceRandom;
 int LocalLightCount;
-float2 Padding;
+uint ShadowsBufferAddress;
+uint HasShadow;
 CloudLocalLight LocalLights[STYLIZED_CLOUD_MAX_LOCAL_LIGHTS];
 @1META_CB_END
 
 // Shader resources
 @2
+// Shadow resources (high registers to avoid material parameter conflicts)
+Buffer<float4> CloudShadowsBuffer : register(t14);
+Texture2D<float> CloudShadowMap : register(t15);
 // Material properties generation input
 struct MaterialInput
 {
@@ -262,9 +267,29 @@ CloudPrePassOutput PS_CloudPrePass(Cloud_VS2PS input)
 	float rim = pow(1.0f - saturate(dot(n, v)), 2.0f);
 	float3 sun = SunColor * SunIntensity;
 	float3 sky = SkyColor * SkyIntensity;
-	float3 lightColor = sun * (0.1f + 0.9f * wrappedNoL)
+
+	// Sample directional light shadow
+	float sunShadow = 1.0f;
+	if (HasShadow)
+	{
+		LightData dirLight = (LightData)0;
+		// ShaderLightData.Direction points toward the light (negated emission dir)
+		dirLight.Direction = -SunDirection;
+		dirLight.ShadowsBufferAddress = ShadowsBufferAddress;
+		// Build a GBufferSample with Normal facing the sun so the NoL early-out
+		// doesn't trigger (clouds are translucent and always need shadow lookup).
+		GBufferSample gBuf = (GBufferSample)0;
+		gBuf.ShadingModel = SHADING_MODEL_LIT;
+		gBuf.WorldPos = input.WorldPos;
+		gBuf.Normal = -SunDirection;
+		gBuf.ViewPos.z = length(input.WorldPos - ViewPos);
+		ShadowSample shadow = SampleDirectionalLightShadow(dirLight, CloudShadowsBuffer, CloudShadowMap, gBuf);
+		sunShadow = shadow.SurfaceShadow;
+	}
+
+	float3 lightColor = sun * sunShadow * (0.1f + 0.9f * wrappedNoL)
 	                   + sky * (0.15f + 0.85f * hemi);
-	lightColor += sun * (rim * 0.2f);
+	lightColor += sun * sunShadow * (rim * 0.2f);
 
 	// Local lights (point + spot)
 	for (int li = 0; li < LocalLightCount; li++)

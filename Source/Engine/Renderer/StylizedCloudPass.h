@@ -34,6 +34,7 @@ private:
         float NoiseScale;
         Matrix ViewProjection;
         Matrix InvViewProjection;
+        ShaderExponentialHeightFogData ExponentialHeightFog;
         });
 
     AssetReference<Shader> _shader;
