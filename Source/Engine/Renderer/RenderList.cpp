@@ -697,6 +697,7 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
             DrawCallsLists[(int32)DrawCallsListType::MotionVectors].Indices.Add(index);
         }
     }
+    float minObjectPixelSizeSq = Math::Square(Graphics::Shadows::MinObjectPixelSize);
     for (int32 i = 1; i < renderContextBatch.Contexts.Count(); i++)
     {
         const RenderContext& renderContext = renderContextBatch.Contexts.Get()[i];
@@ -706,7 +707,8 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
         const bool frustumCheck = true; // renderContext.View.CullingFrustum.Intersects(bounds);
         if (drawModes != DrawPass::None &&
             (staticFlags & renderContext.View.StaticFlagsMask) == renderContext.View.StaticFlagsCompare &&
-            frustumCheck)
+            frustumCheck &&
+            RenderTools::ComputeBoundsScreenRadiusSquared(bounds.Center, bounds.Radius, renderContext.View) * (renderContext.View.ScreenSize.X * renderContext.View.ScreenSize.Y) >= minObjectPixelSizeSq)
         {
             renderContext.List->ShadowDepthDrawCallsList.Indices.Add(index);
         }
