@@ -24,6 +24,7 @@ String StylizedCloudPass::ToString() const
 bool StylizedCloudPass::Init()
 {
     _psComposite = GPUDevice::Instance->CreatePipelineState();
+    _psWriteDepth = GPUDevice::Instance->CreatePipelineState();
     _psGaussianBlur.CreatePipelineStates();
     _psBoxBlur.CreatePipelineStates();
 
@@ -48,6 +49,7 @@ void StylizedCloudPass::Dispose()
     _psGaussianBlur.Delete();
     _psBoxBlur.Delete();
     SAFE_DELETE_GPU_RESOURCE(_psComposite);
+    SAFE_DELETE_GPU_RESOURCE(_psWriteDepth);
     _shader = nullptr;
 }
 
@@ -89,6 +91,18 @@ bool StylizedCloudPass::setupResources()
         psDesc.BlendMode.BlendOpAlpha = BlendingMode::Operation::Add;
         psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::RGBA;
         if (_psComposite->Init(psDesc))
+            return true;
+    }
+    if (!_psWriteDepth->IsValid())
+    {
+        psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
+        psDesc.PS = shader->GetPS("PS_WriteDepth");
+        psDesc.DepthEnable = true;
+        psDesc.DepthWriteEnable = true;
+        psDesc.DepthClipEnable = true;
+        psDesc.DepthFunc = ComparisonFunc::Less;
+        psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::None;
+        if (_psWriteDepth->Init(psDesc))
             return true;
     }
 
@@ -176,6 +190,8 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     data.DistortionScrollSpeed = settings->StylizedCloudDistortionScrollSpeed;
     data.DistortionMode = (int32)settings->StylizedCloudDistortionMode;
     data.NoiseScale = settings->StylizedCloudNoiseScale;
+    data.DepthMode = (int32)settings->StylizedCloudDepthMode;
+    data.Padding0 = 0;
     data.Time = Time::Draw.UnscaledTime.GetTotalSeconds();
     Matrix::Transpose(renderContext.View.ViewProjection(), data.ViewProjection);
     Matrix::Transpose(renderContext.View.IVP, data.InvViewProjection);
@@ -299,6 +315,20 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     context->SetState(_psComposite);
     context->DrawFullscreenTriangle();
     context->ResetRenderTarget();
+
+    // Write cloud depth into scene depth buffer so the forward pass
+    // (glass, light cards, particles) correctly depth-tests against clouds.
+    if (_psWriteDepth->IsValid() && settings->StylizedCloudDepthMode != StylizedCloudDepthMode::None)
+    {
+        context->ResetSR();
+        context->BindCB(0, cb0);
+        context->BindSR(0, cloudColor->View());
+        context->BindSR(1, cloudDepth->View());
+        context->SetRenderTarget(renderContext.Buffers->DepthBuffer->View(), (GPUTextureView*)nullptr);
+        context->SetState(_psWriteDepth);
+        context->DrawFullscreenTriangle();
+        context->ResetRenderTarget();
+    }
 
     // Cleanup
     context->ResetSR();

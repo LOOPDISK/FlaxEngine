@@ -29,6 +29,8 @@ float DistanceSharpenEnd;
 float DistortionScrollSpeed;
 int DistortionMode;
 float NoiseScale;
+int DepthMode;
+float Padding0;
 float4x4 ViewProjection;
 float4x4 InvViewProjection;
 ExponentialHeightFogData ExponentialHeightFog;
@@ -203,7 +205,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
 
     float4 cloud = SAMPLE_RT_LINEAR(CloudColor, cloudUV);
     // Suppress faint alpha halo from multi-pass blur spreading into empty space.
-    cloud.a *= smoothstep(0.0f, 0.08f, cloud.a);
+    cloud.a *= smoothstep(0.0f, 0.2f, cloud.a);
     if (cloud.a <= 0.0001f)
         return 0;
 
@@ -248,4 +250,45 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target0
     }
 
     return float4(cloud.rgb, alpha);
+}
+
+// Write cloud depth into the scene depth buffer so the forward pass
+// (glass, light cards, particles) correctly depth-tests against clouds.
+META_PS(true, FEATURE_LEVEL_ES2)
+float PS_WriteDepth(Quad_VS2PS input) : SV_Depth
+{
+    GBufferData gBufferData = GetGBufferData();
+    const float viewFar = max(GBuffer.ViewFar, 1.0f);
+
+    float4 cloud = SAMPLE_RT_LINEAR(CloudColor, input.TexCoord);
+    cloud.a *= smoothstep(0.0f, 0.2f, cloud.a);
+
+    float alpha = saturate((cloud.a - AlphaThreshold) / max(1.0f - AlphaThreshold, 0.001f));
+
+    // Discard based on depth mode setting
+    if (DepthMode == 1)
+    {
+        // Hard cutoff
+        if (alpha < 0.3f)
+            discard;
+    }
+    else
+    {
+        // Stochastic dither
+        float2 pixelPos = input.TexCoord * OutputSize;
+        float dither = CloudHash(float3(pixelPos, Time * 7.13f));
+        if (alpha < dither)
+            discard;
+    }
+
+    float cloudLinearDepth = SAMPLE_RT(CloudDepth, input.TexCoord).r;
+
+    // No cloud data at far plane
+    if (cloudLinearDepth >= (DepthRange.y - 1.0f))
+        discard;
+
+    // Convert linear depth to device depth for hardware depth write.
+    // The pipeline state uses DepthFunc=Less, so this only writes where
+    // the cloud is closer than existing geometry - no shader read needed.
+    return LinearZ2DeviceDepth(gBufferData, cloudLinearDepth / viewFar);
 }

@@ -32,6 +32,8 @@ private:
         float DistortionScrollSpeed;
         int32 DistortionMode;
         float NoiseScale;
+        int32 DepthMode;
+        float Padding0;
         Matrix ViewProjection;
         Matrix InvViewProjection;
         ShaderExponentialHeightFogData ExponentialHeightFog;
@@ -41,6 +43,7 @@ private:
     GPUPipelineStatePermutationsPs<2> _psGaussianBlur;
     GPUPipelineStatePermutationsPs<2> _psBoxBlur;
     GPUPipelineState* _psComposite = nullptr;
+    GPUPipelineState* _psWriteDepth = nullptr;
 
 private:
 #if COMPILE_WITH_DEV_ENV
@@ -50,6 +53,8 @@ private:
         _psBoxBlur.Release();
         if (_psComposite)
             _psComposite->ReleaseGPU();
+        if (_psWriteDepth)
+            _psWriteDepth->ReleaseGPU();
         invalidateResources();
     }
 #endif

@@ -42,6 +42,27 @@ API_ENUM() enum class StylizedCloudDistortionMode
 };
 
 /// <summary>
+/// Depth sorting mode for stylized clouds against forward-pass objects (glass, particles, light cards).
+/// </summary>
+API_ENUM() enum class StylizedCloudDepthMode
+{
+    /// <summary>
+    /// No depth writing. Forward-pass objects always render on top of clouds.
+    /// </summary>
+    None = 0,
+
+    /// <summary>
+    /// Hard alpha cutoff. Cloud regions above the alpha threshold write depth and fully occlude forward-pass objects behind them.
+    /// </summary>
+    HardCutoff = 1,
+
+    /// <summary>
+    /// Stochastic dither. Cloud alpha is compared against per-pixel noise so the occlusion boundary dissolves naturally.
+    /// </summary>
+    StochasticDither = 2,
+};
+
+/// <summary>
 /// Graphics rendering settings.
 /// </summary>
 API_CLASS(sealed, Namespace="FlaxEditor.Content.Settings", NoConstructor) class FLAXENGINE_API GraphicsSettings : public SettingsBase
@@ -160,41 +181,41 @@ public:
     API_FIELD(Attributes="EditorOrder(2130), Limit(256, 8192), EditorDisplay(\"Global Illumination\")")
     int32 GlobalSurfaceAtlasResolution = 2048;
 
-    /// <summary>
-    /// Base gaussian blur sigma for stylized cloud softness.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(3000), DefaultValue(2.5f), Limit(0, 100), EditorDisplay(\"Stylized Clouds\", \"Blur Sigma\")")
-    float StylizedCloudBlurSigma = 2.5f;
-
-    /// <summary>
-    /// How much the blur increases with depth for stylized clouds.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(3010), DefaultValue(4.0f), Limit(0, 100), EditorDisplay(\"Stylized Clouds\", \"Blur Depth Scale\")")
-    float StylizedCloudBlurDepthScale = 4.0f;
-
-    /// <summary>
-    /// How the distortion noise cubemap direction is computed for stylized clouds.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(3015), DefaultValue(StylizedCloudDistortionMode.CloudOrigin), EditorDisplay(\"Stylized Clouds\", \"Distortion Mode\")")
-    StylizedCloudDistortionMode StylizedCloudDistortionMode = StylizedCloudDistortionMode::CloudOrigin;
-
-    /// <summary>
-    /// Edge distortion noise strength for stylized clouds. Set to 0 to disable.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(3020), DefaultValue(0.0f), Limit(0, 5), EditorDisplay(\"Stylized Clouds\", \"Distortion Strength\")")
-    float StylizedCloudDistortionStrength = 0.0f;
+    // -- Appearance --
 
     /// <summary>
     /// Minimum density threshold below which cloud pixels are discarded.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(3030), DefaultValue(0.3f), Limit(0, 1), EditorDisplay(\"Stylized Clouds\", \"Alpha Threshold\")")
+    API_FIELD(Attributes="EditorOrder(3000), DefaultValue(0.3f), Limit(0, 1), EditorDisplay(\"Stylized Clouds\", \"Alpha Threshold\")")
     float StylizedCloudAlphaThreshold = 0.3f;
+
+    /// <summary>
+    /// Base gaussian blur sigma for stylized cloud softness.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3010), DefaultValue(2.5f), Limit(0, 100), EditorDisplay(\"Stylized Clouds\", \"Blur Sigma\")")
+    float StylizedCloudBlurSigma = 2.5f;
+
+    /// <summary>
+    /// How much the blur decreases with depth for stylized clouds.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3020), DefaultValue(4.0f), Limit(0, 100), EditorDisplay(\"Stylized Clouds\", \"Blur Depth Scale\")")
+    float StylizedCloudBlurDepthScale = 4.0f;
+
+    // -- Depth & Intersection --
+
+    /// <summary>
+    /// How stylized clouds write depth for sorting against forward-pass objects (glass, particles, light cards).
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3030), DefaultValue(StylizedCloudDepthMode.StochasticDither), EditorDisplay(\"Stylized Clouds\", \"Depth Mode\")")
+    StylizedCloudDepthMode StylizedCloudDepthMode = StylizedCloudDepthMode::StochasticDither;
 
     /// <summary>
     /// Distance over which clouds fade near geometry intersections to avoid hard clipping.
     /// </summary>
     API_FIELD(Attributes="EditorOrder(3040), DefaultValue(35.0f), Limit(0, 500), EditorDisplay(\"Stylized Clouds\", \"Soft Intersection Distance\")")
     float StylizedCloudSoftIntersectionDistance = 35.0f;
+
+    // -- Distance --
 
     /// <summary>
     /// Distance at which cloud alpha sharpening begins.
@@ -208,22 +229,36 @@ public:
     API_FIELD(Attributes="EditorOrder(3060), DefaultValue(100000.0f), Limit(0), EditorDisplay(\"Stylized Clouds\", \"Distance Sharpen End\")")
     float StylizedCloudDistanceSharpenEnd = 100000.0f;
 
+    // -- Distortion --
+
+    /// <summary>
+    /// How the distortion noise cubemap direction is computed for stylized clouds.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3070), DefaultValue(StylizedCloudDistortionMode.CloudOrigin), EditorDisplay(\"Stylized Clouds\", \"Distortion Mode\")")
+    StylizedCloudDistortionMode StylizedCloudDistortionMode = StylizedCloudDistortionMode::CloudOrigin;
+
+    /// <summary>
+    /// Edge distortion noise strength for stylized clouds. Set to 0 to disable.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(3075), DefaultValue(0.0f), Limit(0, 5), EditorDisplay(\"Stylized Clouds\", \"Distortion Strength\")")
+    float StylizedCloudDistortionStrength = 0.0f;
+
     /// <summary>
     /// Speed of the distortion noise drift for stylized clouds. Higher values make the noise scroll faster.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(3075), DefaultValue(0.01f), Limit(0, 1), EditorDisplay(\"Stylized Clouds\", \"Distortion Scroll Speed\")")
+    API_FIELD(Attributes="EditorOrder(3080), DefaultValue(0.01f), Limit(0, 1), EditorDisplay(\"Stylized Clouds\", \"Distortion Scroll Speed\")")
     float StylizedCloudDistortionScrollSpeed = 0.01f;
 
     /// <summary>
     /// Spatial scale of the 3D procedural noise. Smaller values produce larger noise features. Only used with Procedural3D distortion mode.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(3076), DefaultValue(0.02f), Limit(0.001f, 1.0f), EditorDisplay(\"Stylized Clouds\", \"Noise Scale\")")
+    API_FIELD(Attributes="EditorOrder(3085), DefaultValue(0.02f), Limit(0.001f, 1.0f), EditorDisplay(\"Stylized Clouds\", \"Noise Scale\")")
     float StylizedCloudNoiseScale = 0.02f;
 
     /// <summary>
     /// Cubemap texture used for edge distortion noise on stylized clouds (RG channels, 0-1 remapped to -1..1). Requires non-zero Distortion Strength.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(3080), EditorDisplay(\"Stylized Clouds\", \"Distortion Cube Map\")")
+    API_FIELD(Attributes="EditorOrder(3090), EditorDisplay(\"Stylized Clouds\", \"Distortion Cube Map\")")
     SoftAssetReference<CubeTexture> StylizedCloudDistortionCubeMap;
 
     /// <summary>
