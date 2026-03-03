@@ -261,15 +261,6 @@ public:
     API_FIELD(Attributes="EditorOrder(3090), EditorDisplay(\"Stylized Clouds\", \"Distortion Cube Map\"), VisibleIf(nameof(ShowStylizedCloudCubeMap))")
     SoftAssetReference<CubeTexture> StylizedCloudDistortionCubeMap;
 
-    API_PROPERTY(Attributes="HideInEditor, NoSerialize") bool GetShowStylizedCloudNoiseScale() const
-    {
-        return StylizedCloudDistortionMode == ::StylizedCloudDistortionMode::Procedural3D;
-    }
-
-    API_PROPERTY(Attributes="HideInEditor, NoSerialize") bool GetShowStylizedCloudCubeMap() const
-    {
-        return StylizedCloudDistortionMode != ::StylizedCloudDistortionMode::Procedural3D;
-    }
 
     /// <summary>
     /// The default Post Process settings. Can be overriden by PostFxVolume on a level locally, per camera or for a whole map.
