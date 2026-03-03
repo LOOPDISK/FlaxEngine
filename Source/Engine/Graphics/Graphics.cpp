@@ -29,6 +29,7 @@ bool Graphics::GICascadesBlending = false;
 bool Graphics::OcclusionCulling = true;
 PostProcessSettings Graphics::PostProcessSettings;
 bool Graphics::SpreadWorkload = true;
+float Graphics::Shadows::MinObjectPixelSize = 2.0f;
 bool Graphics::PostProcessing::ColorGradingVolumeLUT = true;
 
 #if GRAPHICS_API_NULL
