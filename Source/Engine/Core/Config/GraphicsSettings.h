@@ -252,14 +252,24 @@ public:
     /// <summary>
     /// Spatial scale of the 3D procedural noise. Smaller values produce larger noise features. Only used with Procedural3D distortion mode.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(3085), DefaultValue(0.02f), Limit(0.001f, 1.0f), EditorDisplay(\"Stylized Clouds\", \"Noise Scale\")")
+    API_FIELD(Attributes="EditorOrder(3085), DefaultValue(0.02f), Limit(0.001f, 1.0f), EditorDisplay(\"Stylized Clouds\", \"Noise Scale\"), VisibleIf(nameof(ShowStylizedCloudNoiseScale))")
     float StylizedCloudNoiseScale = 0.02f;
 
     /// <summary>
     /// Cubemap texture used for edge distortion noise on stylized clouds (RG channels, 0-1 remapped to -1..1). Requires non-zero Distortion Strength.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(3090), EditorDisplay(\"Stylized Clouds\", \"Distortion Cube Map\")")
+    API_FIELD(Attributes="EditorOrder(3090), EditorDisplay(\"Stylized Clouds\", \"Distortion Cube Map\"), VisibleIf(nameof(ShowStylizedCloudCubeMap))")
     SoftAssetReference<CubeTexture> StylizedCloudDistortionCubeMap;
+
+    API_PROPERTY(Attributes="HideInEditor, NoSerialize") bool GetShowStylizedCloudNoiseScale() const
+    {
+        return StylizedCloudDistortionMode == ::StylizedCloudDistortionMode::Procedural3D;
+    }
+
+    API_PROPERTY(Attributes="HideInEditor, NoSerialize") bool GetShowStylizedCloudCubeMap() const
+    {
+        return StylizedCloudDistortionMode != ::StylizedCloudDistortionMode::Procedural3D;
+    }
 
     /// <summary>
     /// The default Post Process settings. Can be overriden by PostFxVolume on a level locally, per camera or for a whole map.
