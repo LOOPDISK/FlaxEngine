@@ -424,6 +424,18 @@ public:
         /// </summary>
         int8 SortOrder;
 
+        /// <summary>
+        /// Optional per-mesh visibility flags. If non-null, mesh index is checked against this array before rendering.
+        /// Meshes with index beyond MeshVisibilityCount default to visible.
+        /// When null, all meshes use material slot visibility only.
+        /// </summary>
+        const bool* MeshVisibility = nullptr;
+
+        /// <summary>
+        /// Number of entries in MeshVisibility array.
+        /// </summary>
+        int32 MeshVisibilityCount = 0;
+
 #if USE_EDITOR
         float LightmapScale = -1.0f;
 #endif

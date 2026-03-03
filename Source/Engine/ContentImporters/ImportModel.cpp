@@ -194,6 +194,11 @@ bool SortMeshGroups(IGrouping<StringView, MeshData*> const& i1, IGrouping<String
     return i1.GetKey().Compare(i2.GetKey()) < 0;
 }
 
+bool SortMeshesByName(MeshData* const& a, MeshData* const& b)
+{
+    return a->Name.Compare(b->Name) < 0;
+}
+
 void CloneObject(rapidjson_flax::StringBuffer& buffer, SceneObject* src, SceneObject* dst, bool stripName = false)
 {
     // Serialize source
@@ -547,6 +552,12 @@ CreateAssetResult ImportModel::Import(CreateAssetContext& context)
     if (options.Type == ModelTool::ModelType::Model && options.LightmapUVsSource == ModelLightmapUVsSource::Generate && data->LODs.HasItems() && data->LODs[0].Meshes.Count() > 1)
     {
         RepackMeshLightmapUVs(*data);
+    }
+
+    // Sort meshes by name within each LOD for deterministic ordering
+    for (auto& lod : data->LODs)
+    {
+        Sorting::QuickSort(lod.Meshes.Get(), lod.Meshes.Count(), &SortMeshesByName);
     }
 
     // Create destination asset type

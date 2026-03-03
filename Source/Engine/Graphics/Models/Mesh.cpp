@@ -254,6 +254,8 @@ void Mesh::Draw(const RenderContext& renderContext, MaterialBase* material, cons
 
 void Mesh::Draw(const RenderContext& renderContext, const DrawInfo& info, float lodDitherFactor) const
 {
+    if (info.MeshVisibility && _index < info.MeshVisibilityCount && !info.MeshVisibility[_index])
+        return;
     const auto& entry = info.Buffer->At(_materialSlotIndex);
     if (!entry.Visible || !IsInitialized())
         return;
@@ -334,6 +336,8 @@ void Mesh::Draw(const RenderContext& renderContext, const DrawInfo& info, float 
 
 void Mesh::Draw(const RenderContextBatch& renderContextBatch, const DrawInfo& info, float lodDitherFactor) const
 {
+    if (info.MeshVisibility && _index < info.MeshVisibilityCount && !info.MeshVisibility[_index])
+        return;
     const auto& entry = info.Buffer->At(_materialSlotIndex);
     if (!entry.Visible || !IsInitialized())
         return;
