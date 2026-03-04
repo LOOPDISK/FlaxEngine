@@ -768,6 +768,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         renderContext.List->Fog->DrawFog(context, renderContext, *lightBuffer);
         context->ResetSR();
     }
+
     // Apply depth haze before forward pass so it doesn't affect translucent surfaces (e.g. glass)
     auto frameBuffer = RenderTargetPool::Get(tempDesc);
     RENDER_TARGET_POOL_SET_NAME(frameBuffer, "FrameBuffer");
