@@ -1,5 +1,3 @@
-// Copyright (c) Wojciech Figat. All rights reserved.
-
 #pragma once
 
 #include "RendererPass.h"
@@ -44,8 +42,6 @@ private:
     GPUPipelineStatePermutationsPs<2> _psBoxBlur;
     GPUPipelineState* _psComposite = nullptr;
     GPUPipelineState* _psWriteDepth = nullptr;
-    GPUPipelineState* _psDebugView[3] = {};
-    GPUPipelineState* _psDebugCompositeAlpha = nullptr;
 
 private:
 #if COMPILE_WITH_DEV_ENV
@@ -57,10 +53,6 @@ private:
             _psComposite->ReleaseGPU();
         if (_psWriteDepth)
             _psWriteDepth->ReleaseGPU();
-        for (auto& ps : _psDebugView)
-            if (ps) ps->ReleaseGPU();
-        if (_psDebugCompositeAlpha)
-            _psDebugCompositeAlpha->ReleaseGPU();
         invalidateResources();
     }
 #endif

@@ -1,5 +1,3 @@
-// Copyright (c) Wojciech Figat. All rights reserved.
-
 namespace FlaxEditor.Content.Settings
 {
     public partial class GraphicsSettings

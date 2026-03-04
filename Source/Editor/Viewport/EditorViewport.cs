@@ -2063,13 +2063,6 @@ namespace FlaxEditor.Viewport
             new ViewModeOptions(ViewMode.GlobalSurfaceAtlas, "Global Surface Atlas", Editor.Instance.Options.Options.Input.GlobalSurfaceAtlas),
             new ViewModeOptions(ViewMode.GlobalIllumination, "Global Illumination", Editor.Instance.Options.Options.Input.GlobalIllumination),
             new ViewModeOptions(ViewMode.HierarchialZBuffer, "HZB Occluders", Editor.Instance.Options.Options.Input.HZBOccluders),
-            new ViewModeOptions("Stylized Clouds", new[]
-            {
-                new ViewModeOptions(ViewMode.StylizedCloudColor, "Cloud Color"),
-                new ViewModeOptions(ViewMode.StylizedCloudAlpha, "Cloud Alpha"),
-                new ViewModeOptions(ViewMode.StylizedCloudDepth, "Cloud Depth"),
-                new ViewModeOptions(ViewMode.StylizedCloudCompositeAlpha, "Composite Alpha"),
-            }),
         };
 
         private void WidgetViewModeShowHideClicked(ContextMenuButton button)

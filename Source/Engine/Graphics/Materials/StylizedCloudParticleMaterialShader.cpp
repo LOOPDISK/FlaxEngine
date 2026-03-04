@@ -1,5 +1,3 @@
-// Copyright (c) Wojciech Figat. All rights reserved.
-
 #include "StylizedCloudParticleMaterialShader.h"
 #include "StylizedCloudMaterialShader.h"
 #include "MaterialParams.h"
@@ -14,17 +12,6 @@
 #include "Engine/Graphics/Shaders/GPUConstantBuffer.h"
 #include "Engine/Renderer/ShadowsPass.h"
 #include "Engine/Particles/Graph/CPU/ParticleEmitterGraph.CPU.h"
-
-PACK_STRUCT(struct StylizedCloudParticleLocalLight {
-    Float3 Position;
-    float Radius;
-    Float3 Color;
-    float FalloffExponent;
-    Float3 Direction;
-    float SpotCosOuterCone;
-    float SpotInvCosConeDiff;
-    Float3 LightPadding;
-    });
 
 PACK_STRUCT(struct StylizedCloudParticleMaterialShaderData {
     // Particle data
@@ -50,7 +37,7 @@ PACK_STRUCT(struct StylizedCloudParticleMaterialShaderData {
     uint32 ShadowsBufferAddress;
     uint32 HasShadow;
     float CloudParticlePadding0;
-    StylizedCloudParticleLocalLight LocalLights[STYLIZED_CLOUD_MAX_LOCAL_LIGHTS];
+    StylizedCloudLocalLight LocalLights[STYLIZED_CLOUD_MAX_LOCAL_LIGHTS];
     });
 
 DrawPass StylizedCloudParticleMaterialShader::GetDrawModes() const
@@ -128,42 +115,7 @@ void StylizedCloudParticleMaterialShader::Bind(BindParameters& params)
         Matrix::Transpose(view.ViewProjection(), materialData->ViewProjection);
         materialData->Time = params.Time;
 
-        auto* customData = (StylizedCloudCustomData*)params.CustomData;
-        if (customData)
-        {
-            materialData->SunDirection = customData->SunDirection;
-            materialData->SunIntensity = customData->SunIntensity;
-            materialData->SkyIntensity = customData->SkyIntensity;
-            materialData->SunColor = customData->SunColor;
-            materialData->SkyColor = customData->SkyColor;
-            materialData->LocalLightCount = customData->LocalLightCount;
-            materialData->ShadowsBufferAddress = customData->ShadowsBufferAddress;
-            materialData->HasShadow = customData->HasShadow ? 1 : 0;
-            for (int32 i = 0; i < customData->LocalLightCount; i++)
-            {
-                auto& src = customData->LocalLights[i];
-                auto& dst = materialData->LocalLights[i];
-                dst.Position = src.Position;
-                dst.Radius = src.Radius;
-                dst.Color = src.Color;
-                dst.FalloffExponent = src.FalloffExponent;
-                dst.Direction = src.Direction;
-                dst.SpotCosOuterCone = src.SpotCosOuterCone;
-                dst.SpotInvCosConeDiff = src.SpotInvCosConeDiff;
-                dst.LightPadding = Float3::Zero;
-            }
-        }
-        else
-        {
-            materialData->SunDirection = Float3::UnitY;
-            materialData->SunIntensity = 1.0f;
-            materialData->SunColor = Float3::One;
-            materialData->SkyIntensity = 0.5f;
-            materialData->SkyColor = Float3(0.4f, 0.5f, 0.7f);
-            materialData->LocalLightCount = 0;
-            materialData->ShadowsBufferAddress = 0;
-            materialData->HasShadow = 0;
-        }
+        BindStylizedCloudLightingData(materialData, (StylizedCloudCustomData*)params.CustomData);
     }
 
     // Bind constants

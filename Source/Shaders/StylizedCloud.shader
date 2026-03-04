@@ -1,5 +1,3 @@
-// Copyright (c) Wojciech Figat. All rights reserved.
-
 #define NO_GBUFFER_SAMPLING
 
 #include "./Flax/Common.hlsl"
