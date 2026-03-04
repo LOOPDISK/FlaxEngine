@@ -219,6 +219,7 @@ namespace FlaxEditor.Surface.Archetypes
                     break;
                 }
                 case MaterialDomain.StylizedCloud:
+                case MaterialDomain.StylizedCloudParticle:
                 {
                     GetBox(MaterialNodeBoxes.Color).IsActive = true;
                     GetBox(MaterialNodeBoxes.Mask).IsActive = true;

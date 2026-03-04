@@ -256,6 +256,8 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
         break;
     case MaterialDomain::StylizedCloud:
         break;
+    case MaterialDomain::StylizedCloudParticle:
+        break;
     default:
         break;
     }
@@ -352,7 +354,7 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Refraction);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::SubsurfaceColor);
         }
-        else if (baseLayer->Domain == MaterialDomain::StylizedCloud)
+        else if (baseLayer->Domain == MaterialDomain::StylizedCloud || baseLayer->Domain == MaterialDomain::StylizedCloudParticle)
         {
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Color);
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Emissive);
@@ -528,6 +530,9 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             break;
         case MaterialDomain::StylizedCloud:
             srv = 0;
+            break;
+        case MaterialDomain::StylizedCloudParticle:
+            srv = 2; // Particles data + Sorted indices
             break;
         }
         for (auto f : features)
@@ -950,6 +955,9 @@ float3 hex2normalTexRWS(Texture2D tex, SamplerState samp, float2 st,
             break;
         case MaterialDomain::StylizedCloud:
             path /= TEXT("StylizedCloud.shader");
+            break;
+        case MaterialDomain::StylizedCloudParticle:
+            path /= TEXT("StylizedCloudParticle.shader");
             break;
         default:
             LOG(Warning, "Unknown material domain.");

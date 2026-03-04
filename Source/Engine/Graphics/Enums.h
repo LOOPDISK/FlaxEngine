@@ -938,6 +938,26 @@ API_ENUM() enum class ViewMode
     /// Draw HZB preview.
     /// </summary>
     HierarchialZBuffer = 27,
+
+    /// <summary>
+    /// Draw Stylized Cloud color buffer (after blur).
+    /// </summary>
+    StylizedCloudColor = 28,
+
+    /// <summary>
+    /// Draw Stylized Cloud alpha buffer (after blur) as grayscale.
+    /// </summary>
+    StylizedCloudAlpha = 29,
+
+    /// <summary>
+    /// Draw Stylized Cloud depth buffer (after blur) as grayscale.
+    /// </summary>
+    StylizedCloudDepth = 30,
+
+    /// <summary>
+    /// Draw Stylized Cloud final composite alpha (post all fades/rejects) as grayscale.
+    /// </summary>
+    StylizedCloudCompositeAlpha = 31,
 };
 
 /// <summary>

@@ -22,6 +22,7 @@
 #include "DeformableMaterialShader.h"
 #include "VolumeParticleMaterialShader.h"
 #include "StylizedCloudMaterialShader.h"
+#include "StylizedCloudParticleMaterialShader.h"
 
 GPU_CB_STRUCT(MaterialShaderDataPerView {
     Matrix ViewMatrix;
@@ -174,6 +175,9 @@ MaterialShader* MaterialShader::Create(const StringView& name, MemoryReadStream&
         break;
     case MaterialDomain::StylizedCloud:
         material = New<StylizedCloudMaterialShader>(name);
+        break;
+    case MaterialDomain::StylizedCloudParticle:
+        material = New<StylizedCloudParticleMaterialShader>(name);
         break;
     default:
         LOG(Error, "Unknown material type.");
