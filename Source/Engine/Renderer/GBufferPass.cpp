@@ -449,6 +449,33 @@ void GBufferPass::DrawDecals(RenderContext& renderContext, GPUTextureView* light
     // Sort decals from the lowest order to the highest order
     Sorting::QuickSort(decals.Get(), decals.Count(), &SortDecal);
 
+    // Copy GBuffer1 for normal-blending decals that need to read base surface normals
+    GPUTexture* gbuffer1Copy = nullptr;
+    {
+        bool hasNormalBlend = false;
+        for (int32 i = 0; i < decals.Count(); i++)
+        {
+            const MaterialInfo& info = decals.Get()[i].Material->GetInfo();
+            if (info.DecalBlendingMode == MaterialDecalBlendingMode::Normal ||
+                (info.DecalBlendingMode == MaterialDecalBlendingMode::Translucent && EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseNormal)))
+            {
+                hasNormalBlend = true;
+                break;
+            }
+        }
+        if (hasNormalBlend)
+        {
+            const auto desc = GPUTextureDescription::New2D(buffers->GBuffer1->Width(), buffers->GBuffer1->Height(), GBUFFER1_FORMAT);
+            gbuffer1Copy = RenderTargetPool::Get(desc);
+            if (gbuffer1Copy)
+            {
+                RENDER_TARGET_POOL_SET_NAME(gbuffer1Copy, "GBuffer1Copy.Decals");
+                context->CopyTexture(gbuffer1Copy, 0, 0, 0, 0, buffers->GBuffer1, 0);
+                context->BindSR(30, gbuffer1Copy);
+            }
+        }
+    }
+
     // Prepare
     DrawCall drawCall;
     MaterialBase::BindParameters bindParams(context, renderContext, drawCall);
@@ -467,7 +494,7 @@ void GBufferPass::DrawDecals(RenderContext& renderContext, GPUTextureView* light
 
         // Bind output (skip if won't change in-between decals)
         const MaterialInfo& info = decal.Material->GetInfo();
-        const MaterialUsageFlags infoUsageFlags = info.UsageFlags & (MaterialUsageFlags::UseEmissive | MaterialUsageFlags::UseNormal);
+        const MaterialUsageFlags infoUsageFlags = info.UsageFlags & (MaterialUsageFlags::UseEmissive | MaterialUsageFlags::UseNormal | MaterialUsageFlags::UseColor);
         if (decalBlendingMode != info.DecalBlendingMode || usageFlags != infoUsageFlags)
         {
             decalBlendingMode = info.DecalBlendingMode;
@@ -476,26 +503,24 @@ void GBufferPass::DrawDecals(RenderContext& renderContext, GPUTextureView* light
             {
             case MaterialDecalBlendingMode::Translucent:
             {
+                // Render targets bound sequentially matching shader outputs: [Color+PBR], [Emissive], [Normal]
                 GPUTextureView* targetBuffers[4];
-                int32 count = 2;
-                targetBuffers[0] = buffers->GBuffer0->View();
-                targetBuffers[1] = buffers->GBuffer2->View();
+                int32 count = 0;
+                if (EnumHasAnyFlags(usageFlags, MaterialUsageFlags::UseColor))
+                {
+                    targetBuffers[count++] = buffers->GBuffer0->View();
+                    targetBuffers[count++] = buffers->GBuffer2->View();
+                }
                 if (EnumHasAnyFlags(usageFlags, MaterialUsageFlags::UseEmissive))
                 {
-                    count++;
-                    targetBuffers[2] = lightBuffer;
-                    if (EnumHasAnyFlags(usageFlags, MaterialUsageFlags::UseNormal))
-                    {
-                        count++;
-                        targetBuffers[3] = buffers->GBuffer1->View();
-                    }
+                    targetBuffers[count++] = lightBuffer;
                 }
-                else if (EnumHasAnyFlags(usageFlags, MaterialUsageFlags::UseNormal))
+                if (EnumHasAnyFlags(usageFlags, MaterialUsageFlags::UseNormal))
                 {
-                    count++;
-                    targetBuffers[2] = buffers->GBuffer1->View();
+                    targetBuffers[count++] = buffers->GBuffer1->View();
                 }
-                context->SetRenderTarget(depthBuffer, ToSpan(targetBuffers, count));
+                if (count > 0)
+                    context->SetRenderTarget(depthBuffer, ToSpan(targetBuffers, count));
                 break;
             }
             case MaterialDecalBlendingMode::Stain:
@@ -525,4 +550,6 @@ void GBufferPass::DrawDecals(RenderContext& renderContext, GPUTextureView* light
     }
 
     context->ResetSR();
+    if (gbuffer1Copy)
+        RenderTargetPool::Release(gbuffer1Copy);
 }

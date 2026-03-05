@@ -23,6 +23,9 @@ uint RenderLayersMask;
 Texture2D DepthBuffer : register(t0);
 Texture2D<uint2> StencilBuffer : register(t1);
 
+// Pre-decal GBuffer1 copy for normal blending (bound by GBufferPass when normal-blend decals exist)
+Texture2D GBuffer1Copy : register(t30);
+
 // Material shader resources
 @2
 // Material properties generation input
@@ -192,15 +195,31 @@ void VS_Decal(in float3 Position : POSITION0, out float4 SvPosition : SV_Positio
 META_PS(true, FEATURE_LEVEL_ES2)
 void PS_Decal(
 	in float4 SvPosition : SV_Position
-	, out float4 Out0 : SV_Target0
 #if DECAL_BLEND_MODE == DECAL_BLEND_MODE_TRANSLUCENT
-	, out float4 Out1 : SV_Target1
-#if USE_NORMAL || USE_EMISSIVE
-	, out float4 Out2 : SV_Target2
+	// Translucent: outputs bound sequentially based on active features
+#if USE_COLOR
+	, out float4 OutColor : SV_Target0
+	, out float4 OutPBR : SV_Target1
+#if USE_EMISSIVE
+	, out float4 OutEmissive : SV_Target2
+#if USE_NORMAL
+	, out float4 OutNormal : SV_Target3
 #endif
-#if USE_NORMAL && USE_EMISSIVE
-	, out float4 Out3 : SV_Target3
+#elif USE_NORMAL
+	, out float4 OutNormal : SV_Target2
 #endif
+#else
+#if USE_EMISSIVE
+	, out float4 OutEmissive : SV_Target0
+#if USE_NORMAL
+	, out float4 OutNormal : SV_Target1
+#endif
+#elif USE_NORMAL
+	, out float4 OutNormal : SV_Target0
+#endif
+#endif
+#else
+	, out float4 Out0 : SV_Target0
 #endif
 	)
 {
@@ -247,25 +266,28 @@ void PS_Decal(
 
 	// Set the output
 #if DECAL_BLEND_MODE == DECAL_BLEND_MODE_TRANSLUCENT
-	// GBuffer0
-	Out0 = float4(material.Color, material.Opacity);
-	// GBuffer2
-	Out1 = float4(material.Roughness, material.Metalness, material.Specular, material.Opacity);
-#if USE_EMISSIVE
-	// Light Buffer
-	Out2 = float4(material.Emissive, material.Opacity);
-#if USE_NORMAL
-	// GBuffer1
-	Out3 = float4(material.WorldNormal * 0.5f + 0.5f, material.Opacity);
+#if USE_COLOR
+	OutColor = float4(material.Color, material.Opacity);
+	OutPBR = float4(material.Roughness, material.Metalness, material.Specular, material.Opacity);
 #endif
-#elif USE_NORMAL
-	// GBuffer1
-	Out2 = float4(material.WorldNormal * 0.5f + 0.5f, material.Opacity);
+#if USE_EMISSIVE
+	OutEmissive = float4(material.Emissive, material.Opacity);
+#endif
+#if USE_NORMAL
+	float3 baseNormalT = SAMPLE_RT(GBuffer1Copy, screenUV).xyz * 2.0f - 1.0f;
+	float3 decalDetailT = material.WorldNormal - materialInput.TBN[2];
+	float3 blendedNormalT = normalize(baseNormalT + decalDetailT);
+	OutNormal = float4(blendedNormalT * 0.5f + 0.5f, material.Opacity);
 #endif
 #elif DECAL_BLEND_MODE == DECAL_BLEND_MODE_STAIN
 	Out0 = float4(material.Color, material.Opacity);
 #elif DECAL_BLEND_MODE == DECAL_BLEND_MODE_NORMAL
-	Out0 = float4(material.WorldNormal * 0.5f + 0.5f, material.Opacity);
+	// Blend decal normal with base surface normal using partial derivative addition
+	float3 baseNormal = SAMPLE_RT(GBuffer1Copy, screenUV).xyz * 2.0f - 1.0f;
+	float3 decalGeomNormal = materialInput.TBN[2];
+	float3 decalDetail = material.WorldNormal - decalGeomNormal;
+	float3 blendedNormal = normalize(baseNormal + decalDetail);
+	Out0 = float4(blendedNormal * 0.5f + 0.5f, material.Opacity);
 #elif DECAL_BLEND_MODE == DECAL_BLEND_MODE_EMISSIVE
 	Out0 = float4(material.Emissive * material.Opacity, material.Opacity);
 #else

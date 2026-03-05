@@ -510,6 +510,7 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
     options.Macros.Add({ "DECAL_BLEND_MODE", Numbers[(int32)info.DecalBlendingMode] });
     options.Macros.Add({ "USE_EMISSIVE", Numbers[EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseEmissive) ? 1 : 0] });
     options.Macros.Add({ "USE_NORMAL", Numbers[EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseNormal) ? 1 : 0] });
+    options.Macros.Add({ "USE_COLOR", Numbers[EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseColor) ? 1 : 0] });
     options.Macros.Add({ "USE_POSITION_OFFSET", Numbers[EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UsePositionOffset) ? 1 : 0] });
     options.Macros.Add({ "USE_VERTEX_COLOR", Numbers[EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseVertexColor) ? 1 : 0] });
     options.Macros.Add({ "USE_DISPLACEMENT", Numbers[EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseDisplacement) ? 1 : 0] });
