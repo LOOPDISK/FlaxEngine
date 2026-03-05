@@ -354,6 +354,11 @@ API_ENUM(Attributes="Flags") enum class MaterialUsageFlags : uint32
     /// The flag used to indicate that material uses refraction feature.
     /// </summary>
     UseRefraction = 1 << 6,
+
+    /// <summary>
+    /// The material is using color/surface properties (Color, Roughness, Metalness, Specular, AO). Used by decals to skip writing to GBuffer0/GBuffer2 when not needed.
+    /// </summary>
+    UseColor = 1 << 7,
 };
 
 DECLARE_ENUM_OPERATORS(MaterialUsageFlags);
