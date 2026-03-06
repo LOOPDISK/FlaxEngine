@@ -33,12 +33,34 @@ API_CLASS(Abstract) class FLAXENGINE_API ModelInstanceActor : public Actor
 
 protected:
     int32 _sceneRenderingKey = -1; // Uses SceneRendering::DrawCategory::SceneDrawAsync
+    Array<bool> _meshVisibility;
 
 public:
     /// <summary>
     /// The model instance buffer.
     /// </summary>
     ModelInstanceEntries Entries;
+
+    /// <summary>
+    /// Sets the visibility of an individual mesh by index within the model LOD. Meshes default to visible if not explicitly set.
+    /// </summary>
+    /// <param name="meshIndex">The zero-based mesh index within the LOD.</param>
+    /// <param name="visible">True to make the mesh visible, false to hide it.</param>
+    API_FUNCTION() void SetMeshVisibility(int32 meshIndex, bool visible);
+
+    /// <summary>
+    /// Gets the visibility of an individual mesh by index. Returns true if not explicitly set.
+    /// </summary>
+    /// <param name="meshIndex">The zero-based mesh index within the LOD.</param>
+    /// <returns>True if the mesh is visible.</returns>
+    API_FUNCTION() bool GetMeshVisibility(int32 meshIndex) const;
+
+    /// <summary>
+    /// Sets visibility for all meshes at once. Initializes the per-mesh visibility array with the given value.
+    /// </summary>
+    /// <param name="visible">The visibility value to set for all meshes.</param>
+    /// <param name="meshCount">The total number of meshes.</param>
+    API_FUNCTION() void SetAllMeshVisibility(bool visible, int32 meshCount);
 
     /// <summary>
     /// Gets the model entries collection. Each entry contains data how to render meshes using this entry (transformation, material, shadows casting, etc.).

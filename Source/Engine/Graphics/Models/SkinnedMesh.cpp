@@ -311,6 +311,8 @@ bool SkinnedMesh::UpdateMesh(uint32 vertexCount, uint32 triangleCount, const Flo
 
 void SkinnedMesh::Draw(const RenderContext& renderContext, const DrawInfo& info, float lodDitherFactor) const
 {
+    if (info.MeshVisibility && _index < info.MeshVisibilityCount && !info.MeshVisibility[_index])
+        return;
     const auto& entry = info.Buffer->At(_materialSlotIndex);
     if (!entry.Visible || !IsInitialized())
         return;
@@ -324,7 +326,7 @@ void SkinnedMesh::Draw(const RenderContext& renderContext, const DrawInfo& info,
         material = slot.Material;
     else
         material = GPUDevice::Instance->GetDefaultMaterial();
-    if (!material || !material->IsSurface())
+    if (!material || !material->IsMeshMaterial())
         return;
 
     // Check if skip rendering
@@ -359,6 +361,8 @@ void SkinnedMesh::Draw(const RenderContext& renderContext, const DrawInfo& info,
 
 void SkinnedMesh::Draw(const RenderContextBatch& renderContextBatch, const DrawInfo& info, float lodDitherFactor) const
 {
+    if (info.MeshVisibility && _index < info.MeshVisibilityCount && !info.MeshVisibility[_index])
+        return;
     const auto& entry = info.Buffer->At(_materialSlotIndex);
     if (!entry.Visible || !IsInitialized())
         return;
@@ -372,7 +376,7 @@ void SkinnedMesh::Draw(const RenderContextBatch& renderContextBatch, const DrawI
         material = slot.Material;
     else
         material = GPUDevice::Instance->GetDefaultMaterial();
-    if (!material || !material->IsSurface())
+    if (!material || !material->IsMeshMaterial())
         return;
 
     // Setup draw call

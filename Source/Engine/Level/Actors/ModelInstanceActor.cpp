@@ -53,6 +53,39 @@ MaterialInstance* ModelInstanceActor::CreateAndSetVirtualMaterialInstance(int32 
     return result;
 }
 
+void ModelInstanceActor::SetMeshVisibility(int32 meshIndex, bool visible)
+{
+    if (meshIndex < 0)
+        return;
+    if (meshIndex >= _meshVisibility.Count())
+    {
+        const int32 oldCount = _meshVisibility.Count();
+        _meshVisibility.Resize(meshIndex + 1);
+        for (int32 i = oldCount; i < _meshVisibility.Count(); i++)
+            _meshVisibility[i] = true;
+    }
+    _meshVisibility[meshIndex] = visible;
+}
+
+bool ModelInstanceActor::GetMeshVisibility(int32 meshIndex) const
+{
+    if (meshIndex < 0 || meshIndex >= _meshVisibility.Count())
+        return true;
+    return _meshVisibility[meshIndex];
+}
+
+void ModelInstanceActor::SetAllMeshVisibility(bool visible, int32 meshCount)
+{
+    if (meshCount <= 0)
+    {
+        _meshVisibility.Clear();
+        return;
+    }
+    _meshVisibility.Resize(meshCount);
+    for (int32 i = 0; i < meshCount; i++)
+        _meshVisibility[i] = visible;
+}
+
 void ModelInstanceActor::WaitForModelLoad()
 {
 }
