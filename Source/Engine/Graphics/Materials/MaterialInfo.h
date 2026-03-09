@@ -52,12 +52,12 @@ API_ENUM() enum class MaterialDomain : byte
     /// <summary>
     /// The stylized cloud shader. Used for mesh-based stylized cloud rendering that routes geometry through a dedicated cloud render pass with custom lighting and blur/composite post-processing.
     /// </summary>
-    StylizedCloud = 8,
+    StylizedCloud = 50,
 
     /// <summary>
     /// The stylized cloud particle shader. Used for particle model instancing that routes draw calls through the StylizedCloud render pass with custom lighting and blur/composite post-processing.
     /// </summary>
-    StylizedCloudParticle = 9,
+    StylizedCloudParticle = 51,
 
     API_ENUM(Attributes="HideInEditor")
     MAX

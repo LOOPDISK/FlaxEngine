@@ -766,12 +766,12 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     /// <summary>
     /// The weapon-only depth rendering to the depth buffer (used for weapon self-shadowing with FOV override). Objects in this pass don't cast shadows on the world.
     /// </summary>
-    WeaponDepth = 1 << 7,
+    WeaponDepth = 1 << 14,
 
     /// <summary>
     /// The stylized cloud pre-pass rendering. Meshes with StylizedCloud material domain are drawn into a dedicated cloud buffer for blur and composite.
     /// </summary>
-    StylizedCloud = 1 << 8,
+    StylizedCloud = 1 << 15,
 
     /// <summary>
     /// The debug quad overdraw rendering (editor-only).
