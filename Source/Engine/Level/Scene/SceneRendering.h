@@ -196,14 +196,19 @@ private:
     Array<BoundingFrustum> _drawFrustumsData;
     DrawActor* _drawListData;
     int64 _drawListSize;
+    Float3 _mainViewPosition;
+    float _shadowCullDistance2;
+    float _shadowCullRadius;
     volatile int64 _drawListIndex;
     RenderContextBatch* _drawBatch;
     DrawCategory _drawCategory;
+    HZBData* _hzb = nullptr;
+    bool _checkHZB = true;
     int _lastHZBId = -1;
     int _lastHZBFrame = -1;
 
     void DrawActorsJob(int32);
 
-    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum, HZBData* occluders, bool skipOcclusion);
-    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, HZBData* occluders, bool skipOcclusion);
+    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum);
+    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums);
 };

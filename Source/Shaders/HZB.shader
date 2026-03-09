@@ -2,7 +2,7 @@
 
 META_CB_BEGIN(0, HZBData)
 float2 Dimensions;
-float2 PrevDimensions;
+float2 DepthDimensions;
 int Level;
 int Offset;
 int PrevOffset;
@@ -31,19 +31,19 @@ float4 PS_HZB(Quad_VS2PS input) : SV_Target
 
    if (Level == 0) // first level just samples depth texture
    {
-        float2 texel = 1.0 / (Dimensions * 2);
-        float bl = DepthTexture.SampleLevel(SamplerPointClamp, uv, 0).r;
-        float tl = DepthTexture.SampleLevel(SamplerPointClamp, uv + float2(0, 1) * texel, 0).r;
-        float br = DepthTexture.SampleLevel(SamplerPointClamp, uv + float2(1, 0) * texel, 0).r;
-        float tr = DepthTexture.SampleLevel(SamplerPointClamp, uv + float2(1, 1) * texel, 0).r;
+        int3 srcPos = int3((uv.x * DepthDimensions.x), (uv.y * DepthDimensions.y), 0); 
+        float tl = DepthTexture.Load(srcPos + int3(0, 0, 0)).r;
+        float bl = DepthTexture.Load(srcPos + int3(0, 1, 0)).r;
+        float tr = DepthTexture.Load(srcPos + int3(1, 0, 0)).r;
+        float br = DepthTexture.Load(srcPos + int3(1, 1, 0)).r;
         float depth = max(bl, max(tl, max(br, tr)));
         HZBTexture[coords] = depth;
         return depth;
    }
    else // other levels sample from the previous level
    {
-        int2 coordsIn = int2((uv.x * PrevDimensions.x) + PrevOffset, (uv.y * PrevDimensions.y));
-        int2 coordsOut = int2((uv.x * Dimensions.x) + Offset, (uv.y * Dimensions.y)); 
+        int2 coordsIn = coords * 2 + int2(PrevOffset, 0);
+        int2 coordsOut = coords + int2(Offset, 0);
 
         float bl = HZBTexture[coordsIn + int2(0, 0)];
         float tl = HZBTexture[coordsIn + int2(0, 1)];
@@ -52,8 +52,8 @@ float4 PS_HZB(Quad_VS2PS input) : SV_Target
         float depth = max(bl, max(tl, max(br, tr)));
 
         // odd dimensions need extra pixels on the last line
-        bool oddX = (int)(Dimensions.x + 1) % 2 == 1;
-        bool oddY = (int)(Dimensions.y + 1) % 2 == 1;
+        bool oddX = (int)(Dimensions.x) % 2 == 1;
+        bool oddY = (int)(Dimensions.y) % 2 == 1;
         if (oddX && coords.x == Dimensions.x - 1)
         {
             float x1 = HZBTexture[coordsIn + int2(2, 0)];

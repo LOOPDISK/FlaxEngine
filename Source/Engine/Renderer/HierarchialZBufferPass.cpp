@@ -28,7 +28,7 @@
 #include "Engine/Input/Input.h"
 
 #define HZB_FORMAT PixelFormat::R32_Float
-#define HZB_BOUNDS_BIAS 10.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
+#define HZB_BOUNDS_BIAS 1.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
 
 /// <summary>
 /// Custom task called after downloading HZB texture data to save it.
@@ -154,7 +154,7 @@ HZBData* HierarchialZBufferPass::GetOrCreateInfo(RenderContext& renderContext)
 
 GPU_CB_STRUCT(HZBShaderData{
     Float2 Dimensions;
-    Float2 PrevDimensions;
+    Float2 DepthDimensions;
     int Level;
     int Offset;
     int PrevOffset;
@@ -267,7 +267,6 @@ void HierarchialZBufferPass::RenderDebug(RenderContext& renderContext, GPUContex
 void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderContext)
 {
     if (!Graphics::OcclusionCulling) return;
-
     // Skip if not supported
     if (checkIfSkipPass())
         return;
@@ -327,24 +326,23 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
     }
     info->_resolution = resolution;
 
-
-    // Draw depth
-    PROFILE_GPU("HZB depth");
-    StaticFlags oldMask = renderContext.View.StaticFlagsMask;
-    StaticFlags oldCompare = renderContext.View.StaticFlagsCompare;
-    renderContext.Task->View.StaticFlagsMask = StaticFlags::Occluder;
-    renderContext.Task->View.StaticFlagsCompare = StaticFlags::Occluder;
-    context->ClearDepth(info->_depthTexture->View());
-    Renderer::DrawSceneDepth(context, renderContext.Task, info->_depthTexture, _emptyArray);
-    context->ClearState();
-    renderContext.Task->View.StaticFlagsMask = oldMask;
-    renderContext.Task->View.StaticFlagsCompare = oldCompare;
+    //// Draw depth
+    //PROFILE_GPU("HZB depth");
+    //StaticFlags oldMask = renderContext.View.StaticFlagsMask;
+    //StaticFlags oldCompare = renderContext.View.StaticFlagsCompare;
+    //renderContext.Task->View.StaticFlagsMask = StaticFlags::Occluder;
+    //renderContext.Task->View.StaticFlagsCompare = StaticFlags::Occluder;
+    //context->ClearDepth(info->_depthTexture->View());
+    //Renderer::DrawSceneDepth(context, renderContext.Task, info->_depthTexture, _emptyArray);
+    //context->ClearState();
+    //renderContext.Task->View.StaticFlagsMask = oldMask;
+    //renderContext.Task->View.StaticFlagsCompare = oldCompare;
 
     // Render hierarchy
+    Float2 depthDimensions = renderContext.Buffers->DepthBuffer->Size();
+    int prevHeight = renderContext.Buffers->DepthBuffer->Height();
     int currWidth = sizeX / 2;
     int currHeight = sizeY / 2;
-    int prevWidth = currWidth;
-    int prevHeight = currHeight;
     int offset = 0;
     int prevOffset = 0;
     context->Clear(info->_hzbTexture->View(), Color::White);
@@ -354,14 +352,14 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
 
         HZBShaderData data;
         data.Dimensions = Float2((float)currWidth, (float)currHeight);
-        data.PrevDimensions = Float2((float)prevWidth, (float)prevHeight);
+        data.DepthDimensions = depthDimensions;
         data.Level = i;
         data.Offset = offset;
         data.PrevOffset = prevOffset;
 
         context->UpdateCB(_cb, &data);
         context->BindCB(0, _cb);
-        context->BindSR(0, info->_depthTexture);
+        context->BindSR(0, renderContext.Buffers->DepthBuffer);//info->_depthTexture);
         context->BindUA(1, info->_hzbTexture->View());
         context->SetState(_psHZB);
         context->DrawFullscreenTriangle();
@@ -369,8 +367,6 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
         context->ClearState();
         prevOffset = offset;
         offset += currWidth;
-        prevWidth = currWidth;
-        prevHeight = currHeight;
         currWidth = Math::Max(1, currWidth / 2);
         currHeight = Math::Max(1, currHeight / 2);
     }
@@ -510,6 +506,7 @@ void HZBData::CompleteDownload(int index)
 
     // increase this to reduce pop in, at the expense of less occlusion
     float radiusLength = HZB_BOUNDS_BIAS + Float2::Distance(Float2(centerProj.X, centerProj.Y), Float2(radiusProj.X, radiusProj.Y));
+
     // all the halving is because the buffer is already 50% of the full screen, and level 0 is half of that. The other levels are stacked horizontally to the right of it
     centerProj *= 0.5f;
     radiusLength *= 0.5f;
@@ -518,13 +515,14 @@ void HZBData::CompleteDownload(int index)
         return false;
     }
     targetDistance = closestProj.Z;
-    int level = Math::Max(0.0f, Math::Log2(radiusLength * 2.0f) - 1.0f - 2);
 
     int offset = 0; // horizontal offset for finding the other levels
     int width = (int)(activeFrame->TextureData.Width * 0.5f);
     int height = (int)(activeFrame->TextureData.Height * 0.5f);
     centerProj *= 0.5f;
     radiusLength *= 0.5f;
+
+    int level = Math::Max(0.0f, Math::Log2(radiusLength * 2.0f) - 1.0f - 2);
 
     // set calculations to appropriate level, which are stacked horizontally on the top right
     for (int i = 0; i < level; i++)
@@ -534,7 +532,7 @@ void HZBData::CompleteDownload(int index)
         height = Math::Max(1, height / 2);
         radiusLength *= 0.5f;
         centerProj *= 0.5f;
-        if ((int)(width * 0.5f) <= 1 || (int)(height * 0.5f) <= 1)
+        if (width <= 2 || height <= 2)
         { // break early if next iteration will be too small
             level = i;
             break;
