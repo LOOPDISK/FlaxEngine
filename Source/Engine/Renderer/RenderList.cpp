@@ -650,6 +650,10 @@ void RenderList::AddDrawCall(const RenderContext& renderContext, DrawPass drawMo
     {
         DrawCallsLists[(int32)DrawCallsListType::MotionVectors].Indices.Add(index);
     }
+    if ((drawModes & DrawPass::StylizedCloud) != DrawPass::None)
+    {
+        DrawCallsLists[(int32)DrawCallsListType::StylizedCloud].Indices.Add(index);
+    }
 }
 
 void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawPass drawModes, StaticFlags staticFlags, ShadowsCastingMode shadowsMode, const BoundingSphere& bounds, DrawCall& drawCall, bool receivesDecals, int8 sortOrder)
@@ -695,6 +699,10 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
         if ((drawModes & DrawPass::MotionVectors) != DrawPass::None && (staticFlags & StaticFlags::Transform) == StaticFlags::None)
         {
             DrawCallsLists[(int32)DrawCallsListType::MotionVectors].Indices.Add(index);
+        }
+        if ((drawModes & DrawPass::StylizedCloud) != DrawPass::None)
+        {
+            DrawCallsLists[(int32)DrawCallsListType::StylizedCloud].Indices.Add(index);
         }
     }
     float minObjectPixelSizeSq = Math::Square(Graphics::Shadows::MinObjectPixelSize);

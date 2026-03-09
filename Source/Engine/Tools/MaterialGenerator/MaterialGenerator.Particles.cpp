@@ -91,7 +91,7 @@ MaterialValue MaterialGenerator::AccessParticleAttribute(Node* caller, const Str
 void MaterialGenerator::ProcessGroupParticles(Box* box, Node* node, Value& value)
 {
     // Only particle shaders can access particles data
-    if (GetRootLayer()->Domain != MaterialDomain::Particle && GetRootLayer()->Domain != MaterialDomain::VolumeParticle)
+    if (GetRootLayer()->Domain != MaterialDomain::Particle && GetRootLayer()->Domain != MaterialDomain::VolumeParticle && GetRootLayer()->Domain != MaterialDomain::StylizedCloudParticle)
     {
         value = MaterialValue::Zero;
         return;

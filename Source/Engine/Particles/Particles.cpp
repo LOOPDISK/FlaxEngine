@@ -1242,7 +1242,7 @@ void Particles::DrawParticles(RenderContextBatch& renderContextBatch, ParticleEf
                 const auto material = (MaterialBase*)module->Assets[1].Get();
                 if (!material ||
                     !material->IsReady() ||
-                    !material->IsParticle() ||
+                    !(material->IsParticle() || material->GetInfo().Domain == MaterialDomain::StylizedCloudParticle) ||
                     (viewsDrawModes & material->GetDrawModes() & moduleDrawModes) == DrawPass::None
                 )
                     break;
