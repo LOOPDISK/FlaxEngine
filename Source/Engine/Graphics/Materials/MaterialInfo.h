@@ -348,7 +348,7 @@ API_ENUM(Attributes="Flags") enum class MaterialUsageFlags : uint32
     /// <summary>
     /// The material is using color/surface properties (Color, Roughness, Metalness, Specular, AO). Used by decals to skip writing to GBuffer0/GBuffer2 when not needed.
     /// </summary>
-    UseColor = 1 << 7,
+    UseColor = 1 << 16,
 };
 
 DECLARE_ENUM_OPERATORS(MaterialUsageFlags);
