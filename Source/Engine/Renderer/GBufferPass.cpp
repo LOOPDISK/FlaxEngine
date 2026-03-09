@@ -449,10 +449,12 @@ void GBufferPass::DrawDecals(RenderContext& renderContext, GPUTextureView* light
     // Sort decals from the lowest order to the highest order
     Sorting::QuickSort(decals.Get(), decals.Count(), &SortDecal);
 
-    // Copy GBuffer1 for normal-blending decals that need to read base surface normals
+    // Copy GBuffers for decals that need to read base surface data
+    GPUTexture* gbuffer0Copy = nullptr;
     GPUTexture* gbuffer1Copy = nullptr;
     {
         bool hasNormalBlend = false;
+        bool hasColorBlend = false;
         for (int32 i = 0; i < decals.Count(); i++)
         {
             const MaterialInfo& info = decals.Get()[i].Material->GetInfo();
@@ -460,7 +462,21 @@ void GBufferPass::DrawDecals(RenderContext& renderContext, GPUTextureView* light
                 (info.DecalBlendingMode == MaterialDecalBlendingMode::Translucent && EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseNormal)))
             {
                 hasNormalBlend = true;
-                break;
+            }
+            if (info.DecalBlendingMode == MaterialDecalBlendingMode::Translucent && EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseColor))
+            {
+                hasColorBlend = true;
+            }
+        }
+        if (hasColorBlend)
+        {
+            const auto desc = GPUTextureDescription::New2D(buffers->GBuffer0->Width(), buffers->GBuffer0->Height(), GBUFFER0_FORMAT);
+            gbuffer0Copy = RenderTargetPool::Get(desc);
+            if (gbuffer0Copy)
+            {
+                RENDER_TARGET_POOL_SET_NAME(gbuffer0Copy, "GBuffer0Copy.Decals");
+                context->CopyTexture(gbuffer0Copy, 0, 0, 0, 0, buffers->GBuffer0, 0);
+                context->BindSR(29, gbuffer0Copy);
             }
         }
         if (hasNormalBlend)
@@ -550,6 +566,8 @@ void GBufferPass::DrawDecals(RenderContext& renderContext, GPUTextureView* light
     }
 
     context->ResetSR();
+    if (gbuffer0Copy)
+        RenderTargetPool::Release(gbuffer0Copy);
     if (gbuffer1Copy)
         RenderTargetPool::Release(gbuffer1Copy);
 }

@@ -23,7 +23,8 @@ uint RenderLayersMask;
 Texture2D DepthBuffer : register(t0);
 Texture2D<uint2> StencilBuffer : register(t1);
 
-// Pre-decal GBuffer1 copy for normal blending (bound by GBufferPass when normal-blend decals exist)
+// Pre-decal GBuffer copies for decals that need to read base surface data
+Texture2D GBuffer0Copy : register(t29);
 Texture2D GBuffer1Copy : register(t30);
 
 // Material shader resources
@@ -267,7 +268,8 @@ void PS_Decal(
 	// Set the output
 #if DECAL_BLEND_MODE == DECAL_BLEND_MODE_TRANSLUCENT
 #if USE_COLOR
-	OutColor = float4(material.Color, material.Opacity);
+	float3 baseColor = SAMPLE_RT(GBuffer0Copy, screenUV).rgb;
+	OutColor = float4(baseColor * material.Color, material.Opacity);
 	OutPBR = float4(material.Roughness, material.Metalness, material.Specular, material.Opacity);
 #endif
 #if USE_EMISSIVE
