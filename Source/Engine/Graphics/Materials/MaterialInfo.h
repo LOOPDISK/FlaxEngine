@@ -49,6 +49,16 @@ API_ENUM() enum class MaterialDomain : byte
     /// </summary>
     VolumeParticle = 7,
 
+    /// <summary>
+    /// The stylized cloud shader. Used for mesh-based stylized cloud rendering that routes geometry through a dedicated cloud render pass with custom lighting and blur/composite post-processing.
+    /// </summary>
+    StylizedCloud = 50,
+
+    /// <summary>
+    /// The stylized cloud particle shader. Used for particle model instancing that routes draw calls through the StylizedCloud render pass with custom lighting and blur/composite post-processing.
+    /// </summary>
+    StylizedCloudParticle = 51,
+
     API_ENUM(Attributes="HideInEditor")
     MAX
 };
@@ -344,6 +354,11 @@ API_ENUM(Attributes="Flags") enum class MaterialUsageFlags : uint32
     /// The flag used to indicate that material uses refraction feature.
     /// </summary>
     UseRefraction = 1 << 6,
+
+    /// <summary>
+    /// The material is using color/surface properties (Color, Roughness, Metalness, Specular, AO). Used by decals to skip writing to GBuffer0/GBuffer2 when not needed.
+    /// </summary>
+    UseColor = 1 << 16,
 };
 
 DECLARE_ENUM_OPERATORS(MaterialUsageFlags);

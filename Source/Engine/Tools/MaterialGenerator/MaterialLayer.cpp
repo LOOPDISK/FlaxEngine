@@ -128,6 +128,7 @@ void MaterialLayer::UpdateFeaturesFlags()
     CHECK_BOX_AS_FEATURE(PositionOffset, UsePositionOffset);
     CHECK_BOX_AS_FEATURE(WorldDisplacement, UseDisplacement);
     CHECK_BOX_AS_FEATURE(Refraction, UseRefraction);
+    CHECK_BOX_AS_FEATURE(Color, UseColor);
 #undef CHECK_BOX_AS_FEATURE
 }
 

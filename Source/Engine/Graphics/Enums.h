@@ -766,7 +766,12 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     /// <summary>
     /// The weapon-only depth rendering to the depth buffer (used for weapon self-shadowing with FOV override). Objects in this pass don't cast shadows on the world.
     /// </summary>
-    WeaponDepth = 1 << 7,
+    WeaponDepth = 1 << 14,
+
+    /// <summary>
+    /// The stylized cloud pre-pass rendering. Meshes with StylizedCloud material domain are drawn into a dedicated cloud buffer for blur and composite.
+    /// </summary>
+    StylizedCloud = 1 << 15,
 
     /// <summary>
     /// The debug quad overdraw rendering (editor-only).
@@ -777,15 +782,16 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     /// <summary>
     /// The default set of draw passes for the scene objects.
     /// </summary>
-    API_ENUM(Attributes="HideInEditor")
-    Default = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | WeaponDepth,
+    API_ENUM(Attributes = "HideInEditor")
+    Default = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | WeaponDepth | StylizedCloud,
 
     /// <summary>
     /// The all draw passes combined into a single mask.
     /// </summary>
-    API_ENUM(Attributes="HideInEditor")
-    All = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas,
+    API_ENUM(Attributes = "HideInEditor")
+    All = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | StylizedCloud,
 };
+
 
 DECLARE_ENUM_OPERATORS(DrawPass);
 
@@ -933,6 +939,7 @@ API_ENUM() enum class ViewMode
     /// Draw HZB preview.
     /// </summary>
     HierarchialZBuffer = 27,
+
 };
 
 /// <summary>

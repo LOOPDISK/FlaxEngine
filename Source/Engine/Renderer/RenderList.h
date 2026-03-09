@@ -212,6 +212,11 @@ API_ENUM() enum class DrawCallsListType
     /// </summary>
     MotionVectors,
 
+    /// <summary>
+    /// Stylized cloud pre-pass rendering.
+    /// </summary>
+    StylizedCloud,
+
     MAX,
 };
 

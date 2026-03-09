@@ -31,14 +31,37 @@ API_CLASS(Abstract) class FLAXENGINE_API ModelInstanceActor : public Actor
         String ToString() const;
     };
 
+    /// <summary>
+    /// Value for ForcedVisibleMesh: no filtering, all meshes draw normally (default).
+    /// </summary>
+    static constexpr int32 ShowAllMeshes = -1;
+
+    /// <summary>
+    /// Value for ForcedVisibleMesh: all meshes are hidden.
+    /// </summary>
+    static constexpr int32 HideAllMeshes = -2;
+
 protected:
     int32 _sceneRenderingKey = -1; // Uses SceneRendering::DrawCategory::SceneDrawAsync
+    int32 _forcedVisibleMesh = ShowAllMeshes;
 
 public:
     /// <summary>
     /// The model instance buffer.
     /// </summary>
     ModelInstanceEntries Entries;
+
+    /// <summary>
+    /// Sets which mesh is visible by index. Use ShowAllMeshes (-1) to show all meshes (default), HideAllMeshes (-2) to hide all, or >= 0 to show only that mesh.
+    /// </summary>
+    /// <param name="meshIndex">The mesh index to show, ShowAllMeshes, or HideAllMeshes.</param>
+    API_FUNCTION() void SetForcedVisibleMesh(int32 meshIndex);
+
+    /// <summary>
+    /// Gets the current forced visible mesh index. ShowAllMeshes (-1) means no filtering, HideAllMeshes (-2) means all hidden, >= 0 means only that mesh.
+    /// </summary>
+    /// <returns>The forced visible mesh index.</returns>
+    API_FUNCTION() int32 GetForcedVisibleMesh() const;
 
     /// <summary>
     /// Gets the model entries collection. Each entry contains data how to render meshes using this entry (transformation, material, shadows casting, etc.).
