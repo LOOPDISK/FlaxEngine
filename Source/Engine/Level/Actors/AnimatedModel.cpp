@@ -1106,6 +1106,7 @@ void AnimatedModel::Draw(RenderContext& renderContext)
         draw.LODBias = LODBias;
         draw.ForcedLOD = ForcedLOD;
         draw.SortOrder = SortOrder;
+        draw.ForcedVisibleMesh = _forcedVisibleMesh;
         draw.SetStencilValue(_layer);
 
         SkinnedModel->Draw(renderContext, draw);
@@ -1147,6 +1148,7 @@ void AnimatedModel::Draw(RenderContextBatch& renderContextBatch)
         draw.LODBias = LODBias;
         draw.ForcedLOD = ForcedLOD;
         draw.SortOrder = SortOrder;
+        draw.ForcedVisibleMesh = _forcedVisibleMesh;
         draw.SetStencilValue(_layer);
 
         PRAGMA_DISABLE_DEPRECATION_WARNINGS

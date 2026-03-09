@@ -22,6 +22,7 @@
 #include "ColorGradingPass.h"
 #include "MotionBlurPass.h"
 #include "VolumetricFogPass.h"
+#include "StylizedCloudPass.h"
 #include "HistogramPass.h"
 #include "AtmospherePreCompute.h"
 #include "ContrastAdaptiveSharpeningPass.h"
@@ -85,6 +86,7 @@ bool RendererService::Init()
     PassList.Add(DepthOfFieldPass::Instance());
     PassList.Add(ColorGradingPass::Instance());
     PassList.Add(VolumetricFogPass::Instance());
+    PassList.Add(StylizedCloudPass::Instance());
     PassList.Add(EyeAdaptationPass::Instance());
     PassList.Add(PostProcessingPass::Instance());
     PassList.Add(MotionBlurPass::Instance());
@@ -492,7 +494,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
     {
         PROFILE_CPU_NAMED("Collect Draw Calls");
 
-        view.Pass = DrawPass::GBuffer | DrawPass::Forward | DrawPass::Distortion;
+        view.Pass = DrawPass::GBuffer | DrawPass::Forward | DrawPass::Distortion | DrawPass::StylizedCloud;
         if (setup.UseMotionVectors)
             view.Pass |= DrawPass::MotionVectors;
         renderContextBatch.GetMainContext() = renderContext; // Sync render context in batch with the current value
@@ -781,6 +783,8 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         Swap(lightBuffer, tempBuffer);
         RenderTargetPool::Release(tempBuffer);
     }
+
+    StylizedCloudPass::Instance()->Render(renderContext, lightBuffer);
 
     // Run forward pass
     ForwardPass::Instance()->Render(renderContext, lightBuffer, frameBuffer);

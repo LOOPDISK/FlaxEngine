@@ -254,6 +254,10 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
         if (materialInfo.BlendMode != MaterialBlendMode::Opaque)
             ADD_FEATURE(ForwardShadingFeature);
         break;
+    case MaterialDomain::StylizedCloud:
+        break;
+    case MaterialDomain::StylizedCloudParticle:
+        break;
     default:
         break;
     }
@@ -341,6 +345,21 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Opacity);
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Mask);
             eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Color);
+
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Normal);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Metalness);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Specular);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::AmbientOcclusion);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Roughness);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Refraction);
+            eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::SubsurfaceColor);
+        }
+        else if (baseLayer->Domain == MaterialDomain::StylizedCloud || baseLayer->Domain == MaterialDomain::StylizedCloudParticle)
+        {
+            eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Color);
+            eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Emissive);
+            eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Opacity);
+            eatMaterialGraphBox(baseLayer, MaterialGraphBoxes::Mask);
 
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Normal);
             eatMaterialGraphBoxWithDefault(baseLayer, MaterialGraphBoxes::Metalness);
@@ -508,6 +527,12 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
             break;
         case MaterialDomain::VolumeParticle:
             srv = 1; // Particles data
+            break;
+        case MaterialDomain::StylizedCloud:
+            srv = 0;
+            break;
+        case MaterialDomain::StylizedCloudParticle:
+            srv = 2; // Particles data + Sorted indices
             break;
         }
         for (auto f : features)
@@ -927,6 +952,12 @@ float3 hex2normalTexRWS(Texture2D tex, SamplerState samp, float2 st,
             break;
         case MaterialDomain::VolumeParticle:
             path /= TEXT("VolumeParticle.shader");
+            break;
+        case MaterialDomain::StylizedCloud:
+            path /= TEXT("StylizedCloud.shader");
+            break;
+        case MaterialDomain::StylizedCloudParticle:
+            path /= TEXT("StylizedCloudParticle.shader");
             break;
         default:
             LOG(Warning, "Unknown material domain.");
