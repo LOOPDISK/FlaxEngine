@@ -326,6 +326,7 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
     }
     info->_resolution = resolution;
 
+    // custom depth drawing instead of using existing depth
     //// Draw depth
     //PROFILE_GPU("HZB depth");
     //StaticFlags oldMask = renderContext.View.StaticFlagsMask;
