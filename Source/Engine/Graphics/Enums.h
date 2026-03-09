@@ -782,15 +782,16 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     /// <summary>
     /// The default set of draw passes for the scene objects.
     /// </summary>
-    API_ENUM(Attributes="HideInEditor")
-    Default = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas,
+    API_ENUM(Attributes = "HideInEditor")
+    Default = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | WeaponDepth | StylizedCloud,
 
     /// <summary>
     /// The all draw passes combined into a single mask.
     /// </summary>
-    API_ENUM(Attributes="HideInEditor")
-    All = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | WeaponDepth | StylizedCloud,
+    API_ENUM(Attributes = "HideInEditor")
+    All = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | StylizedCloud,
 };
+
 
 DECLARE_ENUM_OPERATORS(DrawPass);
 
