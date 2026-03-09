@@ -53,6 +53,16 @@ MaterialInstance* ModelInstanceActor::CreateAndSetVirtualMaterialInstance(int32 
     return result;
 }
 
+void ModelInstanceActor::SetForcedVisibleMesh(int32 meshIndex)
+{
+    _forcedVisibleMesh = meshIndex;
+}
+
+int32 ModelInstanceActor::GetForcedVisibleMesh() const
+{
+    return _forcedVisibleMesh;
+}
+
 void ModelInstanceActor::WaitForModelLoad()
 {
 }

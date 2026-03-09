@@ -218,6 +218,25 @@ namespace FlaxEditor.Surface.Archetypes
                     GetBox(MaterialNodeBoxes.SubsurfaceColor).IsActive = false;
                     break;
                 }
+                case MaterialDomain.StylizedCloud:
+                case MaterialDomain.StylizedCloudParticle:
+                {
+                    GetBox(MaterialNodeBoxes.Color).IsActive = true;
+                    GetBox(MaterialNodeBoxes.Mask).IsActive = true;
+                    GetBox(MaterialNodeBoxes.Emissive).IsActive = true;
+                    GetBox(MaterialNodeBoxes.Metalness).IsActive = false;
+                    GetBox(MaterialNodeBoxes.Specular).IsActive = false;
+                    GetBox(MaterialNodeBoxes.Roughness).IsActive = false;
+                    GetBox(MaterialNodeBoxes.AmbientOcclusion).IsActive = false;
+                    GetBox(MaterialNodeBoxes.Normal).IsActive = false;
+                    GetBox(MaterialNodeBoxes.Opacity).IsActive = true;
+                    GetBox(MaterialNodeBoxes.Refraction).IsActive = false;
+                    GetBox(MaterialNodeBoxes.PositionOffset).IsActive = true;
+                    GetBox(MaterialNodeBoxes.TessellationMultiplier).IsActive = false;
+                    GetBox(MaterialNodeBoxes.WorldDisplacement).IsActive = false;
+                    GetBox(MaterialNodeBoxes.SubsurfaceColor).IsActive = false;
+                    break;
+                }
                 default: throw new ArgumentOutOfRangeException();
                 }
             }

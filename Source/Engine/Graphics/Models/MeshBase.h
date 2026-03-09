@@ -424,6 +424,11 @@ public:
         /// </summary>
         int8 SortOrder;
 
+        /// <summary>
+        /// Controls per-mesh visibility filtering. -1 = all meshes visible (default), -2 = all meshes hidden, >= 0 = only this mesh index is visible.
+        /// </summary>
+        int32 ForcedVisibleMesh = -1;
+
 #if USE_EDITOR
         float LightmapScale = -1.0f;
 #endif

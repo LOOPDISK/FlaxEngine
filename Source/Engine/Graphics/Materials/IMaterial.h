@@ -43,6 +43,15 @@ public:
     }
 
     /// <summary>
+    /// Determines whether material can be used for mesh rendering (surface or stylized cloud domain).
+    /// </summary>
+    FORCE_INLINE bool IsMeshMaterial() const
+    {
+        auto d = GetInfo().Domain;
+        return d == MaterialDomain::Surface || d == MaterialDomain::StylizedCloud;
+    }
+
+    /// <summary>
     /// Determines whether material is a post fx.
     /// </summary>
     FORCE_INLINE bool IsPostFx() const
