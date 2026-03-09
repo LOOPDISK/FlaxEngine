@@ -97,6 +97,16 @@ public:
 
         // The minimum size in pixels of objects to cast shadows. Improves performance by skipping too small objects (eg. sub-pixel) from rendering into shadow maps.
         API_FIELD() static float MinObjectPixelSize;
+
+        /// <summary>
+        /// Shadow casters with bounds smaller than this size don't cast shadows when it's ShadowCullingDistance away.
+        /// </summary>
+        API_FIELD() static float CullingSize;
+
+        /// <summary>
+        /// Shadow casters further than this distance don't cast shadows if their bound size is smaller than ShadowCullingSize.
+        /// </summary>
+        API_FIELD() static float CullingDistance;
     };
 
     // Post Processing effects rendering configuration.

@@ -15,6 +15,7 @@
 #if !BUILD_RELEASE
 #include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Core/Log.h"
+#include "Engine/Debug/DebugDraw.h"
 #endif
 
 #if BUILD_RELEASE
@@ -27,6 +28,7 @@
         return; \
     }
 #endif
+
 
 ISceneRenderingListener::~ISceneRenderingListener()
 {
@@ -44,31 +46,56 @@ void ISceneRenderingListener::ListenSceneRendering(SceneRendering* scene)
         scene->_listeners.Add(this);
     }
 }
+ FORCE_INLINE bool MainFrustumCull(const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums)
+{
+    const int32 count = frustums.Count();
+    if (count == 0)
+    {
+        return false;
+    }
+    const BoundingFrustum* data = frustums.Get();
+    return data[0].Intersects(bounds); // main frustum is always 0
+}
 
-FORCE_INLINE bool FrustumsListCull(const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums)
+FORCE_INLINE bool NonMainFrustumsListCull(const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, const Float3 mainViewPosition, const float shadowCullRadius, const float shadowCullDistance2)
 {
     const int32 count = frustums.Count();
     const BoundingFrustum* data = frustums.Get();
-    for (int32 i = 0; i < count; i++)
+    for (int32 i = 1; i < count; i++) // start at 1 to skip main frustum (always 0)
     {
         if (data[i].Intersects(bounds))
+        {
+            if (bounds.Radius < shadowCullRadius && Float3::DistanceSquared(mainViewPosition, bounds.Center) > shadowCullDistance2)
+            {
+                return false;
+            }
             return true;
+        }
     }
     return false;
 }
 
-FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, HZBData* occluders, bool skipOcclusion)
+FORCE_INLINE  bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums)
 {
-    if (FrustumsListCull(bounds, frustums))
-    {
-        if (occluders)
+    if (NonMainFrustumsListCull(bounds, frustums, _mainViewPosition, _shadowCullRadius, _shadowCullDistance2))
+    { // is in other frustums, like for shadows
+        if (_hzb)
         {
-            if (skipOcclusion)
+            actor->_cullType = 0;
+        }
+        return true;
+    }
+    if (MainFrustumCull(bounds, frustums))
+    {
+        if (_hzb)
+        {
+            if (!_checkHZB)
             { // return the last HZB occlusion result
                 return actor->_cullType != 2;
             }
-            if (occluders->CheckOcclusion(bounds))
+            if (_hzb->CheckOcclusion(bounds))
             {
+            //    DebugDraw::DrawSphere(bounds, Color(0, 0, 1, 0.2f), 0, false); // can't do this in a job
                 actor->_cullType = 2;
                 return false;
             }
@@ -81,23 +108,23 @@ FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSp
         actor->_cullType = 0;
         return true;
     }
-    if (occluders)
+    if (_hzb)
     { // only mark as culled if HZBData was valid, meaning it was the main render task
         actor->_cullType = 1;
     }
     return false;
 }
-FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum, HZBData* occluders, bool skipOcclusion)
+FORCE_INLINE  bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum)
 {
     if (frustum.Intersects(bounds))
     {
-        if (occluders)
+        if (_hzb)
         {
-            if (skipOcclusion)
+            if (!_checkHZB)
             { // return the last HZB occlusion result
                 return actor->_cullType != 2;
             }
-            if (occluders->CheckOcclusion(bounds))
+            if (_hzb->CheckOcclusion(bounds))
             {
                 actor->_cullType = 2;
                 return false;
@@ -111,7 +138,7 @@ FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSp
         actor->_cullType = 0;
         return true;
     }
-    if (occluders)
+    if (_hzb)
     { // only mark as culled if HZBData was valid, meaning it was the main render task
         actor->_cullType = 1;
     }
@@ -151,6 +178,37 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
     _drawFrustumsData.Resize(frustumsCount);
     for (int32 i = 0; i < frustumsCount; i++)
         _drawFrustumsData.Get()[i] = renderContextBatch.Contexts.Get()[i].View.CullingFrustum;
+
+    // Setup culling info
+    _shadowCullDistance2 = Graphics::Shadows::CullingDistance * Graphics::Shadows::CullingDistance;
+    _shadowCullRadius = 0.5f * Graphics::Shadows::CullingSize;
+    _mainViewPosition = view.Position;
+
+    _hzb = Graphics::OcclusionCulling ? renderContextBatch.GetMainContext().Task->OcclusionInfo : nullptr;
+    
+    if (_hzb != nullptr)
+    {
+        _checkHZB = true;
+        // only do occlusion on main render task's main draw
+        if (_drawCategory == SceneDrawAsync && (int32)view.Pass & (int32)DrawPass::GBuffer)
+        {
+            // don't do the hzb occlusion check if it already did it with the same data last time
+            if ((_hzb->Id == _lastHZBId && _hzb->CurrentFrameIndex == _lastHZBFrame))
+            {
+                _checkHZB = false;
+            }
+            else
+            {
+                _checkHZB = true;
+                _lastHZBId = _hzb->Id;
+                _lastHZBFrame = _hzb->CurrentFrameIndex;
+            }
+        }
+    }
+    else
+    {
+        _checkHZB = false;
+    }
 
     // Draw all visual components
     _drawListIndex = -1;
@@ -300,8 +358,8 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
 }
 
 #define FOR_EACH_BATCH_ACTOR const int64 count = _drawListSize; while (true) { const int64 index = Platform::InterlockedIncrement(&_drawListIndex); if (index >= count) break; auto e = _drawListData[index];
-#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData, hzb, skipOcclusion)))
-#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum, hzb, skipOcclusion)))
+#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData)))
+#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum)))
 #if SCENE_RENDERING_USE_PROFILER_PER_ACTOR
 #define DRAW_ACTOR(mode) PROFILE_CPU_ACTOR(e.Actor); e.Actor->Draw(mode)
 #else
@@ -314,38 +372,8 @@ void SceneRendering::DrawActorsJob(int32)
     PROFILE_MEM(Graphics);
     auto& mainContext = _drawBatch->GetMainContext();
     const auto& view = mainContext.View;
-    HZBData* hzb = mainContext.Task->OcclusionInfo;
 
-    // Debug weapon shadow collection
-    int32 weaponCheckedActors = 0;
-    int32 weaponCulledByLayer = 0;
-    int32 weaponCulledByFrustum = 0;
-    int32 weaponDrawnActors = 0;
-    
-    // bypass occlusion culling from Graphics Settings
-    if (!Graphics::OcclusionCulling) hzb = nullptr;
 
-    bool skipOcclusion = false; // TODO: skip if it's the same as the last one. the code isn't working right for some reason.
-    //bool skipOcclusion = true;
-    //// only do occlusion on main render task's main draw
-    //if (_drawCategory == SceneDrawAsync && view.StaticFlagsMask != StaticFlags::Occluder)
-    //{
-    //    // don't do the hzb occlusion check if it already did it with the same data last time
-    //    if (hzb != nullptr)
-    //    {
-    //        if ((hzb->Id == _lastHZBId && hzb->CurrentFrameIndex == _lastHZBFrame))
-    //        {
-    //            skipOcclusion = true;
-    //        }
-    //        else
-    //        {
-    //            skipOcclusion = false;
-    //            _lastHZBId = hzb->Id;
-    //            _lastHZBFrame = hzb->CurrentFrameIndex;
-    //        }
-    //    }
-    //}
-    
     if (view.StaticFlagsMask != StaticFlags::None)
     {
         // Static-flags culling

@@ -28,7 +28,7 @@
 #include "Engine/Input/Input.h"
 
 #define HZB_FORMAT PixelFormat::R32_Float
-#define HZB_BOUNDS_BIAS 10.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
+#define HZB_BOUNDS_BIAS 1.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
 
 /// <summary>
 /// Custom task called after downloading HZB texture data to save it.
@@ -86,6 +86,9 @@ bool HierarchialZBufferPass::setupResources()
     const auto shader = _shader->GetShader();
 
     _cb = shader->GetCB(0);
+    _cbDebug = shader->GetCB(1);
+    if (!_cb || !_cbDebug)
+        return true;
 
     // Create pipeline stages
     _psHZB = device->CreatePipelineState();
@@ -150,28 +153,49 @@ HZBData* HierarchialZBufferPass::GetOrCreateInfo(RenderContext& renderContext)
 }
 
 GPU_CB_STRUCT(HZBShaderData{
+    Float2 Dimensions;
+    Float2 DepthDimensions;
+    int Level;
+    int Offset;
+    int PrevOffset;
+    float Dummy0;
+    }
+);
+
+GPU_CB_STRUCT(HZBDebugData{
     Float4 ViewInfo;
     Float3 ViewPos;
     float ViewFar;
     Matrix InvViewMatrix;
     Matrix InvProjectionMatrix;
-    Float2 Dimensions;
-    int Level;
-    int Offset;
-    //float Dummy0;
+    Float2 Size;
+    Float2 Dummy1;
+    Int4 TestRect;
     }
 );
 
-void HierarchialZBufferPass::SetInputs(const RenderView& view, HZBShaderData& data, Float2 dimensions, int level, int offset)
+static bool FindTestRectangle(const Tag& tag, Actor* actor, HZBData* hzb, Int4& testRect)
 {
-    data.Dimensions = dimensions;
-    data.ViewInfo = view.ViewInfo;
-    data.ViewPos = view.Position;
-    data.ViewFar = view.Far;
-    data.Level = level;
-    data.Offset = offset;
-    Matrix::Transpose(view.IV, data.InvViewMatrix);
-    Matrix::Transpose(view.IP, data.InvProjectionMatrix);
+    if (actor->HasTag(tag)) 
+    {
+        int startX, endX, startY, endY;
+        float targetDistance; 
+        TextureMipData* texData;
+        if (hzb->GetOcclusionBounds(actor->GetSphere(), startX, endX, startY, endY, targetDistance, texData))
+        {
+            testRect = Int4(startX, startY, endX, endY);
+            return true;
+        }
+    }
+
+    for (auto child : actor->Children)
+    {
+        if (FindTestRectangle(tag, child, hzb, testRect))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void HierarchialZBufferPass::RenderDebug(RenderContext& renderContext, GPUContext* context)
@@ -193,11 +217,42 @@ void HierarchialZBufferPass::RenderDebug(RenderContext& renderContext, GPUContex
     if (info->CurrentFrameIndex < 0)
         return;
 
+    Int4 testRect = Int4::Zero;
+    auto hzb = MainRenderTask::Instance->OcclusionInfo;
+    if (hzb)
+    {
+        // search for an actor with the special tag to draw in the debug view
+        Tag tag = Tags::Get(TEXT("Debug.HZB"));
+        if (tag)
+        {
+            bool found = false;
+            for (auto scene : Level::Scenes)
+            {
+                for (auto actor : scene->Children)
+                {
+                    if (FindTestRectangle(tag, actor, hzb, testRect))
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+        }
+    }
+
     // Set constants buffer
-    HZBShaderData data;
-    SetInputs(renderContext.View, data, info->_depthTexture->Size(), 0, 0);
-    context->UpdateCB(_cb, &data);
-    context->BindCB(0, _cb);
+    HZBDebugData data;
+    data.Size = info->_depthTexture->Size();
+    data.ViewInfo = renderContext.View.ViewInfo;
+    data.ViewPos = renderContext.View.Position;
+    data.ViewFar = renderContext.View.Far;
+    data.TestRect = testRect;
+    Matrix::Transpose(renderContext.View.IV, data.InvViewMatrix);
+    Matrix::Transpose(renderContext.View.IP, data.InvProjectionMatrix);
+
+    context->UpdateCB(_cbDebug, &data);
+    context->BindCB(1, _cbDebug);
 
     context->BindSR(0, info->_depthTexture);
     context->BindUA(1, info->_hzbTexture->View());
@@ -212,7 +267,6 @@ void HierarchialZBufferPass::RenderDebug(RenderContext& renderContext, GPUContex
 void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderContext)
 {
     if (!Graphics::OcclusionCulling) return;
-
     // Skip if not supported
     if (checkIfSkipPass())
         return;
@@ -272,39 +326,50 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
     }
     info->_resolution = resolution;
 
-
-    // Draw depth
-    PROFILE_GPU("HZB depth");
-    StaticFlags oldMask = renderContext.View.StaticFlagsMask;
-    StaticFlags oldCompare = renderContext.View.StaticFlagsCompare;
-    renderContext.Task->View.StaticFlagsMask = StaticFlags::Occluder;
-    renderContext.Task->View.StaticFlagsCompare = StaticFlags::Occluder;
-    context->ClearDepth(info->_depthTexture->View());
-    Renderer::DrawSceneDepth(context, renderContext.Task, info->_depthTexture, _emptyArray);
-    context->ClearState();
-    renderContext.Task->View.StaticFlagsMask = oldMask;
-    renderContext.Task->View.StaticFlagsCompare = oldCompare;
+    // custom depth drawing instead of using existing depth
+    //// Draw depth
+    //PROFILE_GPU("HZB depth");
+    //StaticFlags oldMask = renderContext.View.StaticFlagsMask;
+    //StaticFlags oldCompare = renderContext.View.StaticFlagsCompare;
+    //renderContext.Task->View.StaticFlagsMask = StaticFlags::Occluder;
+    //renderContext.Task->View.StaticFlagsCompare = StaticFlags::Occluder;
+    //context->ClearDepth(info->_depthTexture->View());
+    //Renderer::DrawSceneDepth(context, renderContext.Task, info->_depthTexture, _emptyArray);
+    //context->ClearState();
+    //renderContext.Task->View.StaticFlagsMask = oldMask;
+    //renderContext.Task->View.StaticFlagsCompare = oldCompare;
 
     // Render hierarchy
-    Float2 dimensions = Float2(sizeX, sizeY);
+    Float2 depthDimensions = renderContext.Buffers->DepthBuffer->Size();
+    int prevHeight = renderContext.Buffers->DepthBuffer->Height();
+    int currWidth = sizeX / 2;
+    int currHeight = sizeY / 2;
     int offset = 0;
+    int prevOffset = 0;
     context->Clear(info->_hzbTexture->View(), Color::White);
     for (int i = 0; i < depth; i++)
     {
-        dimensions *= 0.5f;
-        context->SetViewport(dimensions.X, dimensions.Y);
+        context->SetViewport((float)currWidth, (float)currHeight);
 
         HZBShaderData data;
-        SetInputs(renderContext.View, data, dimensions, i, offset);
+        data.Dimensions = Float2((float)currWidth, (float)currHeight);
+        data.DepthDimensions = depthDimensions;
+        data.Level = i;
+        data.Offset = offset;
+        data.PrevOffset = prevOffset;
+
         context->UpdateCB(_cb, &data);
         context->BindCB(0, _cb);
-        context->BindSR(0, info->_depthTexture);
+        context->BindSR(0, renderContext.Buffers->DepthBuffer);//info->_depthTexture);
         context->BindUA(1, info->_hzbTexture->View());
         context->SetState(_psHZB);
         context->DrawFullscreenTriangle();
 
         context->ClearState();
-        offset += dimensions.X;
+        prevOffset = offset;
+        offset += currWidth;
+        currWidth = Math::Max(1, currWidth / 2);
+        currHeight = Math::Max(1, currHeight / 2);
     }
 
     // Reset to the original viewport
@@ -417,22 +482,23 @@ void HZBData::CompleteDownload(int index)
     _frames[index].IsDownloading = false;
 }
 
-bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
+ bool HZBData::GetOcclusionBounds(const BoundingSphere& bounds, int& startX, int& endX, int& startY, int& endY, float& targetDistance, TextureMipData*& data)
 {
-    if (!Graphics::OcclusionCulling) return false;
-    if (!_isReady) return false;
-    if (CurrentFrameIndex < 0) return false;
+     if (!Graphics::OcclusionCulling) return false;
+     if (!_isReady) return false;
+     if (CurrentFrameIndex < 0) return false;
 
-    HZBFrame* activeFrame = &_frames[CurrentFrameIndex];
-    // no data yet
-    if (activeFrame->TextureData.GetArraySize() == 0)
-        return false;
+     HZBFrame* activeFrame = &_frames[CurrentFrameIndex];
+     // no data yet
+     if (activeFrame->TextureData.GetArraySize() == 0)
+         return false;
 
-    auto data = activeFrame->TextureData.GetData(0, 0);
-    if (data->Data.Length() == 0)
-    {
-        return false;
-    }
+     data = activeFrame->TextureData.GetData(0, 0);
+     if (data->Data.Length() == 0)
+     {
+         return false;
+     }
+
     // get sphere center and radius in screen space
     Vector3 centerProj, radiusProj, closestProj;
     activeFrame->Viewport.Project(bounds.Center, activeFrame->VP, centerProj);
@@ -441,6 +507,7 @@ bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
 
     // increase this to reduce pop in, at the expense of less occlusion
     float radiusLength = HZB_BOUNDS_BIAS + Float2::Distance(Float2(centerProj.X, centerProj.Y), Float2(radiusProj.X, radiusProj.Y));
+
     // all the halving is because the buffer is already 50% of the full screen, and level 0 is half of that. The other levels are stacked horizontally to the right of it
     centerProj *= 0.5f;
     radiusLength *= 0.5f;
@@ -448,51 +515,46 @@ bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
     { // early exit if object is too close or far.
         return false;
     }
-    float targetDistance = closestProj.Z;
-    int level = Math::Max(0.0f, Math::Log2(radiusLength * 2.0f) - 1.0f - 2);
-    
-    float offset = 0; // horizontal offset for finding the other levels
-    float width = activeFrame->TextureData.Width * 0.5f;
-    float height = activeFrame->TextureData.Height * 0.5f;
+    targetDistance = closestProj.Z;
+
+    int offset = 0; // horizontal offset for finding the other levels
+    int width = (int)(activeFrame->TextureData.Width * 0.5f);
+    int height = (int)(activeFrame->TextureData.Height * 0.5f);
     centerProj *= 0.5f;
     radiusLength *= 0.5f;
+
+    int level = Math::Max(0.0f, Math::Log2(radiusLength * 2.0f) - 1.0f - 2);
 
     // set calculations to appropriate level, which are stacked horizontally on the top right
     for (int i = 0; i < level; i++)
     {
         offset += width;
-        width *= 0.5f;
-        height *= 0.5f;
+        width = Math::Max(1, width / 2);
+        height = Math::Max(1, height / 2);
         radiusLength *= 0.5f;
         centerProj *= 0.5f;
-        if ((int)(width * 0.5f) == 1 || (int)(height * 0.5f) == 1)
+        if (width <= 2 || height <= 2)
         { // break early if next iteration will be too small
             level = i;
             break;
         }
     }
 
-    int widthIndex = (int)width - 1;
-    int heightIndex = (int)height - 1;
-    int startX = Math::Clamp(offset + (int)(centerProj.X - radiusLength), offset, offset + widthIndex);
-    int endX = Math::Clamp(offset + (int)(centerProj.X + radiusLength), offset, offset + widthIndex);
-    int startY = Math::Clamp((int)(centerProj.Y - radiusLength), 0, heightIndex);
-    int endY = Math::Clamp((int)(centerProj.Y + radiusLength), 0, heightIndex);
-    if (startX - endX == 0)
-    { // needs to be at least 1 wide
-        if (startX == offset + widthIndex) startX--;
-        else endX++;
-    }
-    if (startY - endY == 0)
-    { // needs to be at least 1 tall
-        if (startY == heightIndex) startY--;
-        else endY++;
-    }
-    
+    startX = Math::Clamp(Math::FloorToInt(centerProj.X - radiusLength), 0, width - 1);
+    endX = Math::Clamp(Math::CeilToInt(centerProj.X + radiusLength), 0, width - 1);
+    startX += offset;
+    endX += offset;
+    startY = Math::Clamp(Math::FloorToInt(centerProj.Y - radiusLength), 0, height - 1);
+    endY = Math::Clamp(Math::CeilToInt(centerProj.Y + radiusLength), 0, height - 1);
+    return true;
+}
+
+static bool QueryHZB(int& startX, int& endX, int& startY, int& endY, float& targetDistance, TextureMipData* data)
+{
     // check each pixel (roughly 2x2) for occlusion
-    for (int x = startX; x < endX; x++)
+    for (int x = startX; x <= endX; x++)
     {
-        for (int y = startY; y < endY; y++)
+        for (int y = startY; y <= endY; y++)
         {
             float value = data->Get<float>(x, y);
             if (targetDistance < value)
@@ -501,9 +563,20 @@ bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
             }
         }
     }
-
     // occlusion detected
     return true;
+}
+
+bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
+{
+    int startX, endX, startY, endY;
+    float targetDistance;
+    TextureMipData* texData;
+    if (GetOcclusionBounds(bounds, startX, endX, startY, endY, targetDistance, texData))
+    {
+        return QueryHZB(startX, endX, startY, endY, targetDistance, texData);
+    }
+    return false;
 }
 
 

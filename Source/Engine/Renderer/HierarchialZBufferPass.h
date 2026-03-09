@@ -51,12 +51,13 @@ private:
     bool _supported = false;
     AssetReference<Shader> _shader;
     GPUConstantBuffer* _cb = nullptr;
+    GPUConstantBuffer* _cbDebug = nullptr;
     GPUPipelineState* _psHZB = nullptr;
     GPUPipelineState* _psDebug = nullptr;
     Array<HZBData*> _info;
     Array<Actor*> _emptyArray; // empty array to pass as dummy argument
 
-    void SetInputs(const RenderView& view, HZBShaderData& data, Float2 dimensions, int level, int offset);
+    void SetInputs(const RenderView& view, HZBShaderData& data, Float2 dimensions, Float2 prevDimensions, int level, int offset, int prevOffset);
 
 #if COMPILE_WITH_DEV_ENV
     void OnShaderReloading(Asset* obj);
@@ -114,4 +115,5 @@ public:
     /// <param name="bounds">An actor's bounding sphere to test for occlusion.</param>
     /// <returns>True if the bounds are occluded.</returns>
     bool CheckOcclusion(const BoundingSphere& bounds);
+    bool GetOcclusionBounds(const BoundingSphere& bounds, int& startX, int& endX, int& startY, int& endY, float& targetDistance, TextureMipData*& data);
 };

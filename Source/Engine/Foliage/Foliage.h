@@ -158,12 +158,16 @@ public:
     API_PROPERTY() static void SetGlobalDensityScale(float value);
 
 private:
+    Float3 _mainViewPosition;
+    float _shadowCullDistance2;
+    float _shadowCullRadius;
+    HZBData* _hzb = nullptr;
+    bool _checkHZB = true;
     int _lastHZBId = -1;
     int _lastHZBFrame = -1;
-    bool _checkOcclusion = true;
-    HZBData* _hzb = nullptr;
-    bool CheckOcclusion(FoliageCluster* cluster, const BoundingSphere& bounds) const;
-    bool CheckOcclusion(FoliageInstance& instance, const BoundingSphere& bounds) const;
+
+    bool CheckVisibility(FoliageCluster* cluster, const BoundingSphere& bounds) const;
+    bool CheckVisibility(FoliageInstance& instance, const BoundingSphere& bounds) const;
     void AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_SIZE>& clusters, FoliageCluster* cluster, FoliageInstance& instance);
     struct DrawContext
     {
@@ -198,11 +202,11 @@ private:
     typedef Array<struct DrawCall, InlinedAllocation<8>> DrawCallsList;
     typedef Dictionary<DrawKey, struct BatchedDrawCall, ConcurrentArenaAllocation> BatchedDrawCalls;
     void DrawInstance(DrawContext& context, FoliageInstance& instance, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
-    void DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
-    void DrawType(RenderContext& renderContext, const FoliageType& type, DrawCallsList* drawCallsLists);
+    void DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, bool skipOcclusionCheck) const;
+    void DrawType(RenderContext& renderContext, const FoliageType& type, DrawCallsList* drawCallsLists, bool isMainContext);
 #else
-    void DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::DrawInfo& draw);
-    void DrawType(RenderContext& renderContext, const FoliageType& type, Mesh::DrawInfo& draw);
+    void DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::DrawInfo& draw, bool skipOcclusionCheck);
+    void DrawType(RenderContext& renderContext, const FoliageType& type, Mesh::DrawInfo& draw, bool isMainContext);
 #endif
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE
     void DrawClusterGlobalSDF(class GlobalSignDistanceFieldPass* globalSDF, const BoundingBox& globalSDFBounds, FoliageCluster* cluster, const FoliageType& type);

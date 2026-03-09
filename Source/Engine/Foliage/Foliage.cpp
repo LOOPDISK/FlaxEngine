@@ -180,51 +180,51 @@ void Foliage::DrawInstance(DrawContext& context, FoliageInstance& instance, Mode
         instanceData.Store(world, world, instance.Lightmap.UVsArea, drawCall.Surface.GeometrySize, instance.Random, worldDeterminantSign, lodDitherFactor);
     }
 }
-bool Foliage::CheckOcclusion(FoliageCluster* cluster, const BoundingSphere& bounds) const
+bool Foliage::CheckVisibility(FoliageCluster* cluster, const BoundingSphere& bounds) const
 {
     if (_hzb)
     {
-        if (!_checkOcclusion)
+        if (!_checkHZB)
         { // return the last HZB occlusion result
-            return cluster->WasCulled;
+            return !cluster->WasCulled;
         }
         if (_hzb->CheckOcclusion(bounds))
         {
             cluster->WasCulled = true;
-            return true;
+            return false;
         }
         else
         {
             cluster->WasCulled = false;
-            return false;
+            return true;
         }
     }
-    return false;
+    return true;
 }
 
-bool Foliage::CheckOcclusion(FoliageInstance& instance, const BoundingSphere& bounds) const
+bool Foliage::CheckVisibility(FoliageInstance& instance, const BoundingSphere& bounds) const
 {
     if (_hzb)
     {
-        if (!_checkOcclusion)
+        if (!_checkHZB)
         { // return the last HZB occlusion result
-            return instance.WasCulled;
+            return !instance.WasCulled;
         }
         if (_hzb->CheckOcclusion(bounds))
         {
             instance.WasCulled = true;
-            return true;
+            return false;
         }
         else
         {
             instance.WasCulled = false;
-            return false;
+            return true;
         }
     }
-    return false;
+    return true;
 }
 
-void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const
+void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, bool isMainContext) const
 {
     // Skip clusters that around too far from view
     if (Float3::Distance(context.LodView.Position, cluster->TotalBoundsSphere.Center - context.LodView.Origin) - (float)cluster->TotalBoundsSphere.Radius > cluster->MaxCullDistance)
@@ -246,15 +246,30 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
         bounds = cluster->Children[idx]->TotalBoundsSphere; \
         bounds.Center -= context.ViewOrigin; \
 		if (context.RenderContext.View.CullingFrustum.Intersects(box)) \
-            if (!CheckOcclusion(cluster->Children[idx], bounds)) \
+        { \
+            if (!isMainContext) \
             { \
-			    DrawCluster(context, cluster->Children[idx], drawCallsLists, result); \
-            }
-            //else \
-            //{ \
-            //    bounds.Center += viewOrigin; \
-            //    DebugDraw::DrawSphere(bounds, Color(1, 0, 1, 0.2f), 0, false); \
-            //} 
+                if (bounds.Radius > _shadowCullRadius || Float3::DistanceSquared(_mainViewPosition, bounds.Center) < _shadowCullDistance2) \
+                    DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
+                /* \
+                else \
+                { \
+                    bounds.Center += context.ViewOrigin; \
+                    DebugDraw::DrawSphere(bounds, Color(1, 0, 1, 0.2f), 0, false); \
+                } \
+                */ \
+            } \
+            else if (CheckVisibility(cluster->Children[idx], bounds)) \
+                DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
+            /* \
+            else \
+            { \
+                bounds.Center += context.ViewOrigin; \
+                DebugDraw::DrawSphere(bounds, Color(1, 0, 1, 0.2f), 0, false); \
+            } \
+            */ \
+        }
+
 
         DRAW_CLUSTER(0);
         DRAW_CLUSTER(1);
@@ -282,9 +297,14 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
                 context.RenderContext.View.CullingFrustum.Intersects(sphere) &&
                 RenderTools::ComputeBoundsScreenRadiusSquared(sphere.Center, sphere.Radius, context.RenderContext.View) * context.ViewScreenSizeSq >= context.MinObjectPixelSizeSq)
             {
-                if (CheckOcclusion(instance, sphere))
+                if (!isMainContext)
                 {
-                //    DebugDraw::DrawSphere(instance.Bounds, Color(1, 0, 0, 0.2f), 0, false);
+                    if (sphere.Radius < _shadowCullRadius && Float3::DistanceSquared(_mainViewPosition, sphere.Center) > _shadowCullDistance2)
+                        continue;
+                }
+                else if (!CheckVisibility(instance, sphere))
+                {
+                //     DebugDraw::DrawSphere(instance.Bounds, Color(1, 0, 0, 0.2f), 0, false); // can't do this in a job
                     continue;
                 }
                 const auto modelFrame = instance.DrawState.PrevFrame + 1;
@@ -388,7 +408,7 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
 
 #else
 
-void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::DrawInfo& draw)
+void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::DrawInfo& draw, bool isMainContext)
 {
     // Skip clusters that around too far from view
     if (Float3::Distance(context.LodView.Position, cluster->TotalBoundsSphere.Center - context.LodView.Origin) - (float)cluster->TotalBoundsSphere.Radius > cluster->MaxCullDistance)
@@ -407,7 +427,29 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::D
         box.Minimum -= context.ViewOrigin; \
         box.Maximum -= context.ViewOrigin; \
 		if (context.RenderContext.View.CullingFrustum.Intersects(box)) \
-			DrawCluster(context, cluster->Children[idx], draw)
+        { \
+            if (!isMainContext) \
+            { \
+                if (bounds.Radius > _shadowCullRadius || Float3::DistanceSquared(_mainViewPosition, bounds.Center) < _shadowCullDistance2) \
+                    DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
+                /* \
+                else \
+                { \
+                    bounds.Center += context.ViewOrigin; \
+                    DebugDraw::DrawSphere(bounds, Color(1, 0, 1, 0.2f), 0, false); \
+                } \
+                */ \
+            } \
+            else if (CheckVisibility(cluster->Children[idx], bounds)) \
+                DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
+            /* \
+            else \
+            { \
+                bounds.Center += context.ViewOrigin; \
+                DebugDraw::DrawSphere(bounds, Color(1, 0, 1, 0.2f), 0, false); \
+            } \
+            */ \
+        }
         DRAW_CLUSTER(0);
         DRAW_CLUSTER(1);
         DRAW_CLUSTER(2);
@@ -543,10 +585,12 @@ void Foliage::DrawFoliageJob(int32 i)
     if (type._canDraw)
     {
         DrawCallsList drawCallsLists[MODEL_MAX_LODS];
-        for (RenderContext& renderContext : _renderContextBatch->Contexts)
+        int count = _renderContextBatch->Contexts.Count();
+        for (int c = 0; c < count; c++)
         {
+            RenderContext& renderContext = _renderContextBatch->Contexts[c];
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE && FOLIAGE_USE_DRAW_CALLS_BATCHING
-            DrawType(renderContext, type, drawCallsLists);
+            DrawType(renderContext, type, drawCallsLists, c == 0); // the first context is the main one
 #else
             Mesh::DrawInfo draw;
             draw.Flags = GetStaticFlags();
@@ -564,9 +608,9 @@ void Foliage::DrawFoliageJob(int32 i)
 #endif
 
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE && FOLIAGE_USE_DRAW_CALLS_BATCHING
-void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, DrawCallsList* drawCallsLists)
+void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, DrawCallsList* drawCallsLists, bool isMainContext)
 #else
-void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Mesh::DrawInfo& draw)
+void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Mesh::DrawInfo& draw, bool isMainContext)
 #endif
 {
     if (!type.Root || !FOLIAGE_CAN_DRAW(renderContext, type))
@@ -628,7 +672,7 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Me
 
     // Draw instances of the foliage type
     BatchedDrawCalls result(&renderContext.List->Memory);
-    DrawCluster(context, type.Root, drawCallsLists, result);
+    DrawCluster(context, type.Root, drawCallsLists, result, isMainContext);
 
     // Submit draw calls with valid instances added
     for (auto& e : result)
@@ -1354,7 +1398,6 @@ void Foliage::Draw(RenderContext& renderContext)
         type.Model->Draw(renderContext, draw);
         return;
     }
-
     // Draw visible clusters
 #if FOLIAGE_USE_SINGLE_QUAD_TREE || !FOLIAGE_USE_DRAW_CALLS_BATCHING
     Mesh::DrawInfo draw;
@@ -1373,7 +1416,7 @@ void Foliage::Draw(RenderContext& renderContext)
 #else
     for (auto& type : FoliageTypes)
     {
-        DrawType(renderContext, type, draw);
+        DrawType(renderContext, type, draw, true);
     }
 #endif
 }
@@ -1386,7 +1429,7 @@ void Foliage::Draw(RenderContextBatch& renderContextBatch)
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE
     // Run async job for each foliage type
     const RenderView& view = renderContextBatch.GetMainContext().View;
-    if (EnumHasAnyFlags(view.Pass, DrawPass::GBuffer) && !(view.Pass & (DrawPass::GlobalSDF | DrawPass::GlobalSurfaceAtlas)) && renderContextBatch.EnableAsync)
+    if (view.StaticFlagsMask == StaticFlags::Occluder || (EnumHasAnyFlags(view.Pass, DrawPass::GBuffer) && !(view.Pass & (DrawPass::GlobalSDF | DrawPass::GlobalSurfaceAtlas)) && renderContextBatch.EnableAsync))
     {
         // Cache data per foliage instance type
         for (FoliageType& type : FoliageTypes)
@@ -1394,32 +1437,41 @@ void Foliage::Draw(RenderContextBatch& renderContextBatch)
 
         // Run async job for each foliage type
         _renderContextBatch = &renderContextBatch;
-        // check HZB
+
         auto& mainContext = _renderContextBatch->GetMainContext();
         const auto& view = mainContext.View;
-        _hzb = mainContext.Task->OcclusionInfo;
 
-        // bypass occlusion culling from Graphics Settings
-        if (!Graphics::OcclusionCulling) _hzb = nullptr;
+        // Setup culling info
+        _shadowCullDistance2 = Graphics::Shadows::CullingDistance * Graphics::Shadows::CullingDistance;
+        _shadowCullRadius = 0.5f * Graphics::Shadows::CullingSize;
+        _mainViewPosition = view.Position;
 
-        _checkOcclusion = false;
-        if (view.StaticFlagsMask != StaticFlags::Occluder)
+        _hzb = Graphics::OcclusionCulling ? renderContextBatch.GetMainContext().Task->OcclusionInfo : nullptr;
+
+        if (_hzb != nullptr)
         {
-            // don't do the hzb occlusion check if it already did it with the same data last time
-            if (_hzb != nullptr)
+            _checkHZB = true;
+            // only do occlusion on main render task's main draw
+            if (_drawCategory == SceneRendering::SceneDrawAsync && (int32)view.Pass & (int32)DrawPass::GBuffer)
             {
+                // don't do the hzb occlusion check if it already did it with the same data last time
                 if ((_hzb->Id == _lastHZBId && _hzb->CurrentFrameIndex == _lastHZBFrame))
                 {
-                    _checkOcclusion = false;
+                    _checkHZB = false;
                 }
                 else
                 {
-                    _checkOcclusion = true;
+                    _checkHZB = true;
                     _lastHZBId = _hzb->Id;
                     _lastHZBFrame = _hzb->CurrentFrameIndex;
                 }
             }
         }
+        else
+        {
+            _checkHZB = false;
+        }
+
 
         //for (int i = 0; i < FoliageTypes.Count(); i++)
         //{

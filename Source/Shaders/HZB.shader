@@ -1,15 +1,23 @@
 #include "./Flax/Common.hlsl"
 
 META_CB_BEGIN(0, HZBData)
+float2 Dimensions;
+float2 DepthDimensions;
+int Level;
+int Offset;
+int PrevOffset;
+float Dummy0;
+META_CB_END
+
+META_CB_BEGIN(1, HZBDebugData)
 float4 ViewInfo;
 float3 ViewPos;
 float ViewFar;
 float4x4 InvViewMatrix;
 float4x4 InvProjectionMatrix;
-float2 Dimensions;
-int Level;
-int Offset;
-//float Dummy0;
+float2 Size;
+float2 Dummy1;
+int4 TestRect;
 META_CB_END
 
 Texture2D DepthTexture : register(t0);
@@ -18,25 +26,24 @@ RWTexture2D<float> HZBTexture : register(u1);
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_HZB(Quad_VS2PS input) : SV_Target
 {
-   float2 uv = input.TexCoord;
+   float2 uv = input.TexCoord; 
+   int2 coords = int2((uv.x * Dimensions.x), (uv.y * Dimensions.y)); 
 
    if (Level == 0) // first level just samples depth texture
    {
-        float2 texel = 1.0 / (Dimensions * 2);
-        float bl = DepthTexture.SampleLevel(SamplerPointClamp, uv, 0).r;
-        float tl = DepthTexture.SampleLevel(SamplerPointClamp, uv + float2(0, 1) * texel, 0).r;
-        float br = DepthTexture.SampleLevel(SamplerPointClamp, uv + float2(1, 0) * texel, 0).r;
-        float tr = DepthTexture.SampleLevel(SamplerPointClamp, uv + float2(1, 1) * texel, 0).r;
+        int3 srcPos = int3((uv.x * DepthDimensions.x), (uv.y * DepthDimensions.y), 0); 
+        float tl = DepthTexture.Load(srcPos + int3(0, 0, 0)).r;
+        float bl = DepthTexture.Load(srcPos + int3(0, 1, 0)).r;
+        float tr = DepthTexture.Load(srcPos + int3(1, 0, 0)).r;
+        float br = DepthTexture.Load(srcPos + int3(1, 1, 0)).r;
         float depth = max(bl, max(tl, max(br, tr)));
-        int2 coords = int2((uv.x * Dimensions.x), (uv.y * Dimensions.y)); 
         HZBTexture[coords] = depth;
         return depth;
    }
    else // other levels sample from the previous level
    {
-        int prevOffset = Offset - Dimensions.x * 2;
-        int2 coordsIn = int2((uv.x * Dimensions.x * 2) + prevOffset, (uv.y * Dimensions.y * 2));
-        int2 coordsOut = int2((uv.x * Dimensions.x) + Offset, (uv.y * Dimensions.y)); 
+        int2 coordsIn = coords * 2 + int2(PrevOffset, 0);
+        int2 coordsOut = coords + int2(Offset, 0);
 
         float bl = HZBTexture[coordsIn + int2(0, 0)];
         float tl = HZBTexture[coordsIn + int2(0, 1)];
@@ -44,21 +51,21 @@ float4 PS_HZB(Quad_VS2PS input) : SV_Target
         float tr = HZBTexture[coordsIn + int2(1, 1)];
         float depth = max(bl, max(tl, max(br, tr)));
 
-        // odd dimensions need extra pixels
-        bool oddX = (int)(Dimensions.x + 1) % 2 == 1;
-        bool oddY = (int)(Dimensions.y + 1) % 2 == 1;
-        if (oddX)
+        // odd dimensions need extra pixels on the last line
+        bool oddX = (int)(Dimensions.x) % 2 == 1;
+        bool oddY = (int)(Dimensions.y) % 2 == 1;
+        if (oddX && coords.x == Dimensions.x - 1)
         {
             float x1 = HZBTexture[coordsIn + int2(2, 0)];
             float x2 = HZBTexture[coordsIn + int2(2, 1)];
             depth = max(depth, max(x1, x2));
         }
-        if (oddY)
+        if (oddY && coords.y == Dimensions.y - 1)
         {
             float y1 = HZBTexture[coordsIn + int2(0, 2)];
             float y2 = HZBTexture[coordsIn + int2(1, 2)];
             depth = max(depth, max(y1, y2));
-            if (oddX)
+            if (oddX && coords.x == Dimensions.x - 1)
             {
                 float xy = HZBTexture[coordsIn + int2(2, 2)];
                 depth = max(depth, xy);
@@ -93,22 +100,48 @@ float LinearZ2DeviceDepth(float linearDepth, float4 viewInfo)
     return (viewInfo.w / linearDepth) + viewInfo.z;
 }
 
+bool inBox(int2 corner1, int2 corner2, int2 testPoint)
+{
+    if (corner1.x == 0 && corner1.y == 0 && corner2.x == 0 && corner2.y == 0) return false;
+
+    int minX = min(corner1.x, corner2.x);
+    int maxX = max(corner1.x, corner2.x);
+    int minY = min(corner1.y, corner2.y);
+    int maxY = max(corner1.y, corner2.y);
+    
+    if (testPoint.x >= minX && testPoint.x <= maxX)
+    {
+        if (testPoint.y >= minY && testPoint.y <= maxY)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Pixel shader for depth debug view
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_DebugView(Quad_VS2PS input) : SV_Target
 {
     float2 uv = input.TexCoord;
     float depth = DepthTexture.SampleLevel(SamplerPointClamp, uv, 0).r;
+    depth = 1;
+    int2 coords = int2((uv.x * Size.x), (uv.y * Size.y));
     
-    int2 coords = int2((uv.x * Dimensions.x), (uv.y * Dimensions.y));
+    float4 overlay = float4(1,1,1,1);
+    if (inBox(TestRect.xy, TestRect.zw, coords)) 
+    {
+        overlay = float4(1, 0.5, 0.5, 1);
+      //  return float4(1,0,0,1);
+    }
+
     float hzbDepth = HZBTexture[coords];
     if (hzbDepth != 0)
     { // draw hzb on top of base depth texture
         depth = hzbDepth;
     }
- //   return float4(depth, depth, depth, 1);
 
     float3 viewPos = GetViewPos(uv, depth, InvProjectionMatrix);
 	float3 result = viewPos.z / ViewFar;
-	return float4(result, 1);
+	return float4(result, 1) * overlay;
 }
