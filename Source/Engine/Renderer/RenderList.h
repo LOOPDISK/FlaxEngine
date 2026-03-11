@@ -333,6 +333,7 @@ API_CLASS(Sealed) class FLAXENGINE_API RenderList : public ScriptingObject
     /// </summary>
     /// <param name="cache">The cache.</param>
     API_FUNCTION() static void ReturnToPool(RenderList* cache);
+public: static String DBG;
 
     /// <summary>
     /// Cleanups the static data cache used to accelerate draw calls sorting. Use it to reduce memory pressure.

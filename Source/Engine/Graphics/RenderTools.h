@@ -85,6 +85,8 @@ public:
     /// <returns>The squared radius.</returns>
     static float ComputeBoundsScreenRadiusSquared(const Float3& origin, float radius, const Float3& viewOrigin, const Matrix& projectionMatrix);
 
+    static float ComputeBoundsScreenRadiusSquared(float distanceSquared, float radius, const Matrix& projectionMatrix);
+
     /// <summary>
     /// Computes the model LOD index to use during rendering.
     /// </summary>

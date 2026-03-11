@@ -409,6 +409,13 @@ float RenderTools::ComputeBoundsScreenRadiusSquared(const Float3& origin, float 
     return Math::Square(screenMultiple * radius) / Math::Max(1.0f, distSqr);
 }
 
+float RenderTools::ComputeBoundsScreenRadiusSquared(float distanceSquared, float radius, const Matrix& projectionMatrix)
+{
+    const float screenMultiple = 0.5f * Math::Max(projectionMatrix.Values[0][0], projectionMatrix.Values[1][1]);
+    distanceSquared *= projectionMatrix.Values[2][3];
+    return Math::Square(screenMultiple * radius) / Math::Max(1.0f, distanceSquared);
+}
+
 int32 RenderTools::ComputeModelLOD(const Model* model, const Float3& origin, float radius, const RenderContext& renderContext)
 {
     const auto lodView = (renderContext.LodProxyView ? renderContext.LodProxyView : &renderContext.View);

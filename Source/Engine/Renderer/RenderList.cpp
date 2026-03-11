@@ -656,6 +656,25 @@ void RenderList::AddDrawCall(const RenderContext& renderContext, DrawPass drawMo
     }
 }
 
+static bool CustomCullingCriteria(StaticFlags staticFlags, const RenderView& view, const BoundingSphere& bounds, float cullingDistanceSq, float minObjectPixelSizeSq)
+{
+    float distSq = Float3::DistanceSquared(view.Position, bounds.Center);
+    if ((staticFlags & StaticFlags::Occluder) == StaticFlags::None)
+    {
+        // non-occluders should just get culled after a certain distance
+        return (distSq < cullingDistanceSq);
+    }
+    else
+    {
+        if (distSq < cullingDistanceSq)
+        { // only do the minPixel check if the object is far away
+            return true;
+        }
+
+        return RenderTools::ComputeBoundsScreenRadiusSquared(bounds.Center, bounds.Radius, view) * (view.ScreenSize.X * view.ScreenSize.Y) >= minObjectPixelSizeSq;
+    }
+}
+
 void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawPass drawModes, StaticFlags staticFlags, ShadowsCastingMode shadowsMode, const BoundingSphere& bounds, DrawCall& drawCall, bool receivesDecals, int8 sortOrder)
 {
 #if ENABLE_ASSERTION_LOW_LAYERS
@@ -706,6 +725,8 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
         }
     }
     float minObjectPixelSizeSq = Math::Square(Graphics::Shadows::MinObjectPixelSize);
+    float cullingDistanceSq = Math::Square(Graphics::Shadows::CullingDistance);
+
     for (int32 i = 1; i < renderContextBatch.Contexts.Count(); i++)
     {
         const RenderContext& renderContext = renderContextBatch.Contexts.Get()[i];
@@ -714,9 +735,9 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
         // TODO: DSM frustum culling is broken - skip for now
         const bool frustumCheck = true; // renderContext.View.CullingFrustum.Intersects(bounds);
         if (drawModes != DrawPass::None &&
-            (staticFlags & renderContext.View.StaticFlagsMask) == renderContext.View.StaticFlagsCompare &&
-            frustumCheck &&
-            RenderTools::ComputeBoundsScreenRadiusSquared(bounds.Center, bounds.Radius, renderContext.View) * (renderContext.View.ScreenSize.X * renderContext.View.ScreenSize.Y) >= minObjectPixelSizeSq)
+            renderContext.View.CullingFrustum.Intersects(bounds) &&
+            (staticFlags & renderContext.View.StaticFlagsMask) == renderContext.View.StaticFlagsCompare
+            && CustomCullingCriteria(staticFlags, mainRenderContext.View, bounds, cullingDistanceSq, minObjectPixelSizeSq))
         {
             renderContext.List->ShadowDepthDrawCallsList.Indices.Add(index);
         }
