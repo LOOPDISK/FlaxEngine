@@ -30,17 +30,22 @@
 #define HZB_FORMAT PixelFormat::R32_Float
 #define HZB_BOUNDS_BIAS 1.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
 
+namespace
+{
+    CriticalSection DownloadsLocker;
+}
+
 /// <summary>
 /// Custom task called after downloading HZB texture data to save it.
 /// </summary>
 class UploadHZBTask : public ThreadPoolTask
 {
 private:
-    int _index = 0;
+    int64 _index = 0;
     HZBData* _info;
 
 public:
-    UploadHZBTask(HZBData* info, int i) : _info(info), _index(i) { }
+    UploadHZBTask(HZBData* info, int64 i) : _info(info), _index(i) { }
     bool Run() override
     {
         _info->CompleteDownload(_index);
@@ -278,8 +283,9 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
         return;
     }
 
-    HZBFrame* renderFrame = &info->_frames[info->_nextRenderFrameIndex];
-    info->_nextRenderFrameIndex = (info->_nextRenderFrameIndex + 1) % HZB_FRAME_COUNT;
+    int64 currentIndex = info->_nextRenderFrameIndex;
+    HZBFrame* renderFrame = &info->_frames[currentIndex % HZB_FRAME_COUNT];
+    info->_nextRenderFrameIndex = info->_nextRenderFrameIndex + 1;
 
     if (renderFrame->IsDownloading)
         return;
@@ -378,7 +384,7 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
     // Create async job to gather hzb data from the GPU
     context->CopyTexture(renderFrame->StagingTexture, 0, 0, 0, 0, info->_hzbTexture, 0);
     renderFrame->IsDownloading = true;
-    Task* uploadTask = New<UploadHZBTask>(info, renderFrame->Index);
+    Task* uploadTask = New<UploadHZBTask>(info, currentIndex);
     Task* downloadTask = renderFrame->StagingTexture->DownloadDataAsync(renderFrame->TextureData);
 
     if (downloadTask == nullptr)
@@ -469,17 +475,19 @@ bool HZBData::CheckSkip()
         }
     }
 
-    if (_nextRenderFrameIndex == CurrentFrameIndex)
+    if (_nextRenderFrameIndex >= CurrentFrameIndex + HZB_FRAME_COUNT)
     { // already far ahead, skip to let downloads catch up
         return true;
     }
     return false;
 }
 
-void HZBData::CompleteDownload(int index)
+void HZBData::CompleteDownload(int64 index)
 {
-    CurrentFrameIndex = index;
-    _frames[index].IsDownloading = false;
+    DownloadsLocker.Lock();
+    CurrentFrameIndex = Math::Max(CurrentFrameIndex, index);
+    _frames[index % HZB_FRAME_COUNT].IsDownloading = false;
+    DownloadsLocker.Unlock();
 }
 
  bool HZBData::GetOcclusionBounds(const BoundingSphere& bounds, int& startX, int& endX, int& startY, int& endY, float& targetDistance, TextureMipData*& data)
@@ -488,7 +496,7 @@ void HZBData::CompleteDownload(int index)
      if (!_isReady) return false;
      if (CurrentFrameIndex < 0) return false;
 
-     HZBFrame* activeFrame = &_frames[CurrentFrameIndex];
+     HZBFrame* activeFrame = &_frames[CurrentFrameIndex % HZB_FRAME_COUNT];
      // no data yet
      if (activeFrame->TextureData.GetArraySize() == 0)
          return false;

@@ -69,7 +69,7 @@ private:
 /// </summary>
 struct HZBFrame
 {
-    int Index = 0;
+    int64 Index = 0;
     bool IsDownloading = false;
     GPUTexture* StagingTexture = nullptr;
     TextureData TextureData;
@@ -93,20 +93,18 @@ public:
     void Dispose();
     bool CheckSkip();
     int Id = 0;
-    int CurrentFrameIndex = -1;
+    volatile int64 CurrentFrameIndex = -1;
 
 private:
     bool _isReady = false;
     bool _isValid = true;
     Float2 _resolution;
     int _nextRenderFrameIndex = 0;
-    void CompleteDownload(int frameIndex);
+    void CompleteDownload(int64 frameIndex);
 
     GPUTexture* _depthTexture = nullptr;
     GPUTexture* _hzbTexture = nullptr;
     HZBFrame _frames[HZB_FRAME_COUNT];
-
-    //Array<Rectangle> _debugArray;
 
 public:
     /// <summary>
