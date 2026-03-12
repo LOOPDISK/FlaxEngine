@@ -4,6 +4,7 @@
 
 #if USE_EDITOR
 
+#include "Engine/Core/Collections/HashSet.h"
 #include "Engine/Core/ObjectsRemovalService.h"
 #include "Engine/Core/Cache.h"
 #include "Engine/Core/Types/TimeSpan.h"
@@ -317,6 +318,7 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
         if (!newTargetActor)
         {
             LOG(Error, "Missing root object {0} for prefab instance {1}", defaultInstance->ToString(), oldTargetActor->ToString());
+            continue;
         }
         else if (oldTargetActor != newTargetActor)
         {
@@ -1386,29 +1388,106 @@ void Prefab::SyncNestedPrefabs(const NestedPrefabsList& allPrefabs, Array<Prefab
     PROFILE_CPU();
     LOG(Info, "Updating referencing prefabs");
 
-    // TODO: this may not work well for very complex prefab nesting -> loop order matters, maybe build a graph of dependencies?
+    const int32 count = allPrefabs.Count();
+    if (count == 0)
+        return;
 
-    // Call recursive for all referencing prefab assets to refresh nested prefabs
-    for (int32 i = 0; i < allPrefabs.Count(); i++)
+    // Build a map from prefab ID to index in allPrefabs for quick lookup
+    Dictionary<Guid, int32> idToIndex;
+    idToIndex.EnsureCapacity(count);
+    for (int32 i = 0; i < count; i++)
     {
-        auto nestedPrefab = allPrefabs[i].Get();
-        if (nestedPrefab)
-        {
-            if (nestedPrefab->WaitForLoaded())
-            {
-                LOG(Warning, "Waiting for prefab asset load failed.");
-                continue;
-            }
+        auto prefab = allPrefabs[i].Get();
+        if (prefab)
+            idToIndex[prefab->GetID()] = i;
+    }
 
-            // Sync only if prefab is used by this prefab (directly) and it has been captured before
-            const int32 nestedPrefabIndex = nestedPrefab->NestedPrefabs.Find(GetID());
-            if (nestedPrefabIndex != -1)
+    // Build dependency graph: if allPrefabs[i] nests allPrefabs[j], then j must be synced before i
+    // Edges go from dependency to dependent (j -> i)
+    Array<Array<int32>> adj;
+    Array<int32> inDegree;
+    adj.Resize(count);
+    inDegree.Resize(count);
+    for (int32 i = 0; i < count; i++)
+        inDegree[i] = 0;
+    for (int32 i = 0; i < count; i++)
+    {
+        auto prefab = allPrefabs[i].Get();
+        if (!prefab)
+            continue;
+        for (int32 n = 0; n < prefab->NestedPrefabs.Count(); n++)
+        {
+            int32 j;
+            if (idToIndex.TryGet(prefab->NestedPrefabs[n], j))
             {
-                if (nestedPrefab->SyncChangesInternal(allPrefabsInstancesData[i]))
-                    continue;
-                nestedPrefab->SyncNestedPrefabs(allPrefabs, allPrefabsInstancesData);
-                ObjectsRemovalService::Flush();
+                // prefab[i] nests prefab[j] -> j must be processed before i
+                adj[j].Add(i);
+                inDegree[i]++;
             }
+        }
+    }
+
+    // Topological sort (Kahn's algorithm)
+    Array<int32> order;
+    order.EnsureCapacity(count);
+    Array<int32> queue;
+    for (int32 i = 0; i < count; i++)
+    {
+        if (inDegree[i] == 0)
+            queue.Add(i);
+    }
+    while (queue.HasItems())
+    {
+        const int32 u = queue.Last();
+        queue.RemoveLast();
+        order.Add(u);
+        for (int32 k = 0; k < adj[u].Count(); k++)
+        {
+            const int32 v = adj[u][k];
+            if (--inDegree[v] == 0)
+                queue.Add(v);
+        }
+    }
+
+    // Any nodes not in order have circular dependencies (already prevented by cyclic ref detection, but handle gracefully)
+    for (int32 i = 0; i < count; i++)
+    {
+        if (inDegree[i] > 0)
+            order.Add(i);
+    }
+
+    // Process prefabs in dependency order, syncing each at most once
+    // Track which prefabs have been synced so we can propagate transitively
+    HashSet<Guid> syncedIds;
+    syncedIds.Add(GetID());
+    for (int32 idx = 0; idx < order.Count(); idx++)
+    {
+        const int32 i = order[idx];
+        auto nestedPrefab = allPrefabs[i].Get();
+        if (!nestedPrefab)
+            continue;
+        if (nestedPrefab->WaitForLoaded())
+        {
+            LOG(Warning, "Waiting for prefab asset load failed.");
+            continue;
+        }
+
+        // Check if this prefab directly nests any already-synced prefab
+        bool needsSync = false;
+        for (int32 n = 0; n < nestedPrefab->NestedPrefabs.Count(); n++)
+        {
+            if (syncedIds.Contains(nestedPrefab->NestedPrefabs[n]))
+            {
+                needsSync = true;
+                break;
+            }
+        }
+
+        if (needsSync)
+        {
+            if (!nestedPrefab->SyncChangesInternal(allPrefabsInstancesData[i]))
+                syncedIds.Add(nestedPrefab->GetID());
+            ObjectsRemovalService::Flush();
         }
     }
 }
