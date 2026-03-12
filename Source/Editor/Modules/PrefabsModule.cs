@@ -234,6 +234,56 @@ namespace FlaxEditor.Modules
         }
 
         /// <summary>
+        /// Resets the selected prefab instance to its default state by deleting it and spawning a fresh copy from the prefab asset.
+        /// </summary>
+        public void ResetPrefab()
+        {
+            // Skip in invalid states
+            if (!Editor.StateMachine.CurrentState.CanEditScene)
+                return;
+
+            var selection = Editor.SceneEditing.Selection.Where(x => x is ActorNode actorNode && actorNode.HasPrefabLink).ToList().BuildNodesParents();
+            if (selection.Count == 0)
+                return;
+
+            var actor = ((ActorNode)selection[0]).Actor;
+            if (!actor || !actor.HasPrefabLink)
+                return;
+
+            // Find the prefab root
+            var prefabRoot = actor.GetPrefabRoot();
+            if (prefabRoot == null)
+                prefabRoot = actor;
+
+            var prefabId = prefabRoot.PrefabID;
+            var parent = prefabRoot.Parent;
+            var localTransform = prefabRoot.LocalTransform;
+            var name = prefabRoot.Name;
+            var orderInParent = prefabRoot.OrderInParent;
+
+            // Delete the old instance
+            Editor.SceneEditing.Deselect();
+            var scene = prefabRoot.Scene;
+            FlaxEngine.Object.Destroy(prefabRoot);
+            FlaxEngine.Scripting.FlushRemovedObjects();
+
+            // Spawn fresh from prefab
+            var prefab = FlaxEngine.Content.LoadAsync<Prefab>(prefabId);
+            var newActor = PrefabManager.SpawnPrefab(prefab, parent);
+            if (newActor != null)
+            {
+                newActor.LocalTransform = localTransform;
+                newActor.Name = name;
+                newActor.OrderInParent = orderInParent;
+                Editor.Scene.MarkSceneEdited(scene);
+
+                var newNode = SceneGraph.SceneGraphFactory.FindNode(newActor.ID);
+                if (newNode != null)
+                    Editor.SceneEditing.Select(newNode);
+            }
+        }
+
+        /// <summary>
         /// Applies the difference from the prefab object instance, saves the changes and synchronizes them with the active instances of the prefab asset.
         /// </summary>
         /// <remarks>

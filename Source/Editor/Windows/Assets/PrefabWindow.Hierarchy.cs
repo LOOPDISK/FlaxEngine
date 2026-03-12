@@ -328,6 +328,18 @@ namespace FlaxEditor.Windows.Assets
             b = contextMenu.AddButton("Select Prefab", Editor.Prefabs.SelectPrefab);
             b.Enabled = hasPrefabLink;
 
+            bool isNestedPrefab = false;
+            if (hasPrefabLink && isSingleActorSelected && !isRootSelected)
+            {
+                var prefabObjectId = ((ActorNode)Selection[0]).Actor.PrefabObjectID;
+                isNestedPrefab = Asset.GetNestedObject(ref prefabObjectId, out var nestedId, out _) && nestedId != Guid.Empty;
+            }
+            b = contextMenu.AddButton("Reset Prefab", ResetNestedPrefab);
+            b.Enabled = isNestedPrefab;
+
+            b = contextMenu.AddButton("Relink to Prefab...", RelinkToPrefab);
+            b.Enabled = isSingleActorSelected && !isRootSelected;
+
             // Spawning actors options
 
             contextMenu.AddSeparator();

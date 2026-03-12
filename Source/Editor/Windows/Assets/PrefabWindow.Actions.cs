@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using FlaxEditor.Actions;
+using FlaxEditor.Content;
+using FlaxEditor.GUI;
 using FlaxEditor.SceneGraph;
 using FlaxEngine;
 using Object = FlaxEngine.Object;
@@ -308,6 +310,148 @@ namespace FlaxEditor.Windows.Assets
 
                 _window = null;
             }
+        }
+
+        /// <summary>
+        /// Resets a nested prefab instance to its default state by deleting it and spawning a fresh copy from the prefab asset.
+        /// </summary>
+        public void ResetNestedPrefab()
+        {
+            if (Selection.Count != 1 || !(Selection[0] is ActorNode actorNode))
+                return;
+
+            var actor = actorNode.Actor;
+            if (!actor.HasPrefabLink)
+                return;
+
+            // Check this actor is part of a nested prefab
+            var prefabObjectId = actor.PrefabObjectID;
+            if (!Asset.GetNestedObject(ref prefabObjectId, out var nestedPrefabId, out _) || nestedPrefabId == Guid.Empty)
+                return;
+
+            // Walk up to find the root of the nested prefab instance:
+            // the highest ancestor still part of the same nested prefab
+            var prefabRoot = actor;
+            var current = actor.Parent;
+            while (current != null && current != Graph.MainActor)
+            {
+                var parentObjectId = current.PrefabObjectID;
+                if (Asset.GetNestedObject(ref parentObjectId, out var parentNestedId, out _) && parentNestedId == nestedPrefabId)
+                {
+                    prefabRoot = current;
+                }
+                else
+                {
+                    break;
+                }
+                current = current.Parent;
+            }
+
+            var parent = prefabRoot.Parent;
+            var localTransform = prefabRoot.LocalTransform;
+            var name = prefabRoot.Name;
+            var orderInParent = prefabRoot.OrderInParent;
+
+            // Deselect
+            var deselectAction = new SelectionChangeAction(Selection.ToArray(), new SceneGraphNode[0], OnSelectionUndo);
+            deselectAction.Do();
+
+            // Delete the old instance (prefab window actors need manual scene graph cleanup)
+            var node = SceneGraphFactory.FindNode(prefabRoot.ID);
+            if (node is ActorNode an)
+                an.Actor.Parent = null;
+            node?.Delete();
+            node?.Dispose();
+            FlaxEngine.Scripting.FlushRemovedObjects();
+
+            // Spawn fresh from the nested prefab
+            var prefab = FlaxEngine.Content.LoadAsync<Prefab>(nestedPrefabId);
+            var newActor = PrefabManager.SpawnPrefab(prefab, parent);
+            if (newActor != null)
+            {
+                newActor.LocalTransform = localTransform;
+                newActor.Name = name;
+                newActor.OrderInParent = orderInParent;
+
+                // Ensure scene graph node exists (LocalSceneGraph.OnActorSpawned should handle this, but be safe)
+                var newNode = SceneGraphFactory.FindNode(newActor.ID) as ActorNode ?? SceneGraphFactory.BuildActorNode(newActor);
+                if (newNode != null)
+                {
+                    var parentNode = SceneGraphFactory.FindNode(parent.ID) as ActorNode;
+                    if (parentNode != null)
+                        newNode.ParentNode = parentNode;
+                    newNode.TreeNode.UnlockChildrenRecursive();
+                    Select(newNode);
+                }
+            }
+
+            MarkAsEdited();
+            _treePanel.PerformLayout();
+        }
+
+        /// <summary>
+        /// Shows a prefab picker, then deletes the selected actor and spawns a fresh instance from the chosen prefab.
+        /// Used when a nested prefab instance has lost its prefab link and can't be auto-detected.
+        /// </summary>
+        public void RelinkToPrefab()
+        {
+            if (Selection.Count != 1 || !(Selection[0] is ActorNode actorNode))
+                return;
+
+            var actor = actorNode.Actor;
+            if (actor == Graph.MainActor)
+                return;
+
+            // Show prefab asset picker
+            AssetSearchPopup.Show(_treePanel, new Float2(_treePanel.Width * 0.5f, _treePanel.Height * 0.5f), item => item is PrefabItem, item =>
+            {
+                // Re-check selection is still valid
+                if (Selection.Count != 1 || !(Selection[0] is ActorNode selectedNode))
+                    return;
+                var targetActor = selectedNode.Actor;
+                if (!targetActor || targetActor == Graph.MainActor)
+                    return;
+
+                var parent = targetActor.Parent;
+                var localTransform = targetActor.LocalTransform;
+                var name = targetActor.Name;
+                var orderInParent = targetActor.OrderInParent;
+
+                // Deselect
+                Deselect();
+
+                // Delete the old instance (prefab window actors need manual scene graph cleanup)
+                var node = SceneGraphFactory.FindNode(targetActor.ID);
+                if (node is ActorNode an)
+                    an.Actor.Parent = null;
+                node?.Delete();
+                node?.Dispose();
+                FlaxEngine.Scripting.FlushRemovedObjects();
+
+                // Spawn fresh from the chosen prefab
+                var prefab = FlaxEngine.Content.LoadAsync<Prefab>(item.ID);
+                var newActor = PrefabManager.SpawnPrefab(prefab, parent);
+                if (newActor != null)
+                {
+                    newActor.LocalTransform = localTransform;
+                    newActor.Name = name;
+                    newActor.OrderInParent = orderInParent;
+
+                    var newNode = SceneGraphFactory.FindNode(newActor.ID) as ActorNode ?? SceneGraphFactory.BuildActorNode(newActor);
+                    if (newNode != null)
+                    {
+                        var parentNode = SceneGraphFactory.FindNode(parent.ID) as ActorNode;
+                        if (parentNode != null)
+                            newNode.ParentNode = parentNode;
+                        newNode.TreeNode.UnlockChildrenRecursive();
+                        Select(newNode);
+                    }
+                }
+
+                MarkAsEdited();
+                Save();
+                _treePanel.PerformLayout();
+            });
         }
 
         /// <summary>
