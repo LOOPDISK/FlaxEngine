@@ -9,6 +9,7 @@ class StylizedCloudParticleMaterialShader : public MaterialShader
 {
 private:
     GPUPipelineState* _psCloudPrePass = nullptr;
+    GPUPipelineState* _psCloudPrePassRibbon = nullptr;
 
 public:
     /// <summary>

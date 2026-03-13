@@ -1256,7 +1256,7 @@ void Particles::DrawParticles(RenderContextBatch& renderContextBatch, ParticleEf
                 const auto moduleDrawModes = module->Values.Count() > 6 ? (DrawPass)module->Values[6].AsInt : DrawPass::Default;
                 if (!material ||
                     !material->IsReady() ||
-                    !material->IsParticle() ||
+                    !(material->IsParticle() || material->GetInfo().Domain == MaterialDomain::StylizedCloudParticle) ||
                     (viewsDrawModes & material->GetDrawModes() & moduleDrawModes) == DrawPass::None
                 )
                     break;

@@ -24,6 +24,17 @@ PACK_STRUCT(struct StylizedCloudParticleMaterialShaderData {
     int32 RotationOffset;
     int32 ScaleOffset;
     int32 ModelFacingModeOffset;
+    // Ribbon data (aligned to 16-byte HLSL register boundaries)
+    Float2 RibbonUVScale;
+    Float2 RibbonUVOffset;
+    float RibbonUVTilingDistance;
+    int32 RibbonWidthOffset;
+    int32 RibbonTwistOffset;
+    int32 RibbonFacingVectorOffset;
+    uint32 RibbonSegmentCount;
+    float RibbonPadding0;
+    float RibbonPadding1;
+    float RibbonPadding2;
     Matrix3x4 WorldMatrixInverseTransposed;
     // Cloud lighting data
     Matrix ViewProjection;
@@ -87,7 +98,7 @@ void StylizedCloudParticleMaterialShader::Bind(BindParameters& params)
         }
     }
 
-    // Setup material constants - particle data
+    // Setup material constants - particle data (common)
     {
         static StringView ParticlePosition(TEXT("Position"));
         static StringView ParticleVelocityOffset(TEXT("Velocity"));
@@ -108,6 +119,35 @@ void StylizedCloudParticleMaterialShader::Bind(BindParameters& params)
         Matrix worldMatrixInverseTransposed;
         Matrix::Invert(drawCall.World, worldMatrixInverseTransposed);
         materialData->WorldMatrixInverseTransposed.SetMatrix(worldMatrixInverseTransposed);
+    }
+
+    // Setup ribbon-specific material constants
+    bool isRibbon = false;
+    switch (drawCall.Particle.Module->TypeID)
+    {
+    // Ribbon Rendering
+    case 404:
+    {
+        isRibbon = true;
+
+        static StringView ParticleRibbonWidth(TEXT("RibbonWidth"));
+        static StringView ParticleRibbonTwist(TEXT("RibbonTwist"));
+        static StringView ParticleRibbonFacingVector(TEXT("RibbonFacingVector"));
+
+        materialData->RibbonWidthOffset = drawCall.Particle.Particles->Layout->FindAttributeOffset(ParticleRibbonWidth, ParticleAttribute::ValueTypes::Float, -1);
+        materialData->RibbonTwistOffset = drawCall.Particle.Particles->Layout->FindAttributeOffset(ParticleRibbonTwist, ParticleAttribute::ValueTypes::Float, -1);
+        materialData->RibbonFacingVectorOffset = drawCall.Particle.Particles->Layout->FindAttributeOffset(ParticleRibbonFacingVector, ParticleAttribute::ValueTypes::Float3, -1);
+
+        materialData->RibbonUVTilingDistance = drawCall.Particle.Ribbon.UVTilingDistance;
+        materialData->RibbonUVScale.X = drawCall.Particle.Ribbon.UVScaleX;
+        materialData->RibbonUVScale.Y = drawCall.Particle.Ribbon.UVScaleY;
+        materialData->RibbonUVOffset.X = drawCall.Particle.Ribbon.UVOffsetX;
+        materialData->RibbonUVOffset.Y = drawCall.Particle.Ribbon.UVOffsetY;
+        materialData->RibbonSegmentCount = drawCall.Particle.Ribbon.SegmentCount;
+        break;
+    }
+    default:
+        break;
     }
 
     // Setup material constants - cloud lighting data
@@ -135,19 +175,38 @@ void StylizedCloudParticleMaterialShader::Bind(BindParameters& params)
     }
 
     // Bind pipeline
-    if (_psCloudPrePass == nullptr)
+    if (isRibbon)
     {
-        GPUPipelineState::Description psDesc = GPUPipelineState::Description::Default;
-        psDesc.VS = _shader->GetVS("VS_Model");
-        psDesc.PS = _shader->GetPS("PS_CloudPrePass");
-        psDesc.DepthEnable = true;
-        psDesc.DepthWriteEnable = true;
-        psDesc.DepthFunc = ComparisonFunc::Less;
-        psDesc.CullMode = _info.CullMode;
-        _psCloudPrePass = GPUDevice::Instance->CreatePipelineState();
-        _psCloudPrePass->Init(psDesc);
+        if (_psCloudPrePassRibbon == nullptr)
+        {
+            GPUPipelineState::Description psDesc = GPUPipelineState::Description::Default;
+            psDesc.VS = _shader->GetVS("VS_Ribbon");
+            psDesc.PS = _shader->GetPS("PS_CloudPrePass");
+            psDesc.DepthEnable = true;
+            psDesc.DepthWriteEnable = true;
+            psDesc.DepthFunc = ComparisonFunc::Less;
+            psDesc.CullMode = CullMode::TwoSided;
+            _psCloudPrePassRibbon = GPUDevice::Instance->CreatePipelineState();
+            _psCloudPrePassRibbon->Init(psDesc);
+        }
+        context->SetState(_psCloudPrePassRibbon);
     }
-    context->SetState(_psCloudPrePass);
+    else
+    {
+        if (_psCloudPrePass == nullptr)
+        {
+            GPUPipelineState::Description psDesc = GPUPipelineState::Description::Default;
+            psDesc.VS = _shader->GetVS("VS_Model");
+            psDesc.PS = _shader->GetPS("PS_CloudPrePass");
+            psDesc.DepthEnable = true;
+            psDesc.DepthWriteEnable = true;
+            psDesc.DepthFunc = ComparisonFunc::Less;
+            psDesc.CullMode = _info.CullMode;
+            _psCloudPrePass = GPUDevice::Instance->CreatePipelineState();
+            _psCloudPrePass->Init(psDesc);
+        }
+        context->SetState(_psCloudPrePass);
+    }
 }
 
 void StylizedCloudParticleMaterialShader::Unload()
@@ -156,6 +215,7 @@ void StylizedCloudParticleMaterialShader::Unload()
     MaterialShader::Unload();
 
     SAFE_DELETE_GPU_RESOURCE(_psCloudPrePass);
+    SAFE_DELETE_GPU_RESOURCE(_psCloudPrePassRibbon);
 }
 
 bool StylizedCloudParticleMaterialShader::Load()

@@ -25,6 +25,17 @@ int VelocityOffset;
 int RotationOffset;
 int ScaleOffset;
 int ModelFacingModeOffset;
+// Ribbon data (aligned to 16-byte register boundaries)
+float2 RibbonUVScale;
+float2 RibbonUVOffset;
+float RibbonUVTilingDistance;
+int RibbonWidthOffset;
+int RibbonTwistOffset;
+int RibbonFacingVectorOffset;
+uint RibbonSegmentCount;
+float RibbonPadding0;
+float RibbonPadding1;
+float RibbonPadding2;
 float4x3 WorldMatrixInverseTransposed;
 // Cloud lighting data
 float4x4 ViewProjection;
@@ -249,6 +260,14 @@ struct Cloud_VS2PS
 #endif
 };
 
+struct RibbonInput
+{
+	uint Order : TEXCOORD0;
+	uint ParticleIndex : TEXCOORD1;
+	uint PrevParticleIndex : TEXCOORD2;
+	float Distance : TEXCOORD3;
+};
+
 struct CloudPrePassOutput
 {
 	float4 Color : SV_Target0;
@@ -355,6 +374,111 @@ Cloud_VS2PS VS_Model(ModelInput input, uint particleIndex : SV_InstanceID)
 #if USE_VERTEX_COLOR
 	materialInput.VertexColor = input.Color;
 #endif
+
+	Material material = GetMaterialVS(materialInput);
+
+	// Apply world position offset per-vertex
+#if USE_POSITION_OFFSET
+	output.WorldPos += material.PositionOffset;
+	output.Position = mul(float4(output.WorldPos, 1), ViewProjection);
+#endif
+
+#if USE_CUSTOM_VERTEX_INTERPOLATORS
+	output.CustomVSToPS = materialInput.CustomVSToPS;
+#endif
+
+	return output;
+}
+
+// Vertex Shader function for Ribbon Rendering
+META_VS(true, FEATURE_LEVEL_ES2)
+META_VS_IN_ELEMENT(TEXCOORD, 0, R32_UINT,   0, 0,     PER_VERTEX, 0, true)
+META_VS_IN_ELEMENT(TEXCOORD, 1, R32_UINT,   0, ALIGN, PER_VERTEX, 0, true)
+META_VS_IN_ELEMENT(TEXCOORD, 2, R32_UINT,   0, ALIGN, PER_VERTEX, 0, true)
+META_VS_IN_ELEMENT(TEXCOORD, 3, R32_FLOAT,  0, ALIGN, PER_VERTEX, 0, true)
+Cloud_VS2PS VS_Ribbon(RibbonInput input, uint vertexIndex : SV_VertexID)
+{
+	Cloud_VS2PS output;
+
+	// Get particle data
+	uint particleIndex = input.ParticleIndex;
+	int vertexSign = (((int)vertexIndex & 0x1) * 2) - 1;
+	float3 position = GetParticlePosition(particleIndex);
+	float ribbonWidth = RibbonWidthOffset != -1 ? GetParticleFloat(particleIndex, RibbonWidthOffset) : 20.0f;
+	float ribbonTwist = RibbonTwistOffset != -1 ? GetParticleFloat(particleIndex, RibbonTwistOffset) : 0.0f;
+
+	// Calculate ribbon direction
+	float3 direction;
+	if (input.Order == 0)
+	{
+		direction = GetParticlePosition(input.PrevParticleIndex) - position;
+	}
+	else
+	{
+		direction = position - GetParticlePosition(input.PrevParticleIndex);
+	}
+
+	// Calculate particle orientation (tangent vectors)
+	float3 cameraDirection = SafeNormalize(ViewPos - position);
+	float3 tangentUp = SafeNormalize(direction);
+	float3 facing = RibbonFacingVectorOffset != -1 ? GetParticleVec3(particleIndex, RibbonFacingVectorOffset) : cameraDirection;
+	float twistSine, twistCosine;
+	sincos(radians(ribbonTwist), twistSine, twistCosine);
+	facing = facing * twistCosine + cross(facing, tangentUp) * twistSine + tangentUp * dot(tangentUp, facing) * (1 - twistCosine);
+	float3 tangentRight = SafeNormalize(cross(tangentUp, facing));
+	if (!any(tangentRight))
+	{
+		tangentRight = SafeNormalize(cross(tangentUp, float3(0.0f, 0.0f, 1.0f)));
+	}
+
+	// Calculate texture coordinates
+	float2 texCoord;
+	if (RibbonUVTilingDistance != 0.0f)
+	{
+		texCoord.x = input.Distance / RibbonUVTilingDistance;
+	}
+	else
+	{
+		texCoord.x = (float)input.Order / (float)RibbonSegmentCount;
+	}
+	texCoord.y = (float)((vertexIndex + 1) & 0x1);
+	texCoord = texCoord * RibbonUVScale + RibbonUVOffset;
+	output.TexCoord = texCoord;
+
+	// Compute world space vertex position
+	float3 worldPos = position + tangentRight * vertexSign * (ribbonWidth.xxx * 0.5f);
+	output.WorldPos = worldPos;
+
+	// Compute clip space position using cloud-specific ViewProjection
+	output.Position = mul(float4(worldPos, 1), ViewProjection);
+
+	// Calculate world normal from ribbon tangent frame
+	output.WorldNormal = normalize(cross(tangentRight, tangentUp));
+
+	// Pass vertex attributes
+	output.ParticleIndex = particleIndex;
+#if USE_VERTEX_COLOR
+	output.VertexColor = 1;
+#endif
+
+	// Build material input for VS
+	MaterialInput materialInput = (MaterialInput)0;
+	materialInput.WorldPosition = worldPos;
+	materialInput.TexCoord = texCoord;
+	materialInput.ParticleIndex = particleIndex;
+#if USE_VERTEX_COLOR
+	materialInput.VertexColor = 1;
+#endif
+	half3x3 tangentToLocal = half3x3(tangentRight, tangentUp, cross(tangentRight, tangentUp));
+	float4x4 world = ToMatrix4x4(WorldMatrix);
+	half3x3 tangentToWorld = CalcTangentToWorld(world, tangentToLocal);
+	materialInput.TBN = (float3x3)tangentToWorld;
+	materialInput.TwoSidedSign = 1.0f;
+	materialInput.SvPosition = output.Position;
+	materialInput.PreSkinnedPosition = position;
+	materialInput.PreSkinnedNormal = tangentToLocal[2].xyz;
+	materialInput.InstanceOrigin = world[3].xyz;
+	materialInput.InstanceParams = PerInstanceRandom;
 
 	Material material = GetMaterialVS(materialInput);
 
