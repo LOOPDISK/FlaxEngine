@@ -1983,15 +1983,17 @@ void PhysicsBackend::EndSimulateScene(void* scene)
             for (int32 i = maxDepth; i >= 0; i--)
             {
                 auto bucket = SolverDepthBuckets[i];
-                if (bucket.Count() > 25 && JobSystem::GetThreadsCount() > 1)
-                {
-                    // Run in async via job system if there a lot of items
-                    CachedBucketIndex = i;
-                    CachedActiveActorsCount = bucket.Count();
-                    CachedActiveActorIndex = -1;
-                    JobSystem::Execute(FlushActiveTransforms, JobSystem::GetThreadsCount());
-                }
-                else
+                // I can't seem to get async updates to work properly. 
+                // Something about how they propogate transforms breaks the collisions between them.
+                //if (bucket.Count() > 25 && JobSystem::GetThreadsCount() > 1)
+                //{
+                //    // Run in async via job system if there a lot of items
+                //    CachedBucketIndex = i;
+                //    CachedActiveActorsCount = bucket.Count();
+                //    CachedActiveActorIndex = -1;
+                //    JobSystem::Execute(FlushActiveTransforms, JobSystem::GetThreadsCount());
+                //}
+                //else
                 {
                     for (auto actor : bucket)
                     {
