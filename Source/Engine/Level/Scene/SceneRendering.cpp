@@ -135,12 +135,12 @@ FORCE_INLINE  bool SceneRendering::CheckVisibility(Actor* actor, const BoundingS
                 return true;
             }
         }
-        actor->_cullType = 0;
+       actor->_cullType = 0;
         return true;
     }
     if (_hzb)
     { // only mark as culled if HZBData was valid, meaning it was the main render task
-        actor->_cullType = 1;
+       actor->_cullType = 1;
     }
     return false;
 }
@@ -172,7 +172,7 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
     _drawBatch = &renderContextBatch;
     _drawCategory = category;
 
-  
+
     // Setup frustum data
     const int32 frustumsCount = renderContextBatch.Contexts.Count();
     _drawFrustumsData.Resize(frustumsCount);
@@ -211,18 +211,19 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
     }
 
     // Draw all visual components
-    _drawListIndex = -1;
     if (_drawListSize >= 64 && category == SceneDrawAsync && renderContextBatch.EnableAsync)
     {
         // Run in async via Job System
         Function<void(int32)> func;
         func.Bind<SceneRendering, &SceneRendering::DrawActorsJob>(this);
-        const int64 waitLabel = JobSystem::Dispatch(func, JobSystem::GetThreadsCount());
+        _drawJobCount = JobSystem::GetThreadsCount();
+        const int64 waitLabel = JobSystem::Dispatch(func, _drawJobCount);
         renderContextBatch.WaitLabels.Add(waitLabel);
     }
     else
     {
         // Scene is small so draw on a main-thread
+        _drawJobCount = 1;
         DrawActorsJob(0);
     }
 
@@ -357,7 +358,7 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
     key = -1;
 }
 
-#define FOR_EACH_BATCH_ACTOR const int64 count = _drawListSize; while (true) { const int64 index = Platform::InterlockedIncrement(&_drawListIndex); if (index >= count) break; auto e = _drawListData[index];
+#define FOR_EACH_BATCH_ACTOR  for (int index = i; index < _drawListSize; index += _drawJobCount) { auto e = _drawListData[index];
 #define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData)))
 #define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum)))
 #if SCENE_RENDERING_USE_PROFILER_PER_ACTOR
@@ -366,13 +367,12 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
 #define DRAW_ACTOR(mode) e.Actor->Draw(mode)
 #endif
 
-void SceneRendering::DrawActorsJob(int32)
+void SceneRendering::DrawActorsJob(int32 i)
 {
     PROFILE_CPU();
     PROFILE_MEM(Graphics);
     auto& mainContext = _drawBatch->GetMainContext();
     const auto& view = mainContext.View;
-
 
     if (view.StaticFlagsMask != StaticFlags::None)
     {
