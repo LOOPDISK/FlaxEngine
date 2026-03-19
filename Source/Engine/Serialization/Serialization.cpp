@@ -401,7 +401,12 @@ void Serialization::Deserialize(ISerializable::DeserializeStream& stream, Varian
 
 bool Serialization::ShouldSerialize(const Guid& v, const void* otherObj)
 {
-    return v.IsValid();
+    // Compare against default rather than just checking IsValid(), so that an
+    // Empty Guid override on a prefab instance is correctly serialized as a diff.
+    // Without this, clearing a Guid field on an instance silently reverts on reload.
+    if (!otherObj)
+        return true;
+    return v != *(Guid*)otherObj;
 }
 
 void Serialization::Serialize(ISerializable::SerializeStream& stream, const Guid& v, const void* otherObj)
@@ -420,10 +425,17 @@ void Serialization::Deserialize(ISerializable::DeserializeStream& stream, Guid& 
     const char* b = a + 8;
     const char* c = b + 8;
     const char* d = c + 8;
-    StringUtils::ParseHex(a, 8, &v.A);
-    StringUtils::ParseHex(b, 8, &v.B);
-    StringUtils::ParseHex(c, 8, &v.C);
-    StringUtils::ParseHex(d, 8, &v.D);
+    // Validate hex parsing to catch corrupted data (e.g. from git merge conflicts).
+    // JsonTools::GetGuid already does this check; this path did not.
+    bool failed = StringUtils::ParseHex(a, 8, &v.A);
+    failed |= StringUtils::ParseHex(b, 8, &v.B);
+    failed |= StringUtils::ParseHex(c, 8, &v.C);
+    failed |= StringUtils::ParseHex(d, 8, &v.D);
+    if (failed)
+    {
+        LOG(Warning, "Failed to parse Guid from string during deserialization.");
+        v = Guid::Empty;
+    }
 }
 
 bool Serialization::ShouldSerialize(const DateTime& v, const void* otherObj)

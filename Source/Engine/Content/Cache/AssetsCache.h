@@ -38,6 +38,27 @@ enum class AssetsCacheFlags : int32
 DECLARE_ENUM_OPERATORS(AssetsCacheFlags);
 
 /// <summary>
+/// Result of validating an asset cache entry.
+/// </summary>
+enum class EntryValidation
+{
+    /// <summary>
+    /// File verified, contains this asset.
+    /// </summary>
+    Valid,
+
+    /// <summary>
+    /// File missing or contains a different asset.
+    /// </summary>
+    Invalid,
+
+    /// <summary>
+    /// File exists but cannot be opened (locked by another process).
+    /// </summary>
+    Inaccessible,
+};
+
+/// <summary>
 /// Flax Game Engine assets cache container
 /// </summary>
 class FLAXENGINE_API AssetsCache
@@ -60,6 +81,11 @@ public:
         DateTime FileModified;
 #endif
 
+        /// <summary>
+        /// True if a warning about this entry being inaccessible has already been logged (prevents log spam). Runtime-only, not serialized.
+        /// </summary>
+        bool WarnedInaccessible = false;
+
         Entry()
         {
         }
@@ -69,6 +95,7 @@ public:
 #if ENABLE_ASSETS_DISCOVERY
             , FileModified(DateTime::NowUTC())
 #endif
+            , WarnedInaccessible(false)
         {
         }
     };
@@ -232,6 +259,6 @@ public:
     /// Determines whether cached asset entry is valid.
     /// </summary>
     /// <param name="e">The asset entry.</param>
-    /// <returns>True if is valid, otherwise false.</returns>
-    bool IsEntryValid(Entry& e);
+    /// <returns>The validation result.</returns>
+    EntryValidation IsEntryValid(Entry& e);
 };
