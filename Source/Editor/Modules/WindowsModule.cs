@@ -757,7 +757,7 @@ namespace FlaxEditor.Modules
         {
             Assert.IsNull(MainWindow);
 
-            _windowsLayoutPath = StringUtils.CombinePaths(Globals.ProjectCacheFolder, "WindowsLayout.xml");
+            _windowsLayoutPath = StringUtils.CombinePaths(Globals.ProjectFolder, "WindowsLayout.xml");
 
             // Create main window
             var settings = CreateWindowSettings.Default;
