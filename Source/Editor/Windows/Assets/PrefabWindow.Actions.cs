@@ -449,7 +449,6 @@ namespace FlaxEditor.Windows.Assets
                 }
 
                 MarkAsEdited();
-                Save();
                 _treePanel.PerformLayout();
             });
         }
