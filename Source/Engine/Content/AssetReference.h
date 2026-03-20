@@ -12,6 +12,7 @@ class FLAXENGINE_API AssetReferenceBase : public IAssetReference
 protected:
     Asset* _asset = nullptr;
     IAssetReference* _owner = nullptr;
+    Guid _id = Guid::Empty;
 
 public:
     /// <summary>
@@ -54,7 +55,7 @@ public:
     /// </summary>
     FORCE_INLINE Guid GetID() const
     {
-        return _asset ? _asset->GetID() : Guid::Empty;
+        return _id;
     }
 
     /// <summary>
@@ -170,6 +171,7 @@ public:
 
     FORCE_INLINE AssetReference& operator=(const Guid& id)
     {
+        _id = id;
         OnSet(::LoadAsset(id, T::TypeInitializer));
         return *this;
     }

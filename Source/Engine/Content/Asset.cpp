@@ -88,6 +88,7 @@ void AssetReferenceBase::OnSet(Asset* asset)
         if (e)
             e->RemoveReference(this);
         _asset = e = asset;
+        _id = e ? e->GetID() : Guid::Empty;
         if (e)
             e->AddReference(this);
         Changed();
@@ -427,6 +428,9 @@ void Asset::Reload()
 
         ScopeLock lock(Locker);
 
+        // Cancel any still-running loading task (e.g. if WaitForLoaded timed out)
+        Platform::AtomicStore(&_loadingTask, 0);
+
         if (IsLoaded())
         {
             // Unload current data
@@ -607,6 +611,13 @@ bool Asset::onLoad(LoadAssetTask* task)
     LogContextScope logContext(GetID());
 
     Locker.Lock();
+
+    // Re-check after acquiring lock (loading task may have been cleared by Reload)
+    if (Platform::AtomicRead(&_loadingTask) == 0)
+    {
+        Locker.Unlock();
+        return true;
+    }
 
     // Load asset
     LoadResult result;
