@@ -4,7 +4,6 @@
 
 #if USE_EDITOR
 
-#include "Engine/Core/Collections/HashSet.h"
 #include "Engine/Core/ObjectsRemovalService.h"
 #include "Engine/Core/Cache.h"
 #include "Engine/Core/Types/TimeSpan.h"
@@ -384,6 +383,10 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
         SceneObjectsFactory::PrefabSyncData prefabSyncData(*sceneObjects.Value, instance.Data, modifier.Value);
         SceneObjectsFactory::SetupPrefabInstances(context, prefabSyncData);
 
+        // Save base mapping before applying modifications (SetupIdsMapping accumulates per-instance
+        // entries that must not leak between different nested prefab instances)
+        auto baseIdsMapping = modifier.Value->IdsMapping;
+
         // Apply modifications
         for (int32 i = existingObjectsCount - 1; i >= 0; i--)
         {
@@ -395,6 +398,7 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
                 if (prefabObjectIdToDiffData.TryGet(obj->GetPrefabObjectID(), data))
                 {
                     // Apply prefab changes
+                    modifier.Value->IdsMapping = baseIdsMapping;
                     context.SetupIdsMapping(obj, modifier.Value);
                     obj->Deserialize(*(ISerializable::DeserializeStream*)data, modifier.Value);
                 }
@@ -428,6 +432,24 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
 
         ObjectsRemovalService::Flush();
 
+        // Rebuild IdsMapping after removals to exclude stale entries from deleted objects
+        modifier.Value->IdsMapping.Clear();
+        for (int32 i = 0; i < sceneObjects->Count(); i++)
+        {
+            SceneObject* obj = sceneObjects.Value->At(i);
+            if (obj && obj->HasPrefabLink())
+                modifier.Value->IdsMapping[obj->GetPrefabObjectID()] = obj->GetSceneObjectId();
+        }
+        for (int32 i = 0; i < newPrefabObjectIds.Count(); i++)
+        {
+            if (modifier.Value->IdsMapping.ContainsKey(newPrefabObjectIds[i]))
+                continue;
+            modifier->IdsMapping[newPrefabObjectIds[i]] = Guid::New();
+        }
+
+        // Save base mapping for local changes restoration
+        auto localBaseIdsMapping = modifier.Value->IdsMapping;
+
         // Restore local changes (for the existing scene objects)
         for (int32 i = 0; i < sceneObjects->Count(); i++)
         {
@@ -447,6 +469,7 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
                 data.RemoveMember("ParentID");
 #endif
 
+                modifier.Value->IdsMapping = localBaseIdsMapping;
                 context.SetupIdsMapping(obj, modifier.Value);
                 obj->Deserialize(data, modifier.Value);
 
@@ -1042,6 +1065,9 @@ bool Prefab::ApplyAllInternal(Actor* targetActor, bool linkTargetActorObjectToPr
             SceneObject* obj = sceneObjects->At(i);
             if (!obj)
                 continue;
+            // Restore base IdsMapping before each object to prevent stale entries from
+            // one nested prefab instance's mapping affecting another instance's ParentID resolution
+            modifier.Value->IdsMapping = originalIdsMapping;
             SceneObjectsFactory::Deserialize(context, obj, data[i]);
 
             int32 dataIndex;
@@ -1383,110 +1409,45 @@ bool Prefab::SyncChangesInternal(PrefabInstancesData& prefabInstancesData)
     return ApplyAllInternal(targetActor, false, prefabInstancesData);
 }
 
-void Prefab::SyncNestedPrefabs(const NestedPrefabsList& allPrefabs, Array<PrefabInstancesData>& allPrefabsInstancesData) const
+void Prefab::SyncNestedPrefabs(const NestedPrefabsList& allPrefabs, Array<PrefabInstancesData>& allPrefabsInstancesData, HashSet<Guid>* syncedIds) const
 {
     PROFILE_CPU();
     LOG(Info, "Updating referencing prefabs");
 
-    const int32 count = allPrefabs.Count();
-    if (count == 0)
-        return;
-
-    // Build a map from prefab ID to index in allPrefabs for quick lookup
-    Dictionary<Guid, int32> idToIndex;
-    idToIndex.EnsureCapacity(count);
-    for (int32 i = 0; i < count; i++)
+    // Track which prefabs have already been synced to prevent double-syncing
+    // through different cascade paths (e.g., A nests B and C, both nest D — D should only sync once)
+    HashSet<Guid> localSyncedIds;
+    if (!syncedIds)
     {
-        auto prefab = allPrefabs[i].Get();
-        if (prefab)
-            idToIndex[prefab->GetID()] = i;
+        syncedIds = &localSyncedIds;
+        syncedIds->Add(GetID());
     }
 
-    // Build dependency graph: if allPrefabs[i] nests allPrefabs[j], then j must be synced before i
-    // Edges go from dependency to dependent (j -> i)
-    Array<Array<int32>> adj;
-    Array<int32> inDegree;
-    adj.Resize(count);
-    inDegree.Resize(count);
-    for (int32 i = 0; i < count; i++)
-        inDegree[i] = 0;
-    for (int32 i = 0; i < count; i++)
+    // Call recursive for all referencing prefab assets to refresh nested prefabs
+    for (int32 i = 0; i < allPrefabs.Count(); i++)
     {
-        auto prefab = allPrefabs[i].Get();
-        if (!prefab)
-            continue;
-        for (int32 n = 0; n < prefab->NestedPrefabs.Count(); n++)
-        {
-            int32 j;
-            if (idToIndex.TryGet(prefab->NestedPrefabs[n], j))
-            {
-                // prefab[i] nests prefab[j] -> j must be processed before i
-                adj[j].Add(i);
-                inDegree[i]++;
-            }
-        }
-    }
-
-    // Topological sort (Kahn's algorithm)
-    Array<int32> order;
-    order.EnsureCapacity(count);
-    Array<int32> queue;
-    for (int32 i = 0; i < count; i++)
-    {
-        if (inDegree[i] == 0)
-            queue.Add(i);
-    }
-    while (queue.HasItems())
-    {
-        const int32 u = queue.Last();
-        queue.RemoveLast();
-        order.Add(u);
-        for (int32 k = 0; k < adj[u].Count(); k++)
-        {
-            const int32 v = adj[u][k];
-            if (--inDegree[v] == 0)
-                queue.Add(v);
-        }
-    }
-
-    // Any nodes not in order have circular dependencies (already prevented by cyclic ref detection, but handle gracefully)
-    for (int32 i = 0; i < count; i++)
-    {
-        if (inDegree[i] > 0)
-            order.Add(i);
-    }
-
-    // Process prefabs in dependency order, syncing each at most once
-    // Track which prefabs have been synced so we can propagate transitively
-    HashSet<Guid> syncedIds;
-    syncedIds.Add(GetID());
-    for (int32 idx = 0; idx < order.Count(); idx++)
-    {
-        const int32 i = order[idx];
         auto nestedPrefab = allPrefabs[i].Get();
         if (!nestedPrefab)
             continue;
+
+        // Skip already-synced prefabs
+        if (syncedIds->Contains(nestedPrefab->GetID()))
+            continue;
+
         if (nestedPrefab->WaitForLoaded())
         {
             LOG(Warning, "Waiting for prefab asset load failed.");
             continue;
         }
 
-        // Check if this prefab directly nests any already-synced prefab
-        bool needsSync = false;
-        for (int32 n = 0; n < nestedPrefab->NestedPrefabs.Count(); n++)
+        // Sync only if prefab is used by this prefab (directly) and it has been captured before
+        const int32 nestedPrefabIndex = nestedPrefab->NestedPrefabs.Find(GetID());
+        if (nestedPrefabIndex != -1)
         {
-            if (syncedIds.Contains(nestedPrefab->NestedPrefabs[n]))
-            {
-                needsSync = true;
-                break;
-            }
-        }
-
-        if (needsSync)
-        {
-            if (!nestedPrefab->SyncChangesInternal(allPrefabsInstancesData[i]))
-                syncedIds.Add(nestedPrefab->GetID());
+            syncedIds->Add(nestedPrefab->GetID());
+            if (nestedPrefab->SyncChangesInternal(allPrefabsInstancesData[i]))
+                continue;
+            nestedPrefab->SyncNestedPrefabs(allPrefabs, allPrefabsInstancesData, syncedIds);
             ObjectsRemovalService::Flush();
         }
     }

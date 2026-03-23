@@ -52,24 +52,9 @@ namespace FlaxEngine.Json.JsonCustomSerializers
         {
             var contract = base.CreateDictionaryContract(objectType);
 
-            // Override contract to save enums keys as integer
-            if (contract.DictionaryKeyType?.IsEnum ?? false)
-            {
-                var enumType = contract.DictionaryKeyType;
-                contract.DictionaryKeyResolver = name =>
-                {
-                    try
-                    {
-                        var e = Enum.Parse(enumType, name);
-                        name = Convert.ToInt32(e).ToString();
-                    }
-                    catch
-                    {
-                        // Ignore errors
-                    }
-                    return name;
-                };
-            }
+            // Enum dictionary keys use their string names (default behavior).
+            // Enum.Parse handles both name strings and integer strings on read,
+            // so existing files with integer keys auto-upgrade on next save.
 
             return contract;
         }

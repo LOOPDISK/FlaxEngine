@@ -603,13 +603,10 @@ namespace FlaxEditor.Windows.Assets
             _tabs.AddTab(new RetargetTab(this));
             _tabs.AddTab(new ImportTab(this));
 
-            // Automatically show nodes when switching to skeleton page
+            // Automatically show/hide nodes when switching to/from skeleton page
             _tabs.SelectedTabChanged += (tabs) =>
             {
-                if (tabs.SelectedTab is SkeletonTab)
-                {
-                    _preview.ShowNodes = true;
-                }
+                _preview.ShowNodes = tabs.SelectedTab is SkeletonTab;
             };
 
             // Highlight actor (used to highlight selected material slot, see UpdateEffectsOnAsset)

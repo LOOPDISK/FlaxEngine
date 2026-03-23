@@ -191,8 +191,13 @@ void AnimatedModel::PreInitSkinningData()
     }
     _skinningData.OnDataChanged(true);
 
-    UpdateBounds();
-    UpdateSockets();
+    // Skip world-space operations when not in a scene (e.g. during prefab sync where the parent
+    // hierarchy may be incomplete/cyclic). Bounds will be updated properly in BeginPlay.
+    if (GetScene() || !_parent)
+    {
+        UpdateBounds();
+        UpdateSockets();
+    }
 }
 
 void AnimatedModel::GetCurrentPose(Array<Matrix>& nodesTransformation, bool worldSpace) const
