@@ -3,6 +3,7 @@
 #include "MaterialBase.h"
 #include "MaterialInstance.h"
 #include "Engine/Core/Log.h"
+#include "Engine/Core/LogContext.h"
 #include "Engine/Core/Types/Variant.h"
 #include "Engine/Content/Content.h"
 #include "Engine/Content/Factories/BinaryAssetFactory.h"
@@ -23,7 +24,9 @@ Variant MaterialBase::GetParameterValue(const StringView& name)
     {
         return param->GetValue();
     }
-    LOG(Warning, "Missing material parameter '{0}' in material {1}", String(name), ToString());
+    const String context = LogContext::FormatContext();
+    LOG(Warning, "Missing material parameter '{0}' in material {1}.{2}", String(name), ToString(), context);
+    LogContext::Print(LogType::Warning);
     return Variant::Null;
 }
 
@@ -39,7 +42,9 @@ void MaterialBase::SetParameterValue(const StringView& name, const Variant& valu
     }
     else if (warnIfMissing)
     {
-        LOG(Warning, "Missing material parameter '{0}' in material {1}", name, ToString());
+        const String context = LogContext::FormatContext();
+        LOG(Warning, "Missing material parameter '{0}' in material {1}.{2}", name, ToString(), context);
+        LogContext::Print(LogType::Warning);
     }
 }
 
