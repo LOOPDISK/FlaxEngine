@@ -165,7 +165,8 @@ SceneObject* SceneObjectsFactory::Spawn(Context& context, const ISerializable::D
         const ISerializable::DeserializeStream* prefabData;
         if (!prefab->ObjectsDataCache.TryGet(prefabObjectId, prefabData))
         {
-            LOG(Warning, "Missing object {1} data in prefab {0}.", prefab->ToString(), prefabObjectId);
+            const String context = LogContext::FormatContext();
+            LOG(Warning, "Missing object {1} data in prefab {0}.{2}", prefab->ToString(), prefabObjectId, context);
             return nullptr;
         }
 
@@ -291,7 +292,8 @@ void SceneObjectsFactory::Deserialize(Context& context, SceneObject* obj, ISeria
         const ISerializable::DeserializeStream* prefabData;
         if (!prefab->ObjectsDataCache.TryGet(prefabObjectId, prefabData))
         {
-            LOG(Warning, "Missing object {1} data in prefab {0}.", prefab->ToString(), prefabObjectId);
+            const String context = LogContext::FormatContext();
+            LOG(Warning, "Missing object {1} data in prefab {0}.{2}", prefab->ToString(), prefabObjectId, context);
             return;
         }
 
@@ -593,7 +595,8 @@ void SceneObjectsFactory::SynchronizeNewPrefabInstances(Context& context, Prefab
                 const ISerializable::DeserializeStream* prefabData;
                 if (!instance.Prefab->ObjectsDataCache.TryGet(prefabRootId, prefabData))
                 {
-                    LOG(Warning, "Missing object {1} data in prefab {0}.", instance.Prefab->ToString(), prefabObjectId);
+                    const String context = LogContext::FormatContext();
+                    LOG(Warning, "Missing object {1} data in prefab {0}.{2}", instance.Prefab->ToString(), prefabObjectId, context);
                     continue;
                 }
 
@@ -861,7 +864,8 @@ void SceneObjectsFactory::SynchronizeNewPrefabInstance(Context& context, PrefabS
     const ISerializable::DeserializeStream* prefabData;
     if (!prefab->ObjectsDataCache.TryGet(prefabObjectId, prefabData))
     {
-        LOG(Warning, "Missing object {1} data in prefab {0}.", prefab->ToString(), prefabObjectId);
+        const String context = LogContext::FormatContext();
+        LOG(Warning, "Missing object {1} data in prefab {0}.{2}", prefab->ToString(), prefabObjectId, context);
         return;
     }
 

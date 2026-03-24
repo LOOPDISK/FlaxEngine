@@ -7,6 +7,7 @@
 #include "Engine/Core/Collections/Array.h"
 #include "Engine/Core/Collections/Dictionary.h"
 #include "Engine/Scripting/ScriptingObject.h"
+#include "Engine/Scripting/Enums.h"
 #include "Engine/Utilities/Encryption.h"
 
 struct Version;
@@ -226,12 +227,29 @@ namespace Serialization
     template<typename T>
     inline typename TEnableIf<TIsEnum<T>::Value>::Type Serialize(ISerializable::SerializeStream& stream, const T& v, const void* otherObj)
     {
-        stream.Uint((uint32)v);
+        const char* name = ScriptingEnum::GetName<T>(v);
+        if (name)
+            stream.String(name);
+        else
+            stream.Uint((uint32)v);
     }
     template<typename T>
     inline typename TEnableIf<TIsEnum<T>::Value>::Type Deserialize(ISerializable::DeserializeStream& stream, T& v, ISerializeModifier* modifier)
     {
-        v = (T)DeserializeInt(stream);
+        if (stream.IsString())
+        {
+            const auto str = stream.GetStringAnsiView();
+            // Try parsing as enum name first, then fall back to integer parse
+            int32 intValue;
+            if (StringUtils::Parse(str.Get(), str.Length(), &intValue))
+                v = ScriptingEnum::FromString<T>(str);
+            else
+                v = (T)intValue;
+        }
+        else
+        {
+            v = (T)DeserializeInt(stream);
+        }
     }
 
     // Common types

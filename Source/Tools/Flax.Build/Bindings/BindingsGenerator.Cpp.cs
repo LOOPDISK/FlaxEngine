@@ -1524,12 +1524,33 @@ namespace Flax.Build.Bindings
             contents.AppendLine("        }");
 
             contents.AppendLine("        auto scriptVTable = (MMethod**)managedTypePtr->Script.ScriptVTable;");
-            contents.AppendLine($"        ASSERT(scriptVTable && scriptVTable[{scriptVTableOffset}]);");
+            contents.AppendLine($"        if (!scriptVTable || !scriptVTable[{scriptVTableOffset}])");
+            contents.AppendLine("        {");
+            contents.AppendLine("            static bool logged = false;");
+            contents.AppendLine("            if (!logged)");
+            contents.AppendLine("            {");
+            contents.AppendLine("                logged = true;");
+            contents.AppendLine($"                LOG(Warning, \"Missing managed virtual method '{{0}}::{functionInfo.Name}' on object '{{1}}' (id: {{2}}). Script type may be missing or failed to load.\", String(managedTypePtr->Fullname), object->ToString(), object->GetID());");
+            contents.AppendLine("            }");
+            GenerateCppReturn(buildData, contents, "            ", functionInfo.ReturnType);
+            contents.AppendLine("        }");
             contents.AppendLine($"        auto method = scriptVTable[{scriptVTableOffset}];");
 
             contents.AppendLine("        MObject* exception = nullptr;");
             contents.AppendLine("        auto prevWrapperCallInstance = WrapperCallInstance;");
             contents.AppendLine("        WrapperCallInstance = object;");
+            contents.AppendLine("        auto managedInstance = object->GetOrCreateManagedInstance();");
+            contents.AppendLine("        if (!managedInstance)");
+            contents.AppendLine("        {");
+            contents.AppendLine("            WrapperCallInstance = prevWrapperCallInstance;");
+            contents.AppendLine("            static bool logged = false;");
+            contents.AppendLine("            if (!logged)");
+            contents.AppendLine("            {");
+            contents.AppendLine("                logged = true;");
+            contents.AppendLine($"                LOG(Warning, \"Failed to create managed instance for '{{0}}::{functionInfo.Name}' on object '{{1}}' (id: {{2}}). Managed type may be missing or assembly failed to load.\", String(managedTypePtr->Fullname), object->ToString(), object->GetID());");
+            contents.AppendLine("            }");
+            GenerateCppReturn(buildData, contents, "            ", functionInfo.ReturnType);
+            contents.AppendLine("        }");
 
             if (functionInfo.Parameters.Count == 0)
                 contents.AppendLine("        void** params = nullptr;");
@@ -1581,13 +1602,13 @@ namespace Flax.Build.Bindings
                 {
                     contents.AppendLine($"        typedef void (*Thunk)(void* instance{thunkParams}, MObject** exception);");
                     contents.AppendLine("        const auto thunk = (Thunk)method->GetThunk();");
-                    contents.AppendLine($"        thunk(object->GetOrCreateManagedInstance(){thunkCall}, &exception);");
+                    contents.AppendLine($"        thunk(managedInstance{thunkCall}, &exception);");
                 }
                 else
                 {
                     contents.AppendLine($"        typedef MObject* (*Thunk)(void* instance{thunkParams}, MObject** exception);");
                     contents.AppendLine("        const auto thunk = (Thunk)method->GetThunk();");
-                    contents.AppendLine($"        MObject* __result = thunk(object->GetOrCreateManagedInstance(){thunkCall}, &exception);");
+                    contents.AppendLine($"        MObject* __result = thunk(managedInstance{thunkCall}, &exception);");
                 }
 
                 // Convert parameter values back from managed to native (could be modified there)
@@ -1617,7 +1638,7 @@ namespace Flax.Build.Bindings
                 }
 
                 // Invoke method
-                contents.AppendLine("        MObject* __result = method->Invoke(object->GetOrCreateManagedInstance(), params, &exception);");
+                contents.AppendLine("        MObject* __result = method->Invoke(managedInstance, params, &exception);");
 
                 // Convert parameter values back from managed to native (could be modified there)
                 for (var i = 0; i < functionInfo.Parameters.Count; i++)
