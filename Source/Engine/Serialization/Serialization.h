@@ -239,7 +239,8 @@ namespace Serialization
         if (stream.IsString())
         {
             const auto str = stream.GetStringAnsiView();
-            // Try parsing as enum name first, then fall back to integer parse
+            // Try parsing as integer first (backwards compat with old "3"-style values),
+            // then fall back to enum name lookup
             int32 intValue;
             if (StringUtils::Parse(str.Get(), str.Length(), &intValue))
                 v = ScriptingEnum::FromString<T>(str);

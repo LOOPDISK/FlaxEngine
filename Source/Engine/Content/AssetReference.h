@@ -12,6 +12,9 @@ class FLAXENGINE_API AssetReferenceBase : public IAssetReference
 protected:
     Asset* _asset = nullptr;
     IAssetReference* _owner = nullptr;
+    // Cached separately from _asset so that GetID() returns the assigned ID even before the
+    // asset finishes loading. Without this, code that checks GetID() == Guid::Empty to mean
+    // "no asset was assigned" would get false positives while the asset is still loading.
     Guid _id = Guid::Empty;
 
 public:
@@ -51,7 +54,8 @@ public:
 
 public:
     /// <summary>
-    /// Gets the asset ID or Guid::Empty if not set.
+    /// Gets the asset ID or Guid::Empty if not set. Returns the assigned ID immediately,
+    /// even if the asset hasn't finished loading yet.
     /// </summary>
     FORCE_INLINE Guid GetID() const
     {
