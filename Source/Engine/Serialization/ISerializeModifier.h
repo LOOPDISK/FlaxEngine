@@ -25,4 +25,28 @@ public:
     /// The object IDs mapping. Key is a serialized object id, value is mapped value to use.
     /// </summary>
     Dictionary<Guid, Guid> IdsMapping;
+
+    /// <summary>
+    /// RAII guard that snapshots IdsMapping on construction and restores it on destruction.
+    /// Prevents per-instance mapping entries from leaking between nested prefab instances
+    /// during recursive sync/deserialization.
+    /// </summary>
+    struct IdsMappingScope
+    {
+        ISerializeModifier& Modifier;
+        Dictionary<Guid, Guid> Saved;
+
+        IdsMappingScope(ISerializeModifier& modifier)
+            : Modifier(modifier)
+            , Saved(modifier.IdsMapping)
+        {
+        }
+
+        ~IdsMappingScope()
+        {
+            Modifier.IdsMapping = Saved;
+        }
+
+        NON_COPYABLE(IdsMappingScope);
+    };
 };

@@ -383,10 +383,6 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
         SceneObjectsFactory::PrefabSyncData prefabSyncData(*sceneObjects.Value, instance.Data, modifier.Value);
         SceneObjectsFactory::SetupPrefabInstances(context, prefabSyncData);
 
-        // Save base mapping before applying modifications (SetupIdsMapping accumulates per-instance
-        // entries that must not leak between different nested prefab instances)
-        auto baseIdsMapping = modifier.Value->IdsMapping;
-
         // Apply modifications
         for (int32 i = existingObjectsCount - 1; i >= 0; i--)
         {
@@ -397,8 +393,9 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
                 const ISerializable::DeserializeStream* data;
                 if (prefabObjectIdToDiffData.TryGet(obj->GetPrefabObjectID(), data))
                 {
-                    // Apply prefab changes
-                    modifier.Value->IdsMapping = baseIdsMapping;
+                    // Apply prefab changes (scope guard prevents per-instance mapping entries
+                    // from leaking between iterations)
+                    ISerializeModifier::IdsMappingScope guard(*modifier.Value);
                     context.SetupIdsMapping(obj, modifier.Value);
                     obj->Deserialize(*(ISerializable::DeserializeStream*)data, modifier.Value);
                 }
@@ -447,9 +444,6 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
             modifier->IdsMapping[newPrefabObjectIds[i]] = Guid::New();
         }
 
-        // Save base mapping for local changes restoration
-        auto localBaseIdsMapping = modifier.Value->IdsMapping;
-
         // Restore local changes (for the existing scene objects)
         for (int32 i = 0; i < sceneObjects->Count(); i++)
         {
@@ -469,7 +463,7 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
                 data.RemoveMember("ParentID");
 #endif
 
-                modifier.Value->IdsMapping = localBaseIdsMapping;
+                ISerializeModifier::IdsMappingScope guard(*modifier.Value);
                 context.SetupIdsMapping(obj, modifier.Value);
                 obj->Deserialize(data, modifier.Value);
 
@@ -1065,9 +1059,9 @@ bool Prefab::ApplyAllInternal(Actor* targetActor, bool linkTargetActorObjectToPr
             SceneObject* obj = sceneObjects->At(i);
             if (!obj)
                 continue;
-            // Restore base IdsMapping before each object to prevent stale entries from
-            // one nested prefab instance's mapping affecting another instance's ParentID resolution
-            modifier.Value->IdsMapping = originalIdsMapping;
+            // Scope guard prevents stale entries from one nested prefab instance's
+            // mapping affecting another instance's ParentID resolution
+            ISerializeModifier::IdsMappingScope guard(*modifier.Value);
             SceneObjectsFactory::Deserialize(context, obj, data[i]);
 
             int32 dataIndex;
