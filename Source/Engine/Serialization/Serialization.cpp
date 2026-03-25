@@ -401,7 +401,12 @@ void Serialization::Deserialize(ISerializable::DeserializeStream& stream, Varian
 
 bool Serialization::ShouldSerialize(const Guid& v, const void* otherObj)
 {
-    return v.IsValid();
+    // Compare against default rather than just checking IsValid(), so that an
+    // Empty Guid override on a prefab instance is correctly serialized as a diff.
+    // Without this, clearing a Guid field on an instance silently reverts on reload.
+    if (!otherObj)
+        return true;
+    return v != *(Guid*)otherObj;
 }
 
 void Serialization::Serialize(ISerializable::SerializeStream& stream, const Guid& v, const void* otherObj)
