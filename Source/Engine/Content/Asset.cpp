@@ -606,14 +606,14 @@ bool Asset::IsInternalType() const
 bool Asset::onLoad(LoadAssetTask* task)
 {
     // It may fail when task is cancelled and new one was created later (don't crash but just end with an error)
-    if (task->Asset.Get() != this || Platform::AtomicRead(&_loadingTask) == 0)
+    if (task->Asset.Get() != this || Platform::AtomicRead(&_loadingTask) != (intptr)task)
         return true;
     LogContextScope logContext(GetID());
 
     Locker.Lock();
 
-    // Re-check after acquiring lock (loading task may have been cleared by Reload)
-    if (Platform::AtomicRead(&_loadingTask) == 0)
+    // Re-check after acquiring lock (loading task may have been cleared by Reload, or replaced by a new task)
+    if (Platform::AtomicRead(&_loadingTask) != (intptr)task)
     {
         Locker.Unlock();
         return true;
