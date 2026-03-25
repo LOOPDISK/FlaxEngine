@@ -5,6 +5,7 @@
 #include "Engine/Content/JsonAsset.h"
 #include "Engine/Core/Collections/Array.h"
 #include "Engine/Core/Collections/Dictionary.h"
+#include "Engine/Core/Collections/HashSet.h"
 
 class Actor;
 class SceneObject;
@@ -102,7 +103,7 @@ private:
     bool ApplyAllInternal(Actor* targetActor, bool linkTargetActorObjectToPrefab, PrefabInstancesData& prefabInstancesData);
     bool UpdateInternal(const Array<SceneObject*>& defaultInstanceObjects, rapidjson_flax::StringBuffer& tmpBuffer);
     bool SyncChangesInternal(PrefabInstancesData& prefabInstancesData);
-    void SyncNestedPrefabs(const NestedPrefabsList& allPrefabs, Array<PrefabInstancesData>& allPrefabsInstancesData) const;
+    void SyncNestedPrefabs(const NestedPrefabsList& allPrefabs, Array<PrefabInstancesData>& allPrefabsInstancesData, HashSet<Guid>* syncedIds = nullptr) const;
 #endif
     void DeleteDefaultInstance();
 

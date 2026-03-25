@@ -317,6 +317,7 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
         if (!newTargetActor)
         {
             LOG(Error, "Missing root object {0} for prefab instance {1}", defaultInstance->ToString(), oldTargetActor->ToString());
+            continue;
         }
         else if (oldTargetActor != newTargetActor)
         {
@@ -392,7 +393,9 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
                 const ISerializable::DeserializeStream* data;
                 if (prefabObjectIdToDiffData.TryGet(obj->GetPrefabObjectID(), data))
                 {
-                    // Apply prefab changes
+                    // Apply prefab changes (scope guard prevents per-instance mapping entries
+                    // from leaking between iterations)
+                    ISerializeModifier::IdsMappingScope guard(*modifier.Value);
                     context.SetupIdsMapping(obj, modifier.Value);
                     obj->Deserialize(*(ISerializable::DeserializeStream*)data, modifier.Value);
                 }
@@ -426,6 +429,21 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
 
         ObjectsRemovalService::Flush();
 
+        // Rebuild IdsMapping after removals to exclude stale entries from deleted objects
+        modifier.Value->IdsMapping.Clear();
+        for (int32 i = 0; i < sceneObjects->Count(); i++)
+        {
+            SceneObject* obj = sceneObjects.Value->At(i);
+            if (obj && obj->HasPrefabLink())
+                modifier.Value->IdsMapping[obj->GetPrefabObjectID()] = obj->GetSceneObjectId();
+        }
+        for (int32 i = 0; i < newPrefabObjectIds.Count(); i++)
+        {
+            if (modifier.Value->IdsMapping.ContainsKey(newPrefabObjectIds[i]))
+                continue;
+            modifier->IdsMapping[newPrefabObjectIds[i]] = Guid::New();
+        }
+
         // Restore local changes (for the existing scene objects)
         for (int32 i = 0; i < sceneObjects->Count(); i++)
         {
@@ -445,6 +463,7 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
                 data.RemoveMember("ParentID");
 #endif
 
+                ISerializeModifier::IdsMappingScope guard(*modifier.Value);
                 context.SetupIdsMapping(obj, modifier.Value);
                 obj->Deserialize(data, modifier.Value);
 
@@ -1040,6 +1059,9 @@ bool Prefab::ApplyAllInternal(Actor* targetActor, bool linkTargetActorObjectToPr
             SceneObject* obj = sceneObjects->At(i);
             if (!obj)
                 continue;
+            // Scope guard prevents stale entries from one nested prefab instance's
+            // mapping affecting another instance's ParentID resolution
+            ISerializeModifier::IdsMappingScope guard(*modifier.Value);
             SceneObjectsFactory::Deserialize(context, obj, data[i]);
 
             int32 dataIndex;
@@ -1381,34 +1403,46 @@ bool Prefab::SyncChangesInternal(PrefabInstancesData& prefabInstancesData)
     return ApplyAllInternal(targetActor, false, prefabInstancesData);
 }
 
-void Prefab::SyncNestedPrefabs(const NestedPrefabsList& allPrefabs, Array<PrefabInstancesData>& allPrefabsInstancesData) const
+void Prefab::SyncNestedPrefabs(const NestedPrefabsList& allPrefabs, Array<PrefabInstancesData>& allPrefabsInstancesData, HashSet<Guid>* syncedIds) const
 {
     PROFILE_CPU();
     LOG(Info, "Updating referencing prefabs");
 
-    // TODO: this may not work well for very complex prefab nesting -> loop order matters, maybe build a graph of dependencies?
+    // Track which prefabs have already been synced to prevent double-syncing
+    // through different cascade paths (e.g., A nests B and C, both nest D — D should only sync once)
+    HashSet<Guid> localSyncedIds;
+    if (!syncedIds)
+    {
+        syncedIds = &localSyncedIds;
+        syncedIds->Add(GetID());
+    }
 
     // Call recursive for all referencing prefab assets to refresh nested prefabs
     for (int32 i = 0; i < allPrefabs.Count(); i++)
     {
         auto nestedPrefab = allPrefabs[i].Get();
-        if (nestedPrefab)
-        {
-            if (nestedPrefab->WaitForLoaded())
-            {
-                LOG(Warning, "Waiting for prefab asset load failed.");
-                continue;
-            }
+        if (!nestedPrefab)
+            continue;
 
-            // Sync only if prefab is used by this prefab (directly) and it has been captured before
-            const int32 nestedPrefabIndex = nestedPrefab->NestedPrefabs.Find(GetID());
-            if (nestedPrefabIndex != -1)
-            {
-                if (nestedPrefab->SyncChangesInternal(allPrefabsInstancesData[i]))
-                    continue;
-                nestedPrefab->SyncNestedPrefabs(allPrefabs, allPrefabsInstancesData);
-                ObjectsRemovalService::Flush();
-            }
+        // Skip already-synced prefabs
+        if (syncedIds->Contains(nestedPrefab->GetID()))
+            continue;
+
+        if (nestedPrefab->WaitForLoaded())
+        {
+            LOG(Warning, "Waiting for prefab asset load failed.");
+            continue;
+        }
+
+        // Sync only if prefab is used by this prefab (directly) and it has been captured before
+        const int32 nestedPrefabIndex = nestedPrefab->NestedPrefabs.Find(GetID());
+        if (nestedPrefabIndex != -1)
+        {
+            syncedIds->Add(nestedPrefab->GetID());
+            if (nestedPrefab->SyncChangesInternal(allPrefabsInstancesData[i]))
+                continue;
+            nestedPrefab->SyncNestedPrefabs(allPrefabs, allPrefabsInstancesData, syncedIds);
+            ObjectsRemovalService::Flush();
         }
     }
 }
