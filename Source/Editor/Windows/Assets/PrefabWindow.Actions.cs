@@ -324,6 +324,10 @@ namespace FlaxEditor.Windows.Assets
             if (!actor.HasPrefabLink)
                 return;
 
+            // Confirm destructive action
+            if (MessageBox.Show("This will reset the nested prefab instance to its default state, discarding all overrides. This cannot be undone.\n\nAre you sure?", "Reset Nested Prefab", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+                return;
+
             // Check this actor is part of a nested prefab
             var prefabObjectId = actor.PrefabObjectID;
             if (!Asset.GetNestedObject(ref prefabObjectId, out var nestedPrefabId, out _) || nestedPrefabId == Guid.Empty)
@@ -410,6 +414,10 @@ namespace FlaxEditor.Windows.Assets
                     return;
                 var targetActor = selectedNode.Actor;
                 if (!targetActor || targetActor == Graph.MainActor)
+                    return;
+
+                // Confirm destructive action
+                if (MessageBox.Show("This will replace the selected actor with a fresh instance from the chosen prefab, discarding all current data. This cannot be undone.\n\nAre you sure?", "Relink to Prefab", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
                     return;
 
                 var parent = targetActor.Parent;

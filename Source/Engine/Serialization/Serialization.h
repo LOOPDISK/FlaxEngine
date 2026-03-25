@@ -243,7 +243,27 @@ namespace Serialization
             // then fall back to enum name lookup
             int32 intValue;
             if (StringUtils::Parse(str.Get(), str.Length(), &intValue))
-                v = ScriptingEnum::FromString<T>(str);
+            {
+                // Name lookup — check if the string matches any known enum member
+                bool found = false;
+                if (const auto items = ScriptingEnum::GetItems<T>())
+                {
+                    for (int32 i = 0; items[i].Name; i++)
+                    {
+                        if (str == items[i].Name)
+                        {
+                            v = (T)items[i].Value;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found)
+                {
+                    v = (T)0;
+                    LOG(Warning, "Unrecognized enum value \"{0}\" during deserialization. Was this enum member renamed? Defaulting to 0.", String(str.Get(), str.Length()));
+                }
+            }
             else
                 v = (T)intValue;
         }

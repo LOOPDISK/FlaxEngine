@@ -250,6 +250,10 @@ namespace FlaxEditor.Modules
             if (!actor || !actor.HasPrefabLink)
                 return;
 
+            // Confirm destructive action
+            if (MessageBox.Show("This will reset the prefab instance to its default state, discarding all overrides. This cannot be undone.\n\nAre you sure?", "Reset Prefab", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+                return;
+
             // Find the prefab root
             var prefabRoot = actor.GetPrefabRoot();
             if (prefabRoot == null)
