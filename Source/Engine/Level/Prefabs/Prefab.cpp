@@ -61,7 +61,7 @@ Actor* Prefab::GetDefaultInstance()
     // Skip if not loaded
     if (!IsLoaded())
     {
-        LOG(Warning, "Cannot instantiate object from not loaded prefab asset.");
+        LOG(Warning, "Cannot instantiate object from not loaded prefab asset. Prefab: {0} (ID: {1})", GetPath(), GetID());
         return nullptr;
     }
 
