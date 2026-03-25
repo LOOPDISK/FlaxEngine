@@ -603,17 +603,30 @@ bool Asset::IsInternalType() const
     return false;
 }
 
+// Check if 'task' is reachable from the head of the loading task chain (BinaryAsset chains InitAssetTask -> LoadAssetDataTask -> LoadAssetTask).
+static bool IsTaskInLoadingChain(volatile intptr& loadingTask, Task* task)
+{
+    auto head = (Task*)Platform::AtomicRead(&loadingTask);
+    while (head)
+    {
+        if (head == task)
+            return true;
+        head = head->GetContinueWithTask();
+    }
+    return false;
+}
+
 bool Asset::onLoad(LoadAssetTask* task)
 {
     // It may fail when task is cancelled and new one was created later (don't crash but just end with an error)
-    if (task->Asset.Get() != this || Platform::AtomicRead(&_loadingTask) != (intptr)task)
+    if (task->Asset.Get() != this || !IsTaskInLoadingChain(_loadingTask, task))
         return true;
     LogContextScope logContext(GetID());
 
     Locker.Lock();
 
     // Re-check after acquiring lock (loading task may have been cleared by Reload, or replaced by a new task)
-    if (Platform::AtomicRead(&_loadingTask) != (intptr)task)
+    if (!IsTaskInLoadingChain(_loadingTask, task))
     {
         Locker.Unlock();
         return true;
