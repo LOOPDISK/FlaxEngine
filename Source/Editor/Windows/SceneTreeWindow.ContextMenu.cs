@@ -148,6 +148,7 @@ namespace FlaxEditor.Windows
                 contextMenu.AddButton("Open Prefab", () => Editor.Prefabs.OpenPrefab(firstSelection));
                 contextMenu.AddButton("Select Prefab", Editor.Prefabs.SelectPrefab);
                 contextMenu.AddButton("Break Prefab Link", Editor.Prefabs.BreakLinks);
+                contextMenu.AddButton("Reset Prefab (no undo)", Editor.Prefabs.ResetPrefab);
             }
 
             // Load additional scenes option
