@@ -35,16 +35,19 @@ public:
     {
         ISerializeModifier& Modifier;
         Dictionary<Guid, Guid> Saved;
+        int32 SavedInstance;
 
         IdsMappingScope(ISerializeModifier& modifier)
             : Modifier(modifier)
             , Saved(modifier.IdsMapping)
+            , SavedInstance(modifier.CurrentInstance)
         {
         }
 
         ~IdsMappingScope()
         {
             Modifier.IdsMapping = Saved;
+            Modifier.CurrentInstance = SavedInstance;
         }
 
         NON_COPYABLE(IdsMappingScope);
