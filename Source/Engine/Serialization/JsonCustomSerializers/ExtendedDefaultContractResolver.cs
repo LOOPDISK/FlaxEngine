@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 
 namespace FlaxEngine.Json.JsonCustomSerializers
@@ -44,6 +45,14 @@ namespace FlaxEngine.Json.JsonCustomSerializers
                 ((JsonObjectContract)contract).ItemReferenceLoopHandling = ReferenceLoopHandling.Serialize;
             }
 
+            // Enums marked with [NamedEnum] serialize as string names everywhere
+            // (standalone fields, collection items, dict values). Accepts integers on read for backward compat.
+            var enumType = Nullable.GetUnderlyingType(objectType) ?? objectType;
+            if (enumType.IsEnum && enumType.GetCustomAttribute<NamedEnumAttribute>() != null)
+            {
+                contract.Converter = new StringEnumConverter();
+            }
+
             return contract;
         }
 
@@ -53,11 +62,11 @@ namespace FlaxEngine.Json.JsonCustomSerializers
             var contract = base.CreateDictionaryContract(objectType);
 
             // Override contract to save enum keys as integer, unless the enum
-            // type is marked with [NamedEnumKeys] to opt into string key serialization
+            // type is marked with [NamedEnum] to opt into string key serialization
             if (contract.DictionaryKeyType?.IsEnum ?? false)
             {
                 var enumType = contract.DictionaryKeyType;
-                if (enumType.GetCustomAttribute<NamedEnumKeysAttribute>() == null)
+                if (enumType.GetCustomAttribute<NamedEnumAttribute>() == null)
                 {
                     contract.DictionaryKeyResolver = name =>
                     {
