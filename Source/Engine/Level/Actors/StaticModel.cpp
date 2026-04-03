@@ -115,7 +115,9 @@ MaterialBase* StaticModel::GetMaterial(int32 meshIndex, int32 lodIndex) const
     const auto& mesh = model->LODs[lodIndex].Meshes[meshIndex];
     const auto materialSlotIndex = mesh.GetMaterialSlotIndex();
     MaterialBase* material = Entries[materialSlotIndex].Material.Get();
-    return material ? material : model->MaterialSlots[materialSlotIndex].Material.Get();
+    if (!material && Entries[materialSlotIndex].Material.GetID() == Guid::Empty)
+        material = model->MaterialSlots[materialSlotIndex].Material.Get();
+    return material;
 }
 
 Color32 StaticModel::GetVertexColor(int32 lodIndex, int32 meshIndex, int32 vertexIndex) const
@@ -582,8 +584,10 @@ MaterialBase* StaticModel::GetMaterial(int32 entryIndex)
         return nullptr;
     CHECK_RETURN(entryIndex >= 0 && entryIndex < Entries.Count(), nullptr);
     MaterialBase* material = Entries[entryIndex].Material.Get();
-    if (!material && entryIndex < Model->MaterialSlots.Count())
+    if (!material && Entries[entryIndex].Material.GetID() == Guid::Empty && entryIndex < Model->MaterialSlots.Count())
     {
+        // Only fall back to model default when no material was explicitly assigned.
+        // If a material was assigned but is missing, don't mask the problem with a fallback.
         material = Model->MaterialSlots[entryIndex].Material.Get();
         if (!material)
             material = GPUDevice::Instance->GetDefaultMaterial();

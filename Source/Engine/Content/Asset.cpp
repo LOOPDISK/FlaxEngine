@@ -88,6 +88,7 @@ void AssetReferenceBase::OnSet(Asset* asset)
         if (e)
             e->RemoveReference(this);
         _asset = e = asset;
+        _id = e ? e->GetID() : Guid::Empty;
         if (e)
             e->AddReference(this);
         Changed();
