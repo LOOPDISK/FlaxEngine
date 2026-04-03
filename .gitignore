@@ -16,6 +16,7 @@ PackageEditor_Cert.bat
 PackagePlatforms_Cert.bat
 
 # User-specific files
+WindowsLayout.xml
 *.suo
 *.user
 *.sln.docstates
