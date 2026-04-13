@@ -2209,6 +2209,21 @@ bool PhysicsBackend::RayCastAll(void* scene, const Vector3& origin, const Vector
     return true;
 }
 
+bool PhysicsBackend::RayCastAll(void* scene, const Vector3& origin, const Vector3& direction, Array<RayCastHit>& results, const float maxDistance, uint32 layerMask, bool hitTriggers, bool hitMultiple)
+{
+    SCENE_QUERY_SETUP(false);
+    DynamicHitBuffer<PxRaycastHit> buffer;
+    auto flags = SCENE_QUERY_FLAGS;
+    if (hitMultiple)
+    {
+        flags |= PxHitFlag::eMESH_MULTIPLE;
+    }
+    if (!scenePhysX->Scene->raycast(C2P(origin - scenePhysX->Origin), C2P(direction), maxDistance, buffer, flags, filterData, &QueryFilter))
+        return false;
+    SCENE_QUERY_COLLECT_ALL();
+    return true;
+}
+
 bool PhysicsBackend::BoxCast(void* scene, const Vector3& center, const Vector3& halfExtents, const Vector3& direction, const Quaternion& rotation, const float maxDistance, uint32 layerMask, bool hitTriggers)
 {
     SCENE_QUERY_SETUP_SWEEP_1();
