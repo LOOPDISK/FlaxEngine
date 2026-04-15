@@ -16,8 +16,20 @@ bool DeployDataStep::Perform(CookingData& data)
 {
     data.StepProgress(TEXT("Deploying engine data"), 0);
     const String depsRoot = data.GetPlatformBinariesRoot();
-    const auto& gameSettings = *GameSettings::Get();
-    const auto& buildSettings = *BuildSettings::Get();
+    const auto gameSettingsPtr = GameSettings::Get();
+    if (!gameSettingsPtr)
+    {
+        data.Error(TEXT("Failed to load game settings."));
+        return true;
+    }
+    const auto buildSettingsPtr = BuildSettings::Get();
+    if (!buildSettingsPtr)
+    {
+        data.Error(TEXT("Failed to load build settings."));
+        return true;
+    }
+    const auto& gameSettings = *gameSettingsPtr;
+    const auto& buildSettings = *buildSettingsPtr;
 
     // Setup output folders and copy required data
     const auto contentDir = data.DataOutputPath / TEXT("Content");

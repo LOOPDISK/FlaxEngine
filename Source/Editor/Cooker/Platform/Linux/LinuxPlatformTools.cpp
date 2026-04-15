@@ -42,6 +42,11 @@ bool LinuxPlatformTools::UseSystemDotnet() const
 bool LinuxPlatformTools::OnDeployBinaries(CookingData& data)
 {
     const auto gameSettings = GameSettings::Get();
+    if (!gameSettings)
+    {
+        data.Error(TEXT("Failed to load game settings."));
+        return true;
+    }
     const auto platformSettings = LinuxPlatformSettings::Get();
     const auto outputPath = data.DataOutputPath;
 

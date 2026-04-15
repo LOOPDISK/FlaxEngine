@@ -463,6 +463,11 @@ void GPUContextVulkan::BeginRenderPass()
     else
     {
         handle = _rtHandles[0];
+        if (!handle)
+        {
+            LOG(Error, "BeginRenderPass called with no render targets bound");
+            return;
+        }
         layout.ReadDepth = false;
         layout.WriteDepth = false;
     }
