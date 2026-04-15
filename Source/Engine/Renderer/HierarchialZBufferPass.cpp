@@ -353,6 +353,7 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
     int offset = 0;
     int prevOffset = 0;
     context->Clear(info->_hzbTexture->View(), Color::White);
+    context->SetRenderTarget(info->_depthTexture->View(), (GPUTextureView*)nullptr);
     for (int i = 0; i < depth; i++)
     {
         context->SetViewport((float)currWidth, (float)currHeight);
@@ -371,12 +372,12 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
         context->SetState(_psHZB);
         context->DrawFullscreenTriangle();
 
-        context->ClearState();
         prevOffset = offset;
         offset += currWidth;
         currWidth = Math::Max(1, currWidth / 2);
         currHeight = Math::Max(1, currHeight / 2);
     }
+    context->ClearState();
 
     // Reset to the original viewport
     context->SetViewport(renderContext.Task->GetOutputViewport());
