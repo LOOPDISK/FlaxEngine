@@ -28,7 +28,7 @@
 #include "Engine/Input/Input.h"
 
 #define HZB_FORMAT PixelFormat::R32_Float
-#define HZB_BOUNDS_BIAS 10.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
+#define HZB_BOUNDS_BIAS 1.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
 
 namespace
 {
@@ -497,11 +497,6 @@ void HZBData::CompleteDownload(int64 index)
      if (CurrentFrameIndex < 0) return false;
 
      HZBFrame* activeFrame = &_frames[CurrentFrameIndex % HZB_FRAME_COUNT];
-     
-     if (Vector3::Dot(bounds.Center - activeFrame->ViewPosition, activeFrame->ViewDirection) <= 0.5f)
-     { // camera is facing opposite of the frame
-         return false;
-     }
      // no data yet
      if (activeFrame->TextureData.GetArraySize() == 0)
          return false;
@@ -552,20 +547,13 @@ void HZBData::CompleteDownload(int64 index)
             break;
         }
     }
-    startX = Math::FloorToInt(centerProj.X - radiusLength);
-    endX = Math::CeilToInt(centerProj.X + radiusLength);
-    startY = Math::FloorToInt(centerProj.Y - radiusLength);
-    endY = Math::CeilToInt(centerProj.Y + radiusLength);
-    if ((startX > width - 1 || endX < 0) || (startY > height - 1 || endY < 0))
-    { // bounds were outside the view
-        return false;
-    }
-    startX = Math::Clamp(startX, 0, width - 1);
-    endX = Math::Clamp(endX, 0, width - 1);
+
+    startX = Math::Clamp(Math::FloorToInt(centerProj.X - radiusLength), 0, width - 1);
+    endX = Math::Clamp(Math::CeilToInt(centerProj.X + radiusLength), 0, width - 1);
     startX += offset;
     endX += offset;
-    startY = Math::Clamp(startY, 0, height - 1);
-    endY = Math::Clamp(endY, 0, height - 1);
+    startY = Math::Clamp(Math::FloorToInt(centerProj.Y - radiusLength), 0, height - 1);
+    endY = Math::Clamp(Math::CeilToInt(centerProj.Y + radiusLength), 0, height - 1);
     return true;
 }
 

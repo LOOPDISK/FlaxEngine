@@ -192,7 +192,7 @@ public:
     /// <param name="hitTriggers">If set to <c>true</c> triggers will be hit, otherwise will skip them.</param>
     /// <returns>True if ray hits a matching object, otherwise false.</returns>
     API_FUNCTION() bool RayCast(const Vector3& origin, const Vector3& direction, API_PARAM(Out) RayCastHit& hitInfo, float maxDistance = MAX_float, uint32 layerMask = MAX_uint32, bool hitTriggers = true);
-  
+
     /// <summary>
     /// Performs a raycast against objects in the scene, returns results in a RayCastHit structure.
     /// </summary>
@@ -202,9 +202,8 @@ public:
     /// <param name="maxDistance">The maximum distance the ray should check for collisions.</param>
     /// <param name="layerMask">The layer mask used to filter the results.</param>
     /// <param name="hitTriggers">If set to <c>true</c> triggers will be hit, otherwise will skip them.</param>
-    /// <param name="hitMultiple">If set to <c>true</c> the ray can hit the same collider multiple times.</param>
     /// <returns>True if ray hits a matching object, otherwise false.</returns>
-    API_FUNCTION() bool RayCastAll(const Vector3& origin, const Vector3& direction, API_PARAM(Out) Array<RayCastHit, HeapAllocation>& results, float maxDistance = MAX_float, uint32 layerMask = MAX_uint32, bool hitTriggers = true, bool hitMultiple = false);
+    API_FUNCTION() bool RayCastAll(const Vector3& origin, const Vector3& direction, API_PARAM(Out) Array<RayCastHit, HeapAllocation>& results, float maxDistance = MAX_float, uint32 layerMask = MAX_uint32, bool hitTriggers = true);
 
     /// <summary>
     /// Performs a sweep test against objects in the scene using a box geometry.
