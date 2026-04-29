@@ -123,6 +123,7 @@ public:
     static bool RayCast(void* scene, const Vector3& origin, const Vector3& direction, float maxDistance, uint32 layerMask, bool hitTriggers);
     static bool RayCast(void* scene, const Vector3& origin, const Vector3& direction, RayCastHit& hitInfo, float maxDistance, uint32 layerMask, bool hitTriggers);
     static bool RayCastAll(void* scene, const Vector3& origin, const Vector3& direction, Array<RayCastHit, HeapAllocation>& results, float maxDistance, uint32 layerMask, bool hitTriggers);
+    static bool RayCastAll(void* scene, const Vector3& origin, const Vector3& direction, Array<RayCastHit, HeapAllocation>& results, float maxDistance, uint32 layerMask, bool hitTriggers, bool hitMultiple);
     static bool BoxCast(void* scene, const Vector3& center, const Vector3& halfExtents, const Vector3& direction, const Quaternion& rotation, float maxDistance, uint32 layerMask, bool hitTriggers);
     static bool BoxCast(void* scene, const Vector3& center, const Vector3& halfExtents, const Vector3& direction, RayCastHit& hitInfo, const Quaternion& rotation, float maxDistance, uint32 layerMask, bool hitTriggers);
     static bool BoxCastAll(void* scene, const Vector3& center, const Vector3& halfExtents, const Vector3& direction, Array<RayCastHit, HeapAllocation>& results, const Quaternion& rotation, float maxDistance, uint32 layerMask, bool hitTriggers);

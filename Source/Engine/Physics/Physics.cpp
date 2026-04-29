@@ -308,10 +308,10 @@ bool Physics::RayCast(const Vector3& origin, const Vector3& direction, RayCastHi
     return DefaultScene->RayCast(origin, direction, hitInfo, maxDistance, layerMask, hitTriggers);
 }
 
-bool Physics::RayCastAll(const Vector3& origin, const Vector3& direction, Array<RayCastHit>& results, const float maxDistance, uint32 layerMask, bool hitTriggers)
+bool Physics::RayCastAll(const Vector3& origin, const Vector3& direction, Array<RayCastHit>& results, const float maxDistance, uint32 layerMask, bool hitTriggers, bool hitMultiple)
 {
     CHECK_RETURN_DEBUG(direction.IsNormalized(), false);
-    return DefaultScene->RayCastAll(origin, direction, results, maxDistance, layerMask, hitTriggers);
+    return DefaultScene->RayCastAll(origin, direction, results, maxDistance, layerMask, hitTriggers, hitMultiple);
 }
 
 bool Physics::BoxCast(const Vector3& center, const Vector3& halfExtents, const Vector3& direction, const Quaternion& rotation, const float maxDistance, uint32 layerMask, bool hitTriggers)
@@ -599,10 +599,10 @@ bool PhysicsScene::RayCast(const Vector3& origin, const Vector3& direction, RayC
     return PhysicsBackend::RayCast(_scene, origin, direction, hitInfo, maxDistance, layerMask, hitTriggers);
 }
 
-bool PhysicsScene::RayCastAll(const Vector3& origin, const Vector3& direction, Array<RayCastHit>& results, const float maxDistance, uint32 layerMask, bool hitTriggers)
+bool PhysicsScene::RayCastAll(const Vector3& origin, const Vector3& direction, Array<RayCastHit>& results, const float maxDistance, uint32 layerMask, bool hitTriggers, bool hitMultiple)
 {
     CHECK_RETURN_DEBUG(direction.IsNormalized(), false);
-    return PhysicsBackend::RayCastAll(_scene, origin, direction, results, maxDistance, layerMask, hitTriggers);
+    return PhysicsBackend::RayCastAll(_scene, origin, direction, results, maxDistance, layerMask, hitTriggers, hitMultiple);
 }
 
 bool PhysicsScene::BoxCast(const Vector3& center, const Vector3& halfExtents, const Vector3& direction, const Quaternion& rotation, const float maxDistance, uint32 layerMask, bool hitTriggers)
