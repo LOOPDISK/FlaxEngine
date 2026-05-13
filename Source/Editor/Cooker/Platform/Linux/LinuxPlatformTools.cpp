@@ -48,6 +48,11 @@ bool LinuxPlatformTools::OnDeployBinaries(CookingData& data)
         return true;
     }
     const auto platformSettings = LinuxPlatformSettings::Get();
+    if (!platformSettings)
+    {
+        data.Error(TEXT("Failed to load Linux platform settings."));
+        return true;
+    }
     const auto outputPath = data.DataOutputPath;
 
     // Copy binaries
