@@ -4,6 +4,8 @@
 
 #include "../Actor.h"
 
+class AnimatedModel;
+
 /// <summary>
 /// Actor that links to the animated model skeleton node transformation.
 /// </summary>
@@ -11,10 +13,14 @@ API_CLASS(Attributes="ActorContextMenu(\"New/Animation/Bone Socket\"), ActorTool
 class FLAXENGINE_API BoneSocket : public Actor
 {
     DECLARE_SCENE_OBJECT(BoneSocket);
+    friend class AnimatedModel;
 private:
     String _node;
     int32 _index;
     bool _useScale;
+    // Cached AnimatedModel parent. Resolved once in OnParentChanged (the only dynamic_cast),
+    // then used directly by UpdateTransformation so the per-frame socket walk is cast-free.
+    AnimatedModel* _parent = nullptr;
 
 public:
     /// <summary>
@@ -55,6 +61,8 @@ public:
     void UpdateTransformation();
 
 public:
+    ~BoneSocket();
+
     // [Actor]
 #if USE_EDITOR
     void OnDebugDrawSelected() override;

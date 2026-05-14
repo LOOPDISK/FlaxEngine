@@ -9,6 +9,8 @@
 #include "Engine/Renderer/DrawCall.h"
 #include "Engine/Core/Delegate.h"
 
+class BoneSocket;
+
 /// <summary>
 /// Performs an animation and renders a skinned model.
 /// </summary>
@@ -17,6 +19,7 @@ class FLAXENGINE_API AnimatedModel : public ModelInstanceActor, IAssetReference
 {
     DECLARE_SCENE_OBJECT(AnimatedModel);
     friend class AnimationsSystem;
+    friend class BoneSocket;
 
     /// <summary>
     /// Keeps the data of a Node and its relevant Transform Matrix together when passing it between functions.
@@ -91,6 +94,9 @@ private:
     ScriptingObjectReference<AnimatedModel> _masterPose;
     Array<Pair<String, float>> _blendShapeWeights;
     Array<BlendShapeMesh> _blendShapeMeshes;
+    // BoneSocket children, cached at attach/detach so UpdateSockets skips a per-frame
+    // dynamic_cast walk of all children. Maintained by BoneSocket::OnParentChanged.
+    Array<BoneSocket*> _sockets;
 
 public:
     ~AnimatedModel();

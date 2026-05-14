@@ -12,6 +12,14 @@ BoneSocket::BoneSocket(const SpawnParams& params)
 {
 }
 
+BoneSocket::~BoneSocket()
+{
+    // AnimatedModel's dtor nulls _parent on its sockets before its _sockets array is destructed,
+    // so a non-null _parent here means the parent still owns us and we must unregister.
+    if (_parent)
+        _parent->_sockets.Remove(this);
+}
+
 void BoneSocket::SetNode(const StringView& name)
 {
     if (_node != name)
@@ -33,7 +41,7 @@ void BoneSocket::SetUseScale(bool value)
 
 void BoneSocket::UpdateTransformation()
 {
-    const auto parent = dynamic_cast<AnimatedModel*>(GetParent());
+    AnimatedModel* parent = _parent;
     if (parent && parent->SkinnedModel)
     {
         if (_index == -1)
@@ -117,6 +125,18 @@ void BoneSocket::OnParentChanged()
 {
     // Base
     Actor::OnParentChanged();
+
+    // Update cached parent pointer + socket-list registration on the AnimatedModel.
+    // This is the one place we pay dynamic_cast — once per re-parent, not per frame.
+    AnimatedModel* newParent = dynamic_cast<AnimatedModel*>(GetParent());
+    if (newParent != _parent)
+    {
+        if (_parent)
+            _parent->_sockets.Remove(this);
+        _parent = newParent;
+        if (_parent)
+            _parent->_sockets.Add(this);
+    }
 
     if (!IsDuringPlay())
         return;
