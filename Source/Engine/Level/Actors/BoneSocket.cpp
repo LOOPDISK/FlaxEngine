@@ -12,6 +12,12 @@ BoneSocket::BoneSocket(const SpawnParams& params)
 {
 }
 
+BoneSocket::~BoneSocket()
+{
+    if (_parent)
+        _parent->_sockets.Remove(this);
+}
+
 void BoneSocket::SetNode(const StringView& name)
 {
     if (_node != name)
@@ -33,7 +39,7 @@ void BoneSocket::SetUseScale(bool value)
 
 void BoneSocket::UpdateTransformation()
 {
-    const auto parent = dynamic_cast<AnimatedModel*>(GetParent());
+    AnimatedModel* parent = _parent;
     if (parent && parent->SkinnedModel)
     {
         if (_index == -1)
@@ -113,10 +119,39 @@ void BoneSocket::OnTransformChanged()
     _sphere = BoundingSphere(_transform.Translation, 0.0f);
 }
 
+void BoneSocket::OnOrderInParentChanged()
+{
+    // Base
+    Actor::OnOrderInParentChanged();
+
+    // Rebuild parent socket cache to match Children order
+    if (_parent)
+    {
+        auto& sockets = _parent->_sockets;
+        sockets.Clear();
+        for (Actor* child : _parent->Children)
+        {
+            if (BoneSocket* socket = dynamic_cast<BoneSocket*>(child))
+                sockets.Add(socket);
+        }
+    }
+}
+
 void BoneSocket::OnParentChanged()
 {
     // Base
     Actor::OnParentChanged();
+
+    // Update cached parent pointer
+    AnimatedModel* newParent = dynamic_cast<AnimatedModel*>(GetParent());
+    if (newParent != _parent)
+    {
+        if (_parent)
+            _parent->_sockets.Remove(this);
+        _parent = newParent;
+        if (_parent)
+            _parent->_sockets.Add(this);
+    }
 
     if (!IsDuringPlay())
         return;

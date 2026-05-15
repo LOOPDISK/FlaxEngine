@@ -109,6 +109,9 @@ AnimatedModel::AnimatedModel(const SpawnParams& params)
 
 AnimatedModel::~AnimatedModel()
 {
+    // Detach any sockets that didn't get OnParentChanged on destruction
+    for (BoneSocket* socket : _sockets)
+        socket->_parent = nullptr;
     if (_deformation)
         Delete(_deformation);
 }
@@ -905,12 +908,10 @@ void AnimatedModel::UpdateBounds()
 
 void AnimatedModel::UpdateSockets()
 {
-    for (int32 i = 0; i < Children.Count(); i++)
-    {
-        auto socket = dynamic_cast<BoneSocket*>(Children[i]);
-        if (socket)
-            socket->UpdateTransformation();
-    }
+    const int32 count = _sockets.Count();
+    BoneSocket** items = _sockets.Get();
+    for (int32 i = 0; i < count; i++)
+        items[i]->UpdateTransformation();
 }
 
 void AnimatedModel::OnAnimationUpdated_Async()
