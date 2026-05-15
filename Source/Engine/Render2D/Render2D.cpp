@@ -1307,8 +1307,7 @@ void Render2D::DrawTextMonospace(Font* font, const StringView& text, const Color
     {
         const Char c = text[i];
 
-        // Cheap whitespace fast path: advance the cell cursor and skip the glyph lookup + quad emit
-        // entirely. This is the main win over DrawText for grid text where most cells are blank.
+        // Early exit for whitespace
         if (c == ' ' || c == '\t')
         {
             cellX += cellAdvance.X;
