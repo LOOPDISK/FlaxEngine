@@ -121,6 +121,26 @@ void BoneSocket::OnTransformChanged()
     _sphere = BoundingSphere(_transform.Translation, 0.0f);
 }
 
+void BoneSocket::OnOrderInParentChanged()
+{
+    // Base
+    Actor::OnOrderInParentChanged();
+
+    // Rebuild the parent's socket cache to match the new Children order. Order changes are
+    // editor-driven and rare, so a full rebuild per event is cheaper than maintaining sorted
+    // inserts on every attach. UpdateSockets then iterates in the user-visible order.
+    if (_parent)
+    {
+        auto& sockets = _parent->_sockets;
+        sockets.Clear();
+        for (Actor* child : _parent->Children)
+        {
+            if (BoneSocket* socket = dynamic_cast<BoneSocket*>(child))
+                sockets.Add(socket);
+        }
+    }
+}
+
 void BoneSocket::OnParentChanged()
 {
     // Base
