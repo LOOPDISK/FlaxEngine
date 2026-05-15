@@ -222,6 +222,19 @@ public:
     API_FUNCTION() static void DrawText(Font* font, const StringView& text, API_PARAM(Ref) const TextRange& textRange, const Color& color, API_PARAM(Ref) const TextLayoutOptions& layout, MaterialBase* customMaterial = nullptr);
 
     /// <summary>
+    /// Draws monospace text using a fixed per-cell advance. Skips kerning lookups and per-glyph advance computation, and emits no draw work for whitespace. Newline ('\n') wraps to the start column on the next row.
+    /// Intended for grid-aligned text (TUI, monospace consoles) where glyphs occupy a single cell; double-width or proportional glyphs will render at the wrong column.
+    /// </summary>
+    /// <param name="font">The font to use. Should be a monospace font.</param>
+    /// <param name="text">The text to render.</param>
+    /// <param name="color">The text color.</param>
+    /// <param name="location">The upper-left location of the first cell.</param>
+    /// <param name="cellAdvance">Per-cell advance in screen pixels: X is the column width, Y is the row height used on '\n'.</param>
+    /// <param name="scale">Glyph metric scale, multiplied on top of the global font scale. Use this to render glyphs larger or smaller than the font's nominal size while keeping cellAdvance fixed.</param>
+    /// <param name="customMaterial">The custom material for font characters rendering. It must contain texture parameter named Font used to sample font texture.</param>
+    API_FUNCTION() static void DrawTextMonospace(Font* font, const StringView& text, const Color& color, const Float2& location, const Float2& cellAdvance, float scale = 1.0f, MaterialBase* customMaterial = nullptr);
+
+    /// <summary>
     /// Fills a rectangle area.
     /// </summary>
     /// <param name="rect">The rectangle to fill.</param>

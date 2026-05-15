@@ -1271,6 +1271,90 @@ void Render2D::DrawText(Font* font, const StringView& text, const TextRange& tex
     DrawText(font, textRange.Substring(text), color, location, customMaterial);
 }
 
+void Render2D::DrawTextMonospace(Font* font, const StringView& text, const Color& color, const Float2& location, const Float2& cellAdvance, float scale, MaterialBase* customMaterial)
+{
+    RENDER2D_CHECK_RENDERING_STATE;
+
+    if (font == nullptr ||
+        text.Length() <= 0 ||
+        (customMaterial && (!customMaterial->IsReady() || !customMaterial->IsGUI())))
+        return;
+
+    const float glyphScale = scale / FontManager::FontScale;
+    const bool enableFallbackFonts = EnumHasAllFlags(Features, RenderingFeatures::FallbackFonts);
+    const float baselineY = (font->GetHeight() + font->GetDescender()) * glyphScale;
+
+    uint32 fontAtlasIndex = 0;
+    FontTextureAtlas* fontAtlas = nullptr;
+    Float2 invAtlasSize = Float2::One;
+
+    FontCharacterEntry entry;
+    Render2DDrawCall drawCall;
+    if (customMaterial)
+    {
+        drawCall.Type = DrawCallType::DrawCharMaterial;
+        drawCall.AsChar.Mat = customMaterial;
+    }
+    else
+    {
+        drawCall.Type = DrawCallType::DrawChar;
+        drawCall.AsChar.Mat = nullptr;
+    }
+
+    float cellX = location.X;
+    float cellY = location.Y;
+    for (int32 i = 0; i < text.Length(); i++)
+    {
+        const Char c = text[i];
+
+        // Cheap whitespace fast path: advance the cell cursor and skip the glyph lookup + quad emit
+        // entirely. This is the main win over DrawText for grid text where most cells are blank.
+        if (c == ' ' || c == '\t')
+        {
+            cellX += cellAdvance.X;
+            continue;
+        }
+        if (c == '\n')
+        {
+            cellX = location.X;
+            cellY += cellAdvance.Y;
+            continue;
+        }
+
+        font->GetCharacter(c, entry, enableFallbackFonts);
+
+        if (fontAtlas == nullptr || entry.TextureIndex != fontAtlasIndex)
+        {
+            fontAtlasIndex = entry.TextureIndex;
+            fontAtlas = FontManager::GetAtlas(fontAtlasIndex);
+            if (fontAtlas)
+            {
+                fontAtlas->EnsureTextureCreated();
+                drawCall.AsChar.Tex = fontAtlas->GetTexture();
+                invAtlasSize = 1.0f / fontAtlas->GetSize();
+            }
+            else
+            {
+                drawCall.AsChar.Tex = nullptr;
+                invAtlasSize = 1.0f;
+            }
+        }
+
+        const float x = cellX + entry.OffsetX * glyphScale;
+        const float y = cellY + baselineY - entry.OffsetY * glyphScale;
+        const Rectangle charRect(x, y, entry.UVSize.X * glyphScale, entry.UVSize.Y * glyphScale);
+        const Float2 upperLeftUV = entry.UV * invAtlasSize;
+        const Float2 rightBottomUV = (entry.UV + entry.UVSize) * invAtlasSize;
+
+        drawCall.StartIB = IBIndex;
+        drawCall.CountIB = 6;
+        DrawCalls.Add(drawCall);
+        WriteRect(charRect, color, upperLeftUV, rightBottomUV);
+
+        cellX += cellAdvance.X;
+    }
+}
+
 void Render2D::DrawText(Font* font, const StringView& text, const Color& color, const TextLayoutOptions& layout, MaterialBase* customMaterial)
 {
     RENDER2D_CHECK_RENDERING_STATE;
