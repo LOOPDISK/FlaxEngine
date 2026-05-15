@@ -109,7 +109,7 @@ AnimatedModel::AnimatedModel(const SpawnParams& params)
 
 AnimatedModel::~AnimatedModel()
 {
-    // Null cached parent pointer on each registered socket so its dtor doesn't dereference us.
+    // Detach any sockets that didn't get OnParentChanged on destruction
     for (BoneSocket* socket : _sockets)
         socket->_parent = nullptr;
     if (_deformation)

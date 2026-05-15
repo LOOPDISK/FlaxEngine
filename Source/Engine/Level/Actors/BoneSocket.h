@@ -18,12 +18,6 @@ private:
     String _node;
     int32 _index;
     bool _useScale;
-    // Cached AnimatedModel parent. Resolved once in OnParentChanged (the only dynamic_cast),
-    // then used directly by UpdateTransformation so the per-frame socket walk is cast-free.
-    // Lifetime contract is two-sided: deferred-destruction (Actor::DeleteObject) clears the
-    // cache via OnParentChanged before ~AnimatedModel; synchronous OnDeleteObject does NOT
-    // fire OnParentChanged on children, so ~AnimatedModel nulls _parent on each registered
-    // socket and ~BoneSocket's Remove() is gated on it. Removing either half is a UAF.
     AnimatedModel* _parent = nullptr;
 
 public:

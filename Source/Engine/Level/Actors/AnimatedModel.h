@@ -94,8 +94,6 @@ private:
     ScriptingObjectReference<AnimatedModel> _masterPose;
     Array<Pair<String, float>> _blendShapeWeights;
     Array<BlendShapeMesh> _blendShapeMeshes;
-    // BoneSocket children, cached at attach/detach so UpdateSockets skips a per-frame
-    // dynamic_cast walk of all children. Maintained by BoneSocket::OnParentChanged.
     Array<BoneSocket*> _sockets;
 
 public:

@@ -14,8 +14,6 @@ BoneSocket::BoneSocket(const SpawnParams& params)
 
 BoneSocket::~BoneSocket()
 {
-    // AnimatedModel's dtor nulls _parent on its sockets before its _sockets array is destructed,
-    // so a non-null _parent here means the parent still owns us and we must unregister.
     if (_parent)
         _parent->_sockets.Remove(this);
 }
@@ -126,9 +124,7 @@ void BoneSocket::OnOrderInParentChanged()
     // Base
     Actor::OnOrderInParentChanged();
 
-    // Rebuild the parent's socket cache to match the new Children order. Order changes are
-    // editor-driven and rare, so a full rebuild per event is cheaper than maintaining sorted
-    // inserts on every attach. UpdateSockets then iterates in the user-visible order.
+    // Rebuild parent socket cache to match Children order
     if (_parent)
     {
         auto& sockets = _parent->_sockets;
@@ -146,8 +142,7 @@ void BoneSocket::OnParentChanged()
     // Base
     Actor::OnParentChanged();
 
-    // Update cached parent pointer + socket-list registration on the AnimatedModel.
-    // This is the one place we pay dynamic_cast — once per re-parent, not per frame.
+    // Update cached parent pointer
     AnimatedModel* newParent = dynamic_cast<AnimatedModel*>(GetParent());
     if (newParent != _parent)
     {
