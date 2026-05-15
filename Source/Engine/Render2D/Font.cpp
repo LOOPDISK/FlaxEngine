@@ -72,6 +72,15 @@ void Font::GetCharacter(Char c, FontCharacterEntry& result, bool enableFallback)
                 if (fallbackFont && fallbackFont->ContainsChar(c))
                 {
                     fallbackFont->CreateFont(GetSize())->GetCharacter(c, result, enableFallback);
+                    // Cache the resolved entry in this font's tables so subsequent lookups skip
+                    // the ContainsChar probe and fallback search. The entry's Font back-pointer
+                    // still references the fallback, so kerning and atlas resolution stay correct.
+                    if (result.IsValid)
+                    {
+                        _characters.Add(c, result);
+                        if (c < 256)
+                            _commonCharacters[c] = result;
+                    }
                     return;
                 }
             }
