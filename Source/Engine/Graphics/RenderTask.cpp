@@ -19,8 +19,6 @@
 #include "Engine/Threading/Threading.h"
 #if USE_EDITOR
 #include "Engine/Renderer/Lightmaps.h"
-#else
-#include "Engine/Engine/Screen.h"
 #endif
 
 Array<RenderTask*> RenderTask::Tasks;
@@ -471,12 +469,7 @@ void MainRenderTask::OnBegin(GPUContext* context)
     // Use the main camera for the game (can be later overriden in Begin event by external code)
     Camera = Camera::GetMainCamera();
 
-#if !USE_EDITOR
-    // Sync render buffers size with the backbuffer
-    const auto size = Screen::GetSize();
-    Buffers->Init((int32)(size.X * RenderingPercentage), (int32)(size.Y * RenderingPercentage));
-#endif
-
+    // Render buffers are sized by SceneRenderTask::OnBegin from SwapChain/Output (the source of truth)
     SceneRenderTask::OnBegin(context);
 }
 
