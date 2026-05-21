@@ -902,7 +902,29 @@ void RenderList::ExecuteDrawCalls(const RenderContext& renderContext, DrawCallsL
 {
     if (list.IsEmpty())
         return;
+    // Label the GPU zone by pass so multiple top-level "Drawing" entries in the dump
+    // can be told apart (depth prepass vs forward vs distortion vs motion vectors etc.).
+    // PROFILE_GPU requires a string literal; pick the literal per-pass.
+#if COMPILE_WITH_PROFILER
+    const Char* zoneName;
+    switch (renderContext.View.Pass)
+    {
+    case DrawPass::Depth:          zoneName = TEXT("Drawing[Depth]"); break;
+    case DrawPass::WeaponDepth:    zoneName = TEXT("Drawing[WeaponDepth]"); break;
+    case DrawPass::GBuffer:        zoneName = TEXT("Drawing[GBuffer]"); break;
+    case DrawPass::Forward:        zoneName = TEXT("Drawing[Forward]"); break;
+    case DrawPass::Distortion:     zoneName = TEXT("Drawing[Distortion]"); break;
+    case DrawPass::MotionVectors:  zoneName = TEXT("Drawing[MotionVectors]"); break;
+    case DrawPass::StylizedCloud:  zoneName = TEXT("Drawing[StylizedCloud]"); break;
+    case DrawPass::GlobalSDF:      zoneName = TEXT("Drawing[GlobalSDF]"); break;
+    case DrawPass::GlobalSurfaceAtlas: zoneName = TEXT("Drawing[GSA]"); break;
+    default:                       zoneName = TEXT("Drawing"); break;
+    }
+    ScopeProfileBlockGPU ProfileBlockGPU(zoneName);
+    PROFILE_CPU();
+#else
     PROFILE_GPU_CPU("Drawing");
+#endif
     PROFILE_MEM(GraphicsCommands);
     const auto* drawCallsData = drawCallsList->DrawCalls.Get();
     const auto* listData = list.Indices.Get();
