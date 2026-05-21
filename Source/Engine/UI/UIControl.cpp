@@ -8,6 +8,7 @@
 #include "Engine/Scripting/ManagedCLR/MCore.h"
 #include "Engine/Serialization/Serialization.h"
 #include "Engine/Profiler/ProfilerMemory.h"
+#include "Engine/Profiler/ProfilerCPU.h"
 
 #if COMPILE_WITHOUT_CSHARP
 #define UICONTROL_INVOKE(event)
@@ -152,6 +153,24 @@ void UIControl::Deserialize(DeserializeStream& stream, ISerializeModifier* modif
     const auto dataMember = stream.FindMember("Data");
     if (dataMember != stream.MemberEnd())
     {
+        // Child zone tagged with the concrete UIControl subtype (Button, Label, etc.)
+        // so anonymous 35 ms UIControl::Deserialize zones in profiler dumps are
+        // attributable to a specific control type instead of being indistinguishable.
+#if COMPILE_WITH_PROFILER
+        char _ctrlTypeZoneName[80];
+        const StringAnsiView ctrlTypeView = controlMember != stream.MemberEnd()
+            ? controlMember->value.GetStringAnsiView()
+            : StringAnsiView();
+        const int32 ctrlTypeLen = Math::Min<int32>(ctrlTypeView.Length(), (int32)sizeof(_ctrlTypeZoneName) - 1);
+        if (ctrlTypeLen > 0)
+            Platform::MemoryCopy(_ctrlTypeZoneName, ctrlTypeView.Get(), ctrlTypeLen);
+        else
+        {
+            _ctrlTypeZoneName[0] = '?';
+        }
+        _ctrlTypeZoneName[ctrlTypeLen > 0 ? ctrlTypeLen : 1] = 0;
+        ScopeProfileBlockCPU _controlTypeZone(_ctrlTypeZoneName);
+#endif
         rapidjson_flax::StringBuffer buffer;
         rapidjson_flax::Writer<rapidjson_flax::StringBuffer> writer(buffer);
         dataMember->value.Accept(writer);

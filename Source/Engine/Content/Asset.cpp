@@ -501,6 +501,11 @@ bool Asset::WaitForLoaded(double timeoutInMilliseconds) const
     ZoneColor(TracyWaitZoneColor);
     const StringView path(GetPath());
     ZoneText(*path, path.Length());
+    // Add the asset path as a child zone so in-game profiler dumps (non-Tracy)
+    // can identify which asset is blocking the caller, not just "Asset::WaitForLoaded".
+#if COMPILE_WITH_PROFILER
+    ScopeProfileBlockCPU _assetPathZone(path.HasChars() ? path.Get() : TEXT("<no-path>"));
+#endif
 
     Content::WaitForTask(loadingTask, timeoutInMilliseconds);
 

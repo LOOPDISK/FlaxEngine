@@ -326,8 +326,22 @@ namespace FlaxEngine
 
         internal static void Internal_Update()
         {
-            Update?.Invoke();
+            Profiler.BeginEvent("Engine.Update.Subscribers");
+            var updateInvocationList = Update?.GetInvocationList();
+            if (updateInvocationList != null)
+            {
+                for (int i = 0; i < updateInvocationList.Length; i++)
+                {
+                    var d = updateInvocationList[i];
+                    var m = d.Method;
+                    Profiler.BeginEvent((m.DeclaringType?.FullName ?? "?") + "." + m.Name);
+                    ((Action)d)();
+                    Profiler.EndEvent();
+                }
+            }
+            Profiler.EndEvent();
 
+            Profiler.BeginEvent("Engine.UpdateActions");
             lock (UpdateActions)
             {
                 int count = UpdateActions.Count;
@@ -355,8 +369,11 @@ namespace FlaxEngine
                     UpdateActions.AddRange(tmp);
                 }
             }
+            Profiler.EndEvent();
 
+            Profiler.BeginEvent("MainThreadTaskScheduler");
             MainThreadTaskScheduler.Execute();
+            Profiler.EndEvent();
         }
 
         internal static void Internal_LateUpdate()

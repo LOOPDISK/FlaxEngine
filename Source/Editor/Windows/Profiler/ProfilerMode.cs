@@ -138,6 +138,15 @@ namespace FlaxEditor.Windows.Profiler
         }
 
         /// <summary>
+        /// Writes this mode's data for a single buffered frame to the given writer. Used by the profiler window's "dump frames" action.
+        /// </summary>
+        /// <param name="frameIndex">The frame index in the mode's local sample buffer.</param>
+        /// <param name="writer">The destination writer. Modes should write a section header and their per-frame contents.</param>
+        public virtual void DumpFrame(int frameIndex, System.IO.TextWriter writer)
+        {
+        }
+
+        /// <summary>
         /// Called when selected sample gets changed.
         /// </summary>
         /// <param name="frameIndex">Index of the view frame.</param>

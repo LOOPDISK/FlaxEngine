@@ -225,9 +225,13 @@ int32 Engine::Main(const Char* cmdLine)
 #endif
         }
 
-        // Update game logic
+        // Update game logic. Wall-clock between Time::OnBeginUpdate/OnEndUpdate is
+        // what Stats.UpdateTimeMs reports. Wrapping it in its own profiler zone makes
+        // (Update Tick) - (Update) - (Late Update) the explicit "hidden time" delta;
+        // if it's not zero we have native code running off-zone inside the tick.
         if (Time::OnBeginUpdate(time))
         {
+            PROFILE_CPU_NAMED("Update Tick");
             OnUpdate();
             OnLateUpdate();
             Time::OnEndUpdate();
@@ -237,6 +241,7 @@ int32 Engine::Main(const Char* cmdLine)
         // Start physics simulation
         if (Time::OnBeginPhysics(time))
         {
+            PROFILE_CPU_NAMED("Physics Tick");
             OnFixedUpdate();
             OnLateFixedUpdate();
             Time::OnEndPhysics();
@@ -245,6 +250,7 @@ int32 Engine::Main(const Char* cmdLine)
         // Draw frame
         if (Time::OnBeginDraw(time))
         {
+            PROFILE_CPU_NAMED("Draw Tick");
             OnDraw();
             Time::OnEndDraw();
         }

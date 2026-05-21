@@ -94,9 +94,18 @@ void AnimationsSystem::Job(int32 index)
         const StringView graphName(graph->GetPath());
         ZoneName(*graphName, graphName.Length());
 #endif
+#if COMPILE_WITH_PROFILER
+        // Child zone tagged with the actor name so in-game profiler dumps can identify
+        // which AnimatedModel is responsible for a spiky Animations.Job (e.g. one Global
+        // Pose iteration taking 91 ms tells us a thread stalled but not which actor).
+        ScopeProfileBlockCPU _animActorZone(*animatedModel->GetName());
+#endif
 
         // Prepare skinning data
-        animatedModel->SetupSkinningData();
+        {
+            PROFILE_CPU_NAMED("SetupSkinningData");
+            animatedModel->SetupSkinningData();
+        }
 
         // Animation delta time can be based on a time since last update or the current delta
         float dt = animatedModel->UseTimeScale ? DeltaTime : UnscaledDeltaTime;

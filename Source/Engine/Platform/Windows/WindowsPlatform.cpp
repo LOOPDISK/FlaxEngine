@@ -821,13 +821,20 @@ void WindowsPlatform::LogInfo()
 
 void WindowsPlatform::Tick()
 {
-    WindowsInput::Update();
+    {
+        PROFILE_CPU_NAMED("WindowsInput.Update");
+        WindowsInput::Update();
+    }
 
-    // Check to see if any messages are waiting in the queue
+    // Check to see if any messages are waiting in the queue.
+    // Each DispatchMessage gets its own profile zone so that modal-loop stalls
+    // (WM_ENTERSIZEMOVE drag-resize, WM_SYSCOMMAND menus, etc.) attribute time
+    // to the message itself rather than appearing as opaque time inside Platform.Tick.
+    PROFILE_CPU_NAMED("MsgPump");
     MSG msg;
     while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
     {
-        // Translate the message and dispatch it to WindowProc()
+        PROFILE_CPU_NAMED("DispatchMessage");
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
