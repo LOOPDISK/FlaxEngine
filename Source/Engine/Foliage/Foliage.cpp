@@ -226,8 +226,10 @@ bool Foliage::CheckVisibility(FoliageInstance& instance, const BoundingSphere& b
 
 void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, bool isMainContext) const
 {
+    const bool cullingDisabled = context.RenderContext.View.IsCullingDisabled;
+
     // Skip clusters that around too far from view
-    if (Float3::Distance(context.LodView.Position, cluster->TotalBoundsSphere.Center - context.LodView.Origin) - (float)cluster->TotalBoundsSphere.Radius > cluster->MaxCullDistance)
+    if (!cullingDisabled && Float3::Distance(context.LodView.Position, cluster->TotalBoundsSphere.Center - context.LodView.Origin) - (float)cluster->TotalBoundsSphere.Radius > cluster->MaxCullDistance)
         return;
     //DebugDraw::DrawBox(cluster->Bounds, Color::Red);
 
@@ -245,7 +247,7 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
         box.Maximum -= context.ViewOrigin; \
         bounds = cluster->Children[idx]->TotalBoundsSphere; \
         bounds.Center -= context.ViewOrigin; \
-		if (context.RenderContext.View.CullingFrustum.Intersects(box)) \
+		if (cullingDisabled || context.RenderContext.View.CullingFrustum.Intersects(box)) \
         { \
             if (!isMainContext) \
             { \
@@ -293,9 +295,10 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
             auto& instance = *cluster->Instances.Get()[i];
             BoundingSphere sphere = instance.Bounds;
             sphere.Center -= context.ViewOrigin;
-            if (Float3::Distance(context.LodView.Position, sphere.Center) - (float)sphere.Radius < instance.CullDistance &&
+            if (cullingDisabled ||
+                (Float3::Distance(context.LodView.Position, sphere.Center) - (float)sphere.Radius < instance.CullDistance &&
                 context.RenderContext.View.CullingFrustum.Intersects(sphere) &&
-                RenderTools::ComputeBoundsScreenRadiusSquared(sphere.Center, sphere.Radius, context.RenderContext.View) * context.ViewScreenSizeSq >= context.MinObjectPixelSizeSq) // TODO: technically, this should be using the main context
+                RenderTools::ComputeBoundsScreenRadiusSquared(sphere.Center, sphere.Radius, context.RenderContext.View) * context.ViewScreenSizeSq >= context.MinObjectPixelSizeSq)) // TODO: technically, this should be using the main context
             {
                 if (!isMainContext)
                 {
@@ -1305,6 +1308,18 @@ void Foliage::Draw(RenderContext& renderContext)
         return;
     PROFILE_CPU();
     const RenderView& view = renderContext.View;
+
+    // Honor RenderView::IsCullingDisabled - caller explicitly listed actors so HZB
+    // occlusion from the main view must not gate them.
+    struct HzbDisableScope
+    {
+        Foliage* Self;
+        HZBData* Saved;
+        bool Disabled;
+        ~HzbDisableScope() { if (Disabled) Self->_hzb = Saved; }
+    } hzbScope{ this, _hzb, view.IsCullingDisabled };
+    if (view.IsCullingDisabled)
+        _hzb = nullptr;
 
     // Cache data per foliage instance type
     for (auto& type : FoliageTypes)
