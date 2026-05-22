@@ -280,6 +280,10 @@ void Renderer::DrawSceneDepth(GPUContext* context, SceneRenderTask* task, GPUTex
     RenderContext renderContext(task);
     renderContext.List = RenderList::GetFromPool();
     renderContext.View.Pass = DrawPass::Depth;
+    // Caller explicitly listed actors to render - bypass internal occlusion culling
+    // (HZB from the main view would otherwise hide actors occluded in that view).
+    if (customActors.HasItems())
+        renderContext.View.IsCullingDisabled = true;
     renderContext.View.Prepare(renderContext);
 
     // Call drawing (will collect draw calls)
