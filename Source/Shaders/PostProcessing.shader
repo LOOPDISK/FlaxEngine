@@ -1239,7 +1239,7 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 
     if (OutputColorSpace == OUTPUT_SRGB)
     {
-        // Convert into output display color space (sRGB). Inert under our default GammaColorSpace=true (OUTPUT_LINEAR).
+        // Convert scene color from linear into output display color space (sRGB)
         sceneColor = LinearToSrgb(sceneColor);
     }
 
