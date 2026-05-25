@@ -192,8 +192,8 @@ void StylizedCloudPass::Render(RenderContext& renderContext, GPUTexture*& frameB
     data.Time = Time::Draw.UnscaledTime.GetTotalSeconds();
     Matrix::Transpose(renderContext.View.ViewProjection(), data.ViewProjection);
     Matrix::Transpose(renderContext.View.IVP, data.InvViewProjection);
-    if (renderContext.List->Fog)
-        renderContext.List->Fog->GetExponentialHeightFogData(renderContext.View, data.ExponentialHeightFog);
+    if (renderContext.List->Fog.Renderer)
+        data.ExponentialHeightFog = renderContext.List->Fog.ExponentialHeightFogData;
     else
         Platform::MemoryClear(&data.ExponentialHeightFog, sizeof(data.ExponentialHeightFog));
 

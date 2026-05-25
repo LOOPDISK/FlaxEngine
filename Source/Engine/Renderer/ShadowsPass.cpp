@@ -1104,7 +1104,7 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
     {
         // Calculate DSM coverage: from CSM end to camera far plane
         const float csmEndDistance = light.ShadowsDistance + light.ShadowsFadeDistance; // Where CSM fully fades out
-        const float cameraFarPlane = view.Far;
+        const float cameraFarPlane = renderContext.View.Far;
         const float dsmCoverage = Math::Max(cameraFarPlane - csmEndDistance, 0.0f);
 
         // Auto-calculate world size to cover the DSM range with some margin
@@ -1126,7 +1126,7 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
 
         // Update world center to follow camera (with large hysteresis to avoid constant updates)
         const float worldCenterUpdateThreshold = 100000.0f; // 1km
-        Float3 viewWorldPos = view.Position;
+        Float3 viewWorldPos = renderContext.View.Position;
         if (dsm.WorldCenter.IsZero() || !Float3::NearEqual(dsm.WorldCenter, viewWorldPos, worldCenterUpdateThreshold))
         {
             dsm.WorldCenter = viewWorldPos;
