@@ -397,7 +397,7 @@ VertexOutput VS_Sprite(SpriteInput input, uint particleIndex : SV_InstanceID)
 	float aspect = ScreenSize.x / ScreenSize.y;
 	output.Position = ApplyWeaponFOVOverride(output.WorldPosition, aspect);
 #else
-	output.Position = mul(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
 #endif
 
 	// Pass vertex attributes
@@ -439,7 +439,7 @@ VertexOutput VS_Sprite(SpriteInput input, uint particleIndex : SV_InstanceID)
 #if USE_WEAPON_FOV_OVERRIDE
 	output.Position = ApplyWeaponFOVOverride(output.WorldPosition, ScreenSize.x / ScreenSize.y);
 #else
-	output.Position = mul(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
 #endif
 #endif
 
@@ -524,7 +524,7 @@ VertexOutput VS_Model(ModelInput input, uint particleIndex : SV_InstanceID)
 	float aspect = ScreenSize.x / ScreenSize.y;
 	output.Position = ApplyWeaponFOVOverride(output.WorldPosition, aspect);
 #else
-	output.Position = mul(float4(output.WorldPosition, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.WorldPosition, 1), ViewProjectionMatrix);
 #endif
 
 	// Pass vertex attributes
@@ -566,7 +566,7 @@ VertexOutput VS_Model(ModelInput input, uint particleIndex : SV_InstanceID)
 #if USE_WEAPON_FOV_OVERRIDE
 	output.Position = ApplyWeaponFOVOverride(output.WorldPosition, ScreenSize.x / ScreenSize.y);
 #else
-	output.Position = mul(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
 #endif
 #endif
 
@@ -639,7 +639,7 @@ VertexOutput VS_Ribbon(RibbonInput input, uint vertexIndex : SV_VertexID)
 	float aspect = ScreenSize.x / ScreenSize.y;
 	output.Position = ApplyWeaponFOVOverride(output.WorldPosition, aspect);
 #else
-	output.Position = mul(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
 #endif
 
 	// Pass vertex attributes
@@ -681,7 +681,7 @@ VertexOutput VS_Ribbon(RibbonInput input, uint vertexIndex : SV_VertexID)
 #if USE_WEAPON_FOV_OVERRIDE
 	output.Position = ApplyWeaponFOVOverride(output.WorldPosition, ScreenSize.x / ScreenSize.y);
 #else
-	output.Position = mul(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.WorldPosition.xyz, 1), ViewProjectionMatrix);
 #endif
 #endif
 

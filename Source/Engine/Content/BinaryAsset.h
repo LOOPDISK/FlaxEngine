@@ -22,6 +22,7 @@
 API_CLASS(Abstract, NoSpawn) class FLAXENGINE_API BinaryAsset : public Asset
 {
     DECLARE_ASSET_HEADER(BinaryAsset);
+    friend Content;
 protected:
     AssetHeader _header;
     FlaxStorageReference _storageRef; // Allow asset to have missing storage reference but only before asset is loaded or if it's virtual
@@ -85,6 +86,7 @@ public:
     /// <summary>
     /// Reimports asset from the source file.
     /// </summary>
+    /// <remarks>Only available in Editor.</remarks>
     API_FUNCTION() void Reimport() const;
 #endif
 
@@ -98,6 +100,7 @@ public:
     /// <summary>
     /// Gets the imported file path from the asset metadata (can be empty if not available).
     /// </summary>
+    /// <remarks>Only available in Editor.</remarks>
     API_PROPERTY() String GetImportPath() const;
 
     /// <summary>
@@ -251,6 +254,7 @@ public:
     /// <summary>
     /// Saves this asset to the storage container.
     /// </summary>
+    /// <remarks>Only available in Editor.</remarks>
     /// <param name="data">Asset data.</param>
     /// <param name="silentMode">In silent mode don't reload opened storage container that is using target file.</param>
     /// <returns>True if failed, otherwise false.</returns>
@@ -259,6 +263,7 @@ public:
     /// <summary>
     /// Saves this asset to the file.
     /// </summary>
+    /// <remarks>Only available in Editor.</remarks>
     /// <param name="data">Asset data.</param>
     /// <param name="path">Asset path (will be used to override the asset or create a new one).</param>
     /// <param name="silentMode">In silent mode don't reload opened storage container that is using target file.</param>
@@ -268,6 +273,7 @@ public:
     /// <summary>
     /// Saves asset data to the storage container. Asset unique ID is handled by auto.
     /// </summary>
+    /// <remarks>Only available in Editor.</remarks>
     /// <param name="path">Asset path (will be used to override the asset or create a new one).</param>
     /// <param name="data">Asset data.</param>
     /// <param name="silentMode">In silent mode don't reload opened storage container that is using target file.</param>

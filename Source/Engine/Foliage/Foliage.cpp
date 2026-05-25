@@ -25,7 +25,7 @@
 #include "Engine/Debug/DebugDraw.h"
 #include <Engine/Graphics/Graphics.h>
 
-#define FOLIAGE_GET_DRAW_MODES(renderContext, type) (type.DrawModes & renderContext.View.Pass & renderContext.View.GetShadowsDrawPassMask(type.ShadowsMode))
+#define FOLIAGE_GET_DRAW_MODES(renderContext, type) (type._drawModes & renderContext.View.Pass & renderContext.View.GetShadowsDrawPassMask(type.ShadowsMode))
 #define FOLIAGE_CAN_DRAW(renderContext, type) (type.IsReady() && FOLIAGE_GET_DRAW_MODES(renderContext, type) != DrawPass::None && type.Model->CanBeRendered())
 
 Foliage::Foliage(const SpawnParams& params)
@@ -236,9 +236,6 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
     // Draw visible children
     if (cluster->Children[0])
     {
-        // Don't store instances in non-leaf nodes
-        ASSERT_LOW_LAYER(cluster->Instances.IsEmpty());
-
         BoundingBox box;
         BoundingSphere bounds;
 #define DRAW_CLUSTER(idx) \
@@ -283,7 +280,7 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
         DRAW_CLUSTER(7);
 #undef 	DRAW_CLUSTER
     }
-    else
+    //else // Minor clusters can be subdivided and contain instances
     {
         // Draw visible instances
         const auto frame = Engine::FrameCount;
@@ -298,7 +295,7 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
             if (cullingDisabled ||
                 (Float3::Distance(context.LodView.Position, sphere.Center) - (float)sphere.Radius < instance.CullDistance &&
                 context.RenderContext.View.CullingFrustum.Intersects(sphere) &&
-                RenderTools::ComputeBoundsScreenRadiusSquared(sphere.Center, sphere.Radius, context.RenderContext.View) * context.ViewScreenSizeSq >= context.MinObjectPixelSizeSq)) // TODO: technically, this should be using the main context
+                RenderTools::ComputeBoundsScreenRadiusSquared(sphere.Center, (float)sphere.Radius, context.RenderContext.View) * context.ViewScreenSizeSq >= context.MinObjectPixelSizeSq)) // TODO: technically, this should be using the main context
             {
                 if (!isMainContext)
                 {
@@ -421,9 +418,6 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::D
     // Draw visible children
     if (cluster->Children[0])
     {
-        // Don't store instances in non-leaf nodes
-        ASSERT_LOW_LAYER(cluster->Instances.IsEmpty());
-
         BoundingBox box;
 #define DRAW_CLUSTER(idx) \
         box = cluster->Children[idx]->TotalBounds; \
@@ -463,7 +457,7 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::D
         DRAW_CLUSTER(7);
 #undef 	DRAW_CLUSTER
     }
-    else
+    //else // Minor clusters can be subdivided and contain instances
     {
         // Draw visible instances
         const auto frame = Engine::FrameCount;
@@ -496,7 +490,7 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::D
                 draw.DrawState = &instance.DrawState;
                 draw.Bounds = sphere;
                 draw.PerInstanceRandom = instance.Random;
-                draw.DrawModes = type.DrawModes;
+                draw.DrawModes = type._drawModes;
                 draw.SetStencilValue(_layer);
                 type.Model->Draw(context.RenderContext, draw);
 
@@ -530,7 +524,7 @@ void Foliage::DrawClusterGlobalSDF(class GlobalSignDistanceFieldPass* globalSDF,
         DRAW_CLUSTER(7);
 #undef 	DRAW_CLUSTER
     }
-    else
+    //else // Minor clusters can be subdivided and contain instances
     {
         // Draw visible instances
         for (int32 i = 0; i < cluster->Instances.Count(); i++)
@@ -565,7 +559,7 @@ void Foliage::DrawClusterGlobalSA(GlobalSurfaceAtlasPass* globalSA, const Vector
         DRAW_CLUSTER(7);
 #undef 	DRAW_CLUSTER
     }
-    else
+    //else // Minor clusters can be subdivided and contain instances
     {
         // Draw visible instances
         for (int32 i = 0; i < cluster->Instances.Count(); i++)
@@ -743,14 +737,22 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Me
 
 void Foliage::InitType(const RenderView& view, FoliageType& type)
 {
-    const DrawPass drawModes = type.DrawModes & view.Pass & view.GetShadowsDrawPassMask(type.ShadowsMode);
+    const DrawPass drawModes = type._drawModes & view.Pass & view.GetShadowsDrawPassMask(type.ShadowsMode);
     type._canDraw = type.IsReady() && drawModes != DrawPass::None && type.Model && type.Model->CanBeRendered();
+    bool drawModesDirty = false;
     for (int32 j = 0; j < type.Entries.Count(); j++)
     {
         auto& e = type.Entries[j];
         e.ReceiveDecals = type.ReceiveDecals != 0;
         e.ShadowsMode = type.ShadowsMode;
+        if (type._drawModesDirty)
+        {
+            type._drawModesDirty = 0;
+            drawModesDirty = true;
+        }
     }
+    if (drawModesDirty)
+        GetSceneRendering()->UpdateActor(this, _sceneRenderingKey, ISceneRenderingListener::DrawModes);
 }
 
 int32 Foliage::GetInstancesCount() const
@@ -1408,7 +1410,7 @@ void Foliage::Draw(RenderContext& renderContext)
         draw.Deformation = nullptr;
         draw.Bounds = instance.Bounds;
         draw.PerInstanceRandom = instance.Random;
-        draw.DrawModes = type.DrawModes & view.Pass & view.GetShadowsDrawPassMask(type.ShadowsMode);
+        draw.DrawModes = type._drawModes & view.Pass & view.GetShadowsDrawPassMask(type.ShadowsMode);
         draw.SetStencilValue(_layer);
         type.Model->Draw(renderContext, draw);
         return;

@@ -87,10 +87,10 @@ public:
 
 protected:
     // State
-    int64 _refCount = 0;
-    int64 _chunksLock = 0;
-    int64 _files = 0;
-    int64 _isUnloadingData = 0;
+    intptr _refCount = 0;
+    intptr _chunksLock = 0;
+    intptr _files = 0;
+    intptr _isUnloadingData = 0;
     double _lastRefLostTime;
     CriticalSection _loadLocker;
 
@@ -276,9 +276,9 @@ public:
     virtual bool IsPackage() const = 0;
 
     /// <summary>
-    /// Checks whenever storage container allows the data modifications.
+    /// Checks whenever storage container doesn't allow modifications.
     /// </summary>
-    virtual bool AllowDataModifications() const = 0;
+    virtual bool IsReadOnly() const = 0;
 
     /// <summary>
     /// Determines whether the specified asset exists in this container.

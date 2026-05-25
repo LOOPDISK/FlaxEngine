@@ -33,6 +33,11 @@ namespace FlaxEngine
         /// The world space rendering mode that places Canvas as any other object in the scene and orients it to face the camera. The size of the Canvas can be set manually using its Transform, and UI elements will render in front of or behind other objects in the scene based on 3D placement. This is useful for UIs that are meant to be a part of the world. This is also known as a 'diegetic interface'.
         /// </summary>
         WorldSpaceFaceCamera = 3,
+
+        /// <summary>
+        /// The off-screen rendering mode that draws the contents of the canvas into a GPU texture that can be used in the scene or by other systems. The size of the canvas is automatically set to the size of the texture.
+        /// </summary>
+        GPUTexture = 4,
     }
 
     /// <summary>
@@ -56,6 +61,9 @@ namespace FlaxEngine
         /// <inheritdoc />
         public override bool CanRender()
         {
+            if (!Canvas)
+                return false;
+
             // Sync with canvas options
             Location = Canvas.RenderLocation;
             Order = Canvas.Order;
@@ -105,7 +113,7 @@ namespace FlaxEngine
         private CanvasRenderMode _renderMode;
         private readonly CanvasRootControl _guiRoot;
         private CanvasRenderer _renderer;
-        private bool _isLoading, _isRegisteredForTick;
+        private bool _isLoading, _isRegisteredForTick, _isRegisteredForOnDraw;
 
         /// <summary>
         /// Gets or sets the canvas rendering mode.
@@ -169,6 +177,8 @@ namespace FlaxEngine
 
         private bool Editor_IsCameraSpace => _renderMode == CanvasRenderMode.CameraSpace;
 
+        private bool Editor_IsGPUTexture => _renderMode == CanvasRenderMode.GPUTexture;
+
         private bool Editor_UseRenderCamera => _renderMode == CanvasRenderMode.CameraSpace || _renderMode == CanvasRenderMode.WorldSpaceFaceCamera;
 #endif
 
@@ -205,6 +215,12 @@ namespace FlaxEngine
         /// </summary>
         [EditorOrder(60), Limit(0.01f), EditorDisplay("Canvas"), VisibleIf("Editor_IsCameraSpace"), Tooltip("Distance from the RenderCamera to place the plane with GUI. If the screen is resized, changes resolution, or the camera frustum changes, the Canvas will automatically change size to match as well.")]
         public float Distance { get; set; } = 500;
+
+        /// <summary>
+        /// Gets or sets the output texture for the canvas when render mode is set to <see cref="CanvasRenderMode.GPUTexture"/>. The size of the canvas will be automatically set to the size of the texture. The canvas will render its content into this texture.
+        /// </summary>
+        [EditorOrder(70), NoSerialize, EditorDisplay("Canvas"), VisibleIf("Editor_IsGPUTexture")]
+        public GPUTexture OutputTexture { get; set; }
 
         /// <summary>
         /// Gets the canvas GUI root control.
@@ -329,6 +345,11 @@ namespace FlaxEngine
                 _isRegisteredForTick = false;
                 Scripting.Update -= OnUpdate;
             }
+            if (_isRegisteredForOnDraw)
+            {
+                _isRegisteredForOnDraw = false;
+                Scripting.Draw -= OnDraw;
+            }
         }
 
         /// <summary>
@@ -358,7 +379,7 @@ namespace FlaxEngine
         /// <summary>
         /// Gets a value indicating whether canvas is 3D (world-space or camera-space).
         /// </summary>
-        public bool Is3D => _renderMode != CanvasRenderMode.ScreenSpace;
+        public bool Is3D => _renderMode != CanvasRenderMode.ScreenSpace && _renderMode != CanvasRenderMode.GPUTexture;
 
         /// <summary>
         /// Gets the world matrix used to transform the GUI from the local space to the world space. Handles canvas rendering mode
@@ -444,7 +465,7 @@ namespace FlaxEngine
                 Quaternion.Euler(180, 180, 0, out var quat);
                 Matrix.RotationQuaternion(ref quat, out m2);
                 Matrix.Multiply(ref m3, ref m2, out m1);
-                m2 = Matrix.Transformation(Vector3.One, Quaternion.FromDirection(-camera.Direction), translation);
+                m2 = Matrix.Transformation(Vector3.One, Quaternion.FromDirection(-camera.Forward), translation);
                 Matrix.Multiply(ref m1, ref m2, out world);
             }
             else if (_renderMode == CanvasRenderMode.CameraSpace && camera)
@@ -491,6 +512,11 @@ namespace FlaxEngine
         {
             if (_isLoading)
                 return;
+            if (_isRegisteredForOnDraw)
+            {
+                _isRegisteredForOnDraw = false;
+                Scripting.Draw -= OnDraw;
+            }
 
             switch (_renderMode)
             {
@@ -563,7 +589,32 @@ namespace FlaxEngine
                 }
                 break;
             }
+            case CanvasRenderMode.GPUTexture:
+            {
+                if (!_isRegisteredForOnDraw)
+                {
+                    _isRegisteredForOnDraw = true;
+                    Scripting.Draw += OnDraw;
+                }
+                break;
             }
+            }
+        }
+
+        private void OnDraw()
+        {
+            var outputTexture = OutputTexture;
+            if (!outputTexture || !outputTexture.IsAllocated)
+                return;
+            var context = GPUDevice.Instance.MainContext;
+            _guiRoot.Size = outputTexture.Size;
+
+            Profiler.BeginEvent("UI Canvas");
+            Profiler.BeginEventGPU("UI Canvas");
+            context.Clear(outputTexture.View(), Color.Transparent);
+            Render2D.CallDrawing(GUI, context, outputTexture);
+            Profiler.EndEvent();
+            Profiler.EndEventGPU();
         }
 
         private void OnUpdate()

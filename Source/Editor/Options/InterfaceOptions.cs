@@ -85,10 +85,12 @@ namespace FlaxEditor.Options
             /// Never show the close button.
             /// </summary>
             Never,
+
             /// <summary>
             /// Show the close button on tabs that are currently selected.
             /// </summary>
             SelectedTab,
+
             /// <summary>
             /// Show the close button on all tabs that can be closed.
             /// </summary>
@@ -159,7 +161,7 @@ namespace FlaxEditor.Options
         }
 
         /// <summary>
-        /// Options focus Game Window behaviour when play mode is entered.
+        /// Options for focus Game Window behaviour when play mode is entered.
         /// </summary>
         public enum PlayModeFocus
         {
@@ -177,6 +179,50 @@ namespace FlaxEditor.Options
             /// Focus the Game Window. On play mode end restore focus to the previous window.
             /// </summary>
             GameWindowThenRestore,
+        }
+
+        /// <summary>
+        /// Options for type of window decorations to use.
+        /// </summary>
+        public enum WindowDecorationsType
+        {
+            /// <summary>
+            /// Determined automatically based on the system and any known compatibility issues with native decorations.
+            /// </summary>
+            Auto,
+
+            /// <summary>
+            /// Automatically choose most compatible window decorations for child windows, prefer custom decorations on main window.
+            /// </summary>
+            [EditorDisplay(Name = "Auto (Child Only)")]
+            AutoChildOnly,
+
+            /// <summary>
+            /// Use native system window decorations on all windows.
+            /// </summary>
+            Native,
+
+            /// <summary>
+            /// Use custom client-side window decorations on all windows.
+            /// </summary>
+            [EditorDisplay(Name = "Client-side")]
+            ClientSide,
+        }
+
+        /// <summary>
+        /// Generic options for a disabled or hidden state. Used for example in create content button.
+        /// </summary>
+        public enum DisabledHidden
+        {
+            /// <summary>
+            /// Disabled state.
+            /// </summary>
+            Disabled,
+
+            /// <summary>
+            /// Hidden state.
+            /// </summary>
+            Hidden,
         }
 
         /// <summary>
@@ -206,13 +252,6 @@ namespace FlaxEditor.Options
         [DefaultValue(FlaxEngine.GUI.Orientation.Horizontal)]
         [EditorDisplay("Interface"), EditorOrder(280), Tooltip("Editor content window orientation.")]
         public FlaxEngine.GUI.Orientation ContentWindowOrientation { get; set; } = FlaxEngine.GUI.Orientation.Horizontal;
-
-        /// <summary>
-        /// If checked, color pickers will always modify the color unless 'Cancel' if pressed, otherwise color won't change unless 'Ok' is pressed.
-        /// </summary>
-        [DefaultValue(true)]
-        [EditorDisplay("Interface"), EditorOrder(290)]
-        public bool AutoAcceptColorPickerChange { get; set; } = true;
 
         /// <summary>
         /// Gets or sets the formatting option for numeric values in the editor.
@@ -268,7 +307,23 @@ namespace FlaxEditor.Options
         [EditorDisplay("Interface"), EditorOrder(322)]
         public bool ScrollToScriptOnAdd { get; set; } = true;
 
+#if PLATFORM_SDL
+        /// <summary>
+        /// Gets or sets a value indicating whether use native window title bar decorations in child windows. Editor restart required.
+        /// </summary>
 #if PLATFORM_WINDOWS
+        [DefaultValue(WindowDecorationsType.ClientSide)]
+#else
+        [DefaultValue(WindowDecorationsType.AutoChildOnly)]
+#endif
+        [EditorDisplay("Tabs & Windows"), EditorOrder(70), Tooltip("Determines whether use native window title bar decorations. Editor restart required.")]
+        public WindowDecorationsType WindowDecorations { get; set; } =
+#if PLATFORM_WINDOWS
+            WindowDecorationsType.ClientSide;
+#else
+            WindowDecorationsType.AutoChildOnly;
+#endif
+#elif PLATFORM_WINDOWS
         /// <summary>
         /// Gets or sets a value indicating whether use native window title bar. Editor restart required.
         /// </summary>
@@ -277,7 +332,7 @@ namespace FlaxEditor.Options
         public bool UseNativeWindowSystem { get; set; } = false;
 #endif
 
-#if PLATFORM_WINDOWS
+#if PLATFORM_SDL || PLATFORM_WINDOWS
         /// <summary>
         /// Gets or sets a value indicating whether a window containing a single tabs hides the tab bar. Editor restart recommended.
         /// </summary>
@@ -287,7 +342,7 @@ namespace FlaxEditor.Options
 #endif
 
         /// <summary>
-        /// Gets or sets a value indicating wether the minum tab width should be used. Editor restart required.
+        /// Gets or sets a value indicating whether the minimum tab width should be used. Editor restart required.
         /// </summary>
         [DefaultValue(false)]
         [EditorDisplay("Tabs & Windows"), EditorOrder(99)]
@@ -483,7 +538,7 @@ namespace FlaxEditor.Options
         [DefaultValue(1), Range(1, 4)]
         [EditorDisplay("Cook & Run"), EditorOrder(600)]
         public int NumberOfGameClientsToLaunch = 1;
-        
+
         /// <summary>
         /// Gets or sets the build configuration to use when using Cook and Run option in the editor.
         /// </summary>
@@ -493,12 +548,12 @@ namespace FlaxEditor.Options
         /// <summary>
         /// Gets or sets the curvature of the line connecting to connected visject nodes.
         /// </summary>
-        [DefaultValue(1.0f), Range(0.0f, 2.0f)]
+        [DefaultValue(0.25f), Range(0.0f, 2.0f)]
         [EditorDisplay("Visject"), EditorOrder(550)]
-        public float ConnectionCurvature { get; set; } = 1.0f;
+        public float ConnectionCurvature { get; set; } = 0.25f;
 
         /// <summary>
-        /// Gets or sets a value that indicates wether the context menu description panel is shown or not.
+        /// Gets or sets a value that indicates whether the context menu description panel is shown or not.
         /// </summary>
         [DefaultValue(true)]
         [EditorDisplay("Visject"), EditorOrder(550), Tooltip("Shows/hides the description panel in visual scripting context menu.")]
@@ -524,6 +579,13 @@ namespace FlaxEditor.Options
         [DefaultValue(true)]
         [EditorDisplay("Visject", "Warn when deleting used parameter"), EditorOrder(552)]
         public bool WarnOnDeletingUsedVisjectParameter { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets a value indicating what should happen to unavaliable options in the content create menu.
+        /// </summary>
+        [DefaultValue(DisabledHidden.Hidden)]
+        [EditorDisplay("Content"), EditorOrder(600)]
+        public DisabledHidden UnavaliableContentCreateOptions { get; set; } = DisabledHidden.Hidden;
 
         private static FontAsset DefaultFont => FlaxEngine.Content.LoadAsyncInternal<FontAsset>(EditorAssets.PrimaryFont);
         private static FontAsset ConsoleFont => FlaxEngine.Content.LoadAsyncInternal<FontAsset>(EditorAssets.InconsolataRegularFont);

@@ -7,7 +7,6 @@
 
 class Asset;
 struct Transform;
-struct CommonValue;
 template<typename T>
 class AssetReference;
 struct ScriptingTypeHandle;
@@ -69,10 +68,12 @@ API_STRUCT(InBuild) struct FLAXENGINE_API VariantType
 
         MAX,
 #if USE_LARGE_WORLDS
+        Real = Double,
         Vector2 = Double2,
         Vector3 = Double3,
         Vector4 = Double4,
 #else
+        Real = Float,
         Vector2 = Float2,
         Vector3 = Float3,
         Vector4 = Float4,
@@ -264,7 +265,6 @@ public:
     explicit Variant(Dictionary<Variant, Variant, HeapAllocation>&& v);
     explicit Variant(const Dictionary<Variant, Variant, HeapAllocation>& v);
     explicit Variant(const Span<byte>& v);
-    explicit Variant(const CommonValue& v);
 
     template<typename T>
     Variant(const class AssetReference<T>& v)

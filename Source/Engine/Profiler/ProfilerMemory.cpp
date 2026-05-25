@@ -263,6 +263,7 @@ void InitProfilerMemory(const Char* cmdLine, int32 stage)
     INIT_PARENT(Level, LevelTerrain);
     INIT_PARENT(Navigation, NavigationMesh);
     INIT_PARENT(Navigation, NavigationBuilding);
+    INIT_PARENT(Physics, PhysicsCloth);
     INIT_PARENT(Scripting, ScriptingVisual);
     INIT_PARENT(Scripting, ScriptingCSharp);
     INIT_PARENT(ScriptingCSharp, ScriptingCSharpGCCommitted);
@@ -486,6 +487,13 @@ void ProfilerMemory::OnGroupUpdate(Groups group, int64 sizeDelta, int64 countDel
 {
     Platform::InterlockedAdd(&GroupMemory[(int32)group], sizeDelta);
     Platform::InterlockedAdd(&GroupMemoryCount[(int32)group], countDelta);
+    UPDATE_PEEK(group);
+}
+
+void ProfilerMemory::OnGroupSet(Groups group, int64 size, int64 count)
+{
+    Platform::AtomicStore(&GroupMemory[(int32)group], size);
+    Platform::AtomicStore(&GroupMemoryCount[(int32)group], count);
     UPDATE_PEEK(group);
 }
 

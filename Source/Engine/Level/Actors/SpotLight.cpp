@@ -1,6 +1,8 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 #include "SpotLight.h"
+
+#include "Engine/Content/Deprecated.h"
 #include "Engine/Graphics/RenderView.h"
 #include "Engine/Renderer/RenderList.h"
 #include "Engine/Content/Assets/IESProfile.h"
@@ -25,7 +27,7 @@ SpotLight::SpotLight(const SpawnParams& params)
     _cosInnerCone = Math::Cos(_innerConeAngle * DegreesToRadians);
     _invCosConeDifference = 1.0f / (_cosInnerCone - _cosOuterCone);
     const float boundsRadius = Math::Sqrt(1.25f * _radius * _radius - _radius * _radius * _cosOuterCone);
-    _sphere = BoundingSphere(GetPosition() + 0.5f * GetDirection() * _radius, boundsRadius);
+    _sphere = BoundingSphere(GetPosition() + 0.5f * GetForward() * _radius, boundsRadius);
     BoundingBox::FromSphere(_sphere, _box);
 }
 
@@ -111,7 +113,7 @@ void SpotLight::UpdateBounds()
     // Note: we use the law of cosines to find the distance to the furthest edge of the spotlight cone from a position that is halfway down the spotlight direction
     const float radius = GetScaledRadius();
     const float boundsRadius = Math::Sqrt(1.25f * radius * radius - radius * radius * _cosOuterCone);
-    _sphere = BoundingSphere(GetPosition() + 0.5f * GetDirection() * radius, boundsRadius);
+    _sphere = BoundingSphere(GetPosition() + 0.5f * GetForward() * radius, boundsRadius);
     BoundingBox::FromSphere(_sphere, _box);
 
     if (_sceneRenderingKey != -1)
@@ -197,7 +199,7 @@ void SpotLight::OnDebugDrawSelected()
     const auto color = Color::Yellow;
     Vector3 right = _transform.GetRight();
     Vector3 up = _transform.GetUp();
-    Vector3 forward = GetDirection();
+    Vector3 forward = GetForward();
     float radius = GetScaledRadius();
     float discRadius = radius * Math::Tan(_outerConeAngle * DegreesToRadians);
     float falloffDiscRadius = radius * Math::Tan(_innerConeAngle * DegreesToRadians);
@@ -229,7 +231,7 @@ void SpotLight::DrawLightsDebug(RenderView& view)
     const auto color = Color::Yellow;
     Vector3 right = _transform.GetRight();
     Vector3 up = _transform.GetUp();
-    Vector3 forward = GetDirection();
+    Vector3 forward = GetForward();
     float radius = GetScaledRadius();
     float discRadius = radius * Math::Tan(_outerConeAngle * DegreesToRadians);
     float falloffDiscRadius = radius * Math::Tan(_innerConeAngle * DegreesToRadians);
@@ -282,6 +284,14 @@ void SpotLight::Deserialize(DeserializeStream& stream, ISerializeModifier* modif
     DESERIALIZE(UseInverseSquaredFalloff);
     DESERIALIZE(UseIESBrightness);
     DESERIALIZE(IESBrightnessScale);
+
+    // [Deprecated on 12.03.2026, expires on 12.03.2028]
+    if (modifier->EngineBuild <= 6807 && SERIALIZE_FIND_MEMBER(stream, "UseInverseSquaredFalloff") != stream.MemberEnd() && UseInverseSquaredFalloff)
+    {
+        // Convert old non-physical brightness value that was used for Inverse Squared Falloff which wasn't based on proper cm/m units calculations
+        MARK_CONTENT_DEPRECATED();
+        Brightness = Math::Sqrt(Brightness * 0.01f);
+    }
 }
 
 bool SpotLight::IntersectsItself(const Ray& ray, Real& distance, Vector3& normal)

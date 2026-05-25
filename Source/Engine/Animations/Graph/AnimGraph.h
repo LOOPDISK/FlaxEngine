@@ -26,6 +26,7 @@ class AnimGraphExecutor;
 class AnimatedModel;
 class AnimEvent;
 class AnimContinuousEvent;
+struct AnimGraphContext;
 class SkinnedModel;
 class SkeletonData;
 
@@ -60,14 +61,16 @@ struct FLAXENGINE_API AnimGraphImpulse
     {
         return Nodes[nodeIndex];
     }
-
     FORCE_INLINE void SetNodeLocalTransformation(SkeletonData& skeleton, int32 nodeIndex, const Transform& value)
     {
         Nodes[nodeIndex] = value;
     }
 
     Transform GetNodeModelTransformation(SkeletonData& skeleton, int32 nodeIndex) const;
-    void SetNodeModelTransformation(SkeletonData& skeleton, int32 nodeIndex, const Transform& value);
+    void SetNodeModelTransformation(SkeletonData& skeleton, int32 nodeIndex, const Transform& value, float weight = 1.0f);
+
+    Transform GetNodeWorldTransformation(const AnimGraphContext& context, SkeletonData& skeleton, int32 nodeIndex) const;
+    void SetNodeWorldTransformation(const AnimGraphContext& context, SkeletonData& skeleton, int32 nodeIndex, const Transform& value);
 };
 
 /// <summary>
@@ -272,6 +275,18 @@ public:
         float Data[4];
     };
 
+    struct SpringBonePhysicsBucket
+    {
+        uint64 LastUpdateFrame;
+        int32 StateDataStart;
+    };
+
+    struct SpringBonePhysicsDynamic
+    {
+        Vector3 CurrentPosition;
+        Vector3 PreviousPosition;
+    };
+
     /// <summary>
     /// The single data storage bucket for the instanced animation graph node. Used to store the node state (playback position, state, transition data).
     /// </summary>
@@ -285,6 +300,7 @@ public:
             StateMachineBucket StateMachine;
             SlotBucket Slot;
             InstanceDataBucket InstanceData;
+            SpringBonePhysicsBucket SpringBonePhysics;
         };
     };
 
@@ -323,6 +339,11 @@ public:
     /// The animation state data.
     /// </summary>
     Array<Bucket> State;
+
+    /// <summary>
+    /// The animation state extended data. Managed by the specific node types and shared for a whole instance. Can be resized at runtime.
+    /// </summary>
+    Array<byte> DynamicState;
 
     /// <summary>
     /// The per-node final transformations in actor local-space.
@@ -369,6 +390,12 @@ public:
     /// Invokes any outgoing AnimEvent and AnimContinuousEvent collected during the last animation update. When called from non-main thread only Async events will be invoked.
     /// </summary>
     void InvokeAnimEvents();
+
+    /// <summary>
+    /// Gets the world-space transformation of the animated object.
+    /// </summary>
+    /// <returns>Transformation from model/local space to world space.</returns>
+    Transform GetObjectTransform() const;
 
 public:
     // Anim Graph logic tracing feature that allows to collect insights of animations sampling and skeleton poses operations.
@@ -557,11 +584,19 @@ public:
 
 public:
     /// <summary>
-    /// Gets the per-node node transformations cache (cached).
+    /// Gets the per-node node transformations (cached).
     /// </summary>
     /// <param name="executor">The Graph execution context.</param>
     /// <returns>Nodes data.</returns>
     AnimGraphImpulse* GetNodes(AnimGraphExecutor* executor);
+
+    /// <summary>
+    /// Gets the per-node node transformations (cached) and initializes the nodes.
+    /// </summary>
+    /// <param name="executor">The Graph execution context.</param>
+    /// <param name="input">The input nodes to copy. If input is invalid then reference is used to initialize the nodes.</param>
+    /// <returns>Nodes data.</returns>
+    AnimGraphImpulse* GetNodes(AnimGraphExecutor* executor, Variant& input);
 };
 
 /// <summary>

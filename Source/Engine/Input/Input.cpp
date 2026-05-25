@@ -41,7 +41,7 @@ struct AxisData
     uint64 FrameIndex = 0;
 };
 
-namespace InputImpl
+namespace
 {
     Dictionary<String, ActionData> Actions;
     Dictionary<String, AxisData> Axes;
@@ -49,8 +49,6 @@ namespace InputImpl
     Array<AxisEvaluation> AxesValues;
     InputDevice::EventQueue InputEvents;
 }
-
-using namespace InputImpl;
 
 class InputService : public EngineService
 {
@@ -79,6 +77,7 @@ Delegate<const Float2&, MouseButton> Input::MouseUp;
 Delegate<const Float2&, MouseButton> Input::MouseDoubleClick;
 Delegate<const Float2&, float> Input::MouseWheel;
 Delegate<const Float2&> Input::MouseMove;
+Delegate<const Float2&> Input::MouseMoveRelative;
 Action Input::MouseLeave;
 Delegate<InputGamepadIndex, GamepadButton> Input::GamepadButtonDown;
 Delegate<InputGamepadIndex, GamepadButton> Input::GamepadButtonUp;
@@ -120,6 +119,7 @@ void InputSettings::Deserialize(DeserializeStream& stream, ISerializeModifier* m
                 config.MouseButton = JsonTools::GetEnum(v, "MouseButton", MouseButton::None);
                 config.GamepadButton = JsonTools::GetEnum(v, "GamepadButton", GamepadButton::None);
                 config.Gamepad = JsonTools::GetEnum(v, "Gamepad", InputGamepadIndex::All);
+                config.DeadZone = JsonTools::GetFloat(v, "DeadZone", 0.5f);
             }
         }
         else
@@ -217,6 +217,14 @@ void Mouse::OnMouseMove(const Float2& position, Window* target)
     e.MouseData.Position = position;
 }
 
+void Mouse::OnMouseMoveRelative(const Float2& positionRelative, Window* target)
+{
+    Event& e = _queue.AddOne();
+    e.Type = EventType::MouseMoveRelative;
+    e.Target = target;
+    e.MouseMovementData.PositionRelative = positionRelative;
+}
+
 void Mouse::OnMouseLeave(Window* target)
 {
     PROFILE_MEM(Input);
@@ -282,6 +290,11 @@ bool Mouse::Update(EventQueue& queue)
         case EventType::MouseMove:
         {
             _state.MousePosition = e.MouseData.Position;
+            break;
+        }
+        case EventType::MouseMoveRelative:
+        {
+            _state.MousePosition += e.MouseMovementData.PositionRelative;
             break;
         }
         case EventType::MouseLeave:
@@ -499,24 +512,24 @@ float Input::GetGamepadAxis(int32 gamepadIndex, GamepadAxis axis)
     return 0.0f;
 }
 
-bool Input::GetGamepadButton(int32 gamepadIndex, GamepadButton button)
+bool Input::GetGamepadButton(int32 gamepadIndex, GamepadButton button, float deadZone)
 {
     if (gamepadIndex >= 0 && gamepadIndex < Gamepads.Count())
-        return Gamepads[gamepadIndex]->GetButton(button);
+        return Gamepads[gamepadIndex]->GetButton(button, deadZone);
     return false;
 }
 
-bool Input::GetGamepadButtonDown(int32 gamepadIndex, GamepadButton button)
+bool Input::GetGamepadButtonDown(int32 gamepadIndex, GamepadButton button, float deadZone)
 {
     if (gamepadIndex >= 0 && gamepadIndex < Gamepads.Count())
-        return Gamepads[gamepadIndex]->GetButtonDown(button);
+        return Gamepads[gamepadIndex]->GetButtonDown(button, deadZone);
     return false;
 }
 
-bool Input::GetGamepadButtonUp(int32 gamepadIndex, GamepadButton button)
+bool Input::GetGamepadButtonUp(int32 gamepadIndex, GamepadButton button, float deadZone)
 {
     if (gamepadIndex >= 0 && gamepadIndex < Gamepads.Count())
-        return Gamepads[gamepadIndex]->GetButtonUp(button);
+        return Gamepads[gamepadIndex]->GetButtonUp(button, deadZone);
     return false;
 }
 
@@ -542,13 +555,13 @@ float Input::GetGamepadAxis(InputGamepadIndex gamepad, GamepadAxis axis)
     return false;
 }
 
-bool Input::GetGamepadButton(InputGamepadIndex gamepad, GamepadButton button)
+bool Input::GetGamepadButton(InputGamepadIndex gamepad, GamepadButton button, float deadZone)
 {
     if (gamepad == InputGamepadIndex::All)
     {
         for (auto g : Gamepads)
         {
-            if (g->GetButton(button))
+            if (g->GetButton(button, deadZone))
                 return true;
         }
     }
@@ -556,18 +569,18 @@ bool Input::GetGamepadButton(InputGamepadIndex gamepad, GamepadButton button)
     {
         const auto index = static_cast<int32>(gamepad);
         if (index < Gamepads.Count())
-            return Gamepads[index]->GetButton(button);
+            return Gamepads[index]->GetButton(button, deadZone);
     }
     return false;
 }
 
-bool Input::GetGamepadButtonDown(InputGamepadIndex gamepad, GamepadButton button)
+bool Input::GetGamepadButtonDown(InputGamepadIndex gamepad, GamepadButton button, float deadZone)
 {
     if (gamepad == InputGamepadIndex::All)
     {
         for (auto g : Gamepads)
         {
-            if (g->GetButtonDown(button))
+            if (g->GetButtonDown(button, deadZone))
                 return true;
         }
     }
@@ -575,18 +588,18 @@ bool Input::GetGamepadButtonDown(InputGamepadIndex gamepad, GamepadButton button
     {
         const auto index = static_cast<int32>(gamepad);
         if (index < Gamepads.Count())
-            return Gamepads[index]->GetButtonDown(button);
+            return Gamepads[index]->GetButtonDown(button, deadZone);
     }
     return false;
 }
 
-bool Input::GetGamepadButtonUp(InputGamepadIndex gamepad, GamepadButton button)
+bool Input::GetGamepadButtonUp(InputGamepadIndex gamepad, GamepadButton button, float deadZone)
 {
     if (gamepad == InputGamepadIndex::All)
     {
         for (auto g : Gamepads)
         {
-            if (g->GetButtonUp(button))
+            if (g->GetButtonUp(button, deadZone))
                 return true;
         }
     }
@@ -594,7 +607,7 @@ bool Input::GetGamepadButtonUp(InputGamepadIndex gamepad, GamepadButton button)
     {
         const auto index = static_cast<int32>(gamepad);
         if (index < Gamepads.Count())
-            return Gamepads[index]->GetButtonUp(button);
+            return Gamepads[index]->GetButtonUp(button, deadZone);
     }
     return false;
 }
@@ -910,8 +923,9 @@ void InputService::Update()
         Input::GamepadsChanged();
     }
 
-    // Pick the first focused window for input events
     WindowsManager::WindowsLocker.Lock();
+
+    // Pick the first focused window for input events
     Window* defaultWindow = nullptr;
     for (auto window : WindowsManager::Windows)
     {
@@ -921,14 +935,22 @@ void InputService::Update()
             break;
         }
     }
+
+    // Remove events from destroyed windows
+    for (int32 i = InputEvents.Count() - 1; i >= 0; i--)
+    {
+        const auto& e = InputEvents[i];
+        if (e.Target && !WindowsManager::Windows.Contains(e.Target))
+            InputEvents.RemoveAtKeepOrder(i);
+    }
+
     WindowsManager::WindowsLocker.Unlock();
 
     // Send input events for the focused window
-    WindowsManager::WindowsLocker.Lock();
     for (const auto& e : InputEvents)
     {
         auto window = e.Target ? e.Target : defaultWindow;
-        if (!window || !WindowsManager::Windows.Contains(window))
+        if (!window || window->IsClosed())
             continue;
         switch (e.Type)
         {
@@ -958,6 +980,9 @@ void InputService::Update()
         case InputDevice::EventType::MouseMove:
             window->OnMouseMove(window->ScreenToClient(e.MouseData.Position));
             break;
+        case InputDevice::EventType::MouseMoveRelative:
+            window->OnMouseMoveRelative(e.MouseMovementData.PositionRelative);
+            break;
         case InputDevice::EventType::MouseLeave:
             window->OnMouseLeave();
             break;
@@ -973,7 +998,6 @@ void InputService::Update()
             break;
         }
     }
-    WindowsManager::WindowsLocker.Unlock();
 
     // Skip if game has no focus to handle the input
     if (!Engine::HasGameViewportFocus())
@@ -1013,6 +1037,9 @@ void InputService::Update()
             break;
         case InputDevice::EventType::MouseMove:
             Input::MouseMove(e.MouseData.Position);
+            break;
+        case InputDevice::EventType::MouseMoveRelative:
+            Input::MouseMoveRelative(e.MouseMovementData.PositionRelative);
             break;
         case InputDevice::EventType::MouseLeave:
             Input::MouseLeave();
@@ -1065,26 +1092,26 @@ void InputService::Update()
         bool isActive;
         if (config.Mode == InputActionMode::Pressing)
         {
-            isActive = Input::GetKey(config.Key) || Input::GetMouseButton(config.MouseButton) || Input::GetGamepadButton(config.Gamepad, config.GamepadButton);
+            isActive = Input::GetKey(config.Key) || Input::GetMouseButton(config.MouseButton) || Input::GetGamepadButton(config.Gamepad, config.GamepadButton, config.DeadZone);
         }
         else if (config.Mode == InputActionMode::Press)
         {
-            isActive = Input::GetKeyDown(config.Key) || Input::GetMouseButtonDown(config.MouseButton) || Input::GetGamepadButtonDown(config.Gamepad, config.GamepadButton);
+            isActive = Input::GetKeyDown(config.Key) || Input::GetMouseButtonDown(config.MouseButton) || Input::GetGamepadButtonDown(config.Gamepad, config.GamepadButton, config.DeadZone);
         }
         else
         {
-            isActive = Input::GetKeyUp(config.Key) || Input::GetMouseButtonUp(config.MouseButton) || Input::GetGamepadButtonUp(config.Gamepad, config.GamepadButton);
+            isActive = Input::GetKeyUp(config.Key) || Input::GetMouseButtonUp(config.MouseButton) || Input::GetGamepadButtonUp(config.Gamepad, config.GamepadButton, config.DeadZone);
         }
 
-        if (Input::GetKeyDown(config.Key) || Input::GetMouseButtonDown(config.MouseButton) || Input::GetGamepadButtonDown(config.Gamepad, config.GamepadButton))
+        if (Input::GetKeyDown(config.Key) || Input::GetMouseButtonDown(config.MouseButton) || Input::GetGamepadButtonDown(config.Gamepad, config.GamepadButton, config.DeadZone))
         {
             data.State = InputActionState::Press;
         }
-        else if (Input::GetKey(config.Key) || Input::GetMouseButton(config.MouseButton) || Input::GetGamepadButton(config.Gamepad, config.GamepadButton))
+        else if (Input::GetKey(config.Key) || Input::GetMouseButton(config.MouseButton) || Input::GetGamepadButton(config.Gamepad, config.GamepadButton, config.DeadZone))
         {
             data.State = InputActionState::Pressing;
         }
-        else if (Input::GetKeyUp(config.Key) || Input::GetMouseButtonUp(config.MouseButton) || Input::GetGamepadButtonUp(config.Gamepad, config.GamepadButton))
+        else if (Input::GetKeyUp(config.Key) || Input::GetMouseButtonUp(config.MouseButton) || Input::GetGamepadButtonUp(config.Gamepad, config.GamepadButton, config.DeadZone))
         {
             data.State = InputActionState::Release;
         }
@@ -1240,6 +1267,7 @@ void InputService::Update()
         }
     }
 
+#if !PLATFORM_SDL
     // Lock mouse if need to
     const auto lockMode = Screen::GetCursorLock();
     if (lockMode == CursorLockMode::Locked)
@@ -1248,6 +1276,7 @@ void InputService::Update()
                            Screen::ScreenToGameViewport(Float2::Zero);
         Input::SetMousePosition(pos);
     }
+#endif
 
     // Send events for the active actions and axes (send events only in play mode)
     if (!Time::GetGamePaused())

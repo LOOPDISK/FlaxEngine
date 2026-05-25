@@ -1,7 +1,6 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 #include "Variant.h"
-#include "CommonValue.h"
 #include "Engine/Core/Collections/HashFunctions.h"
 #include "Engine/Core/Collections/Dictionary.h"
 #include "Engine/Content/Asset.h"
@@ -125,7 +124,7 @@ VariantType::VariantType(Types type, const StringAnsiView& typeName, bool static
 VariantType::VariantType(Types type, const ScriptingType& sType)
     : VariantType(type)
 {
-    SetTypeName(sType);
+    SetTypeName(sType.Fullname, sType.Module->CanReload);
 }
 
 VariantType::VariantType(Types type, const MClass* klass)
@@ -172,7 +171,7 @@ VariantType::VariantType(const StringAnsiView& typeName)
     // Check case for array
     if (typeName.EndsWith(StringAnsiView("[]"), StringSearchCase::CaseSensitive))
     {
-        new(this) VariantType(Array, StringAnsiView(typeName.Get(), typeName.Length() - 2));
+        new(this) VariantType(Array, typeName);
         return;
     }
 
@@ -247,7 +246,7 @@ VariantType::VariantType(VariantType&& other) noexcept
 VariantType& VariantType::operator=(const Types& type)
 {
     Type = type;
-    if (StaticName)
+    if (!StaticName)
         Allocator::Free(TypeName);
     TypeName = nullptr;
     StaticName = 0;
@@ -266,7 +265,7 @@ VariantType& VariantType::operator=(const VariantType& other)
 {
     ASSERT(this != &other);
     Type = other.Type;
-    if (StaticName)
+    if (!StaticName)
         Allocator::Free(TypeName);
     StaticName = other.StaticName;
     if (StaticName)
@@ -316,7 +315,7 @@ void VariantType::SetTypeName(const StringView& typeName)
 {
     if (StringUtils::Length(TypeName) != typeName.Length())
     {
-        if (StaticName)
+        if (!StaticName)
             Allocator::Free(TypeName);
         StaticName = 0;
         TypeName = static_cast<char*>(Allocator::Allocate(typeName.Length() + 1));
@@ -329,7 +328,7 @@ void VariantType::SetTypeName(const StringAnsiView& typeName, bool staticName)
 {
     if (StringUtils::Length(TypeName) != typeName.Length() || StaticName != staticName)
     {
-        if (StaticName)
+        if (!StaticName)
             Allocator::Free(TypeName);
         StaticName = staticName;
         if (staticName)
@@ -963,78 +962,6 @@ Variant::Variant(const Span<byte>& v)
         AsBlob.Data = nullptr;
     }
 }
-
-PRAGMA_DISABLE_DEPRECATION_WARNINGS
-#include "Engine/Content/Deprecated.h"
-Variant::Variant(const CommonValue& value)
-    : Variant()
-{
-    // [Deprecated on 31.07.2020, expires on 31.07.2022]
-    MARK_CONTENT_DEPRECATED();
-    switch (value.Type)
-    {
-    case CommonType::Bool:
-        *this = value.AsBool;
-        break;
-    case CommonType::Integer:
-        *this = value.AsInteger;
-        break;
-    case CommonType::Float:
-        *this = value.AsFloat;
-        break;
-    case CommonType::Vector2:
-        *this = value.AsVector2;
-        break;
-    case CommonType::Vector3:
-        *this = value.AsVector3;
-        break;
-    case CommonType::Vector4:
-        *this = value.AsVector4;
-        break;
-    case CommonType::Color:
-        *this = value.AsColor;
-        break;
-    case CommonType::Guid:
-        *this = value.AsGuid;
-        break;
-    case CommonType::String:
-        SetString(StringView(value.AsString));
-        break;
-    case CommonType::Box:
-        *this = Variant(value.AsBox);
-        break;
-    case CommonType::Rotation:
-        *this = value.AsRotation;
-        break;
-    case CommonType::Transform:
-        *this = Variant(value.AsTransform);
-        break;
-    case CommonType::Sphere:
-        *this = value.AsSphere;
-        break;
-    case CommonType::Rectangle:
-        *this = value.AsRectangle;
-        break;
-    case CommonType::Pointer:
-        *this = value.AsPointer;
-        break;
-    case CommonType::Matrix:
-        *this = Variant(value.AsMatrix);
-        break;
-    case CommonType::Blob:
-        SetBlob(value.AsBlob.Data, value.AsBlob.Length);
-        break;
-    case CommonType::Object:
-        SetObject(value.AsObject);
-        break;
-    case CommonType::Ray:
-        *this = Variant(value.AsRay);
-        break;
-    default:
-        CRASH;
-    }
-}
-PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
 Variant::~Variant()
 {

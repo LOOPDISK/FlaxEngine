@@ -68,10 +68,9 @@ namespace
 {
     // Assets
     CriticalSection AssetsLocker;
-    Dictionary<Guid, Asset*> Assets(2048);
-    Array<Guid> LoadCallAssets(PLATFORM_THREADS_LIMIT);
+    Dictionary<Guid, Asset*> Assets;
     CriticalSection LoadedAssetsToInvokeLocker;
-    Array<Asset*> LoadedAssetsToInvoke(64);
+    Array<Asset*> LoadedAssetsToInvoke;
     Array<Asset*> ToUnload;
 
     // Assets Registry Stuff
@@ -80,10 +79,15 @@ namespace
     // Loading assets
     THREADLOCAL LoadingThread* ThisLoadThread = nullptr;
     LoadingThread* MainLoadThread = nullptr;
+#if PLATFORM_THREADS_LIMIT > 1
     Array<LoadingThread*> LoadThreads;
     ConcurrentTaskQueue<ContentLoadTask> LoadTasks;
     ConditionVariable LoadTasksSignal;
     CriticalSection LoadTasksMutex;
+    Array<Guid> LoadCallAssets;
+#else
+    Array<ContentLoadTask*> LoadTasks;
+#endif
 
     // Unloading assets
     Dictionary<Asset*, TimeSpan> UnloadQueue;
@@ -93,6 +97,9 @@ namespace
 #if ENABLE_ASSETS_DISCOVERY
     DateTime LastWorkspaceDiscovery;
     CriticalSection WorkspaceDiscoveryLocker;
+#endif
+#if USE_EDITOR
+    Dictionary<Guid, HashSet<BinaryAsset*>> PendingDependencies;
 #endif
 }
 
@@ -121,15 +128,23 @@ bool ContentService::Init()
 {
     PROFILE_MEM(Content);
 
+    // Init memory containers
+    Assets.EnsureCapacity(2048);
+    LoadedAssetsToInvoke.EnsureCapacity(64);
+#if PLATFORM_THREADS_LIMIT > 1
+    LoadCallAssets.EnsureCapacity(PLATFORM_THREADS_LIMIT);
+#endif
+
     // Load assets registry
     Cache.Init();
 
     // Create loading threads
+    MainLoadThread = New<LoadingThread>();
+    ThisLoadThread = MainLoadThread;
+#if PLATFORM_THREADS_LIMIT > 1
     const CPUInfo cpuInfo = Platform::GetCPUInfo();
     const int32 count = Math::Clamp(Math::CeilToInt(LOADING_THREAD_PER_LOGICAL_CORE * (float)cpuInfo.LogicalProcessorCount), 1, 12);
     LOG(Info, "Creating {0} content loading threads...", count);
-    MainLoadThread = New<LoadingThread>();
-    ThisLoadThread = MainLoadThread;
     LoadThreads.Resize(count);
     for (int32 i = 0; i < count; i++)
     {
@@ -142,6 +157,7 @@ bool ContentService::Init()
             return true;
         }
     }
+#endif
 
     return false;
 }
@@ -150,14 +166,32 @@ void ContentService::Update()
 {
     PROFILE_CPU();
 
-    ScopeLock lock(LoadedAssetsToInvokeLocker);
+#if PLATFORM_THREADS_LIMIT == 1
+    // Run content-streaming tasks on a main thread
+    if (LoadTasks.HasItems())
+    {
+        double timeLimit = 0.01; // 10ms
+        double startTime = Platform::GetTimeSeconds();
+        do
+        {
+            auto task = LoadTasks[0];
+            LoadTasks.RemoveAt(0);
+            MainLoadThread->Run(task);
+        } while (LoadTasks.HasItems() && Platform::GetTimeSeconds() - startTime < timeLimit);
+    }
+#endif
 
     // Broadcast `OnLoaded` events
+    LoadedAssetsToInvokeLocker.Lock();
     while (LoadedAssetsToInvoke.HasItems())
     {
         auto asset = LoadedAssetsToInvoke.Dequeue();
         asset->onLoaded_MainThread();
+#if USE_EDITOR
+        Content::onAddDependencies(asset);
+#endif
     }
+    LoadedAssetsToInvokeLocker.Unlock();
 }
 
 void ContentService::LateUpdate()
@@ -219,10 +253,12 @@ void ContentService::LateUpdate()
 
 void ContentService::BeforeExit()
 {
+#if PLATFORM_THREADS_LIMIT > 1
     // Signal threads to end work soon
     for (auto thread : LoadThreads)
         thread->NotifyExit();
     LoadTasksSignal.NotifyAll();
+#endif
 }
 
 void ContentService::Dispose()
@@ -251,6 +287,7 @@ void ContentService::Dispose()
     // NOW dispose graphics device - where there is no loaded assets at all
     Graphics::DisposeDevice();
 
+#if PLATFORM_THREADS_LIMIT > 1
     // Exit all load threads
     for (auto thread : LoadThreads)
         thread->NotifyExit();
@@ -258,12 +295,20 @@ void ContentService::Dispose()
     for (auto thread : LoadThreads)
         thread->Join();
     LoadThreads.ClearDelete();
+#endif
     Delete(MainLoadThread);
     MainLoadThread = nullptr;
     ThisLoadThread = nullptr;
 
+#if PLATFORM_THREADS_LIMIT > 1
     // Cancel all remaining tasks (no chance to execute them)
     LoadTasks.CancelAll();
+#else
+    for (auto* e : LoadTasks)
+        e->Cancel();
+    LoadTasks.Clear();
+    LoadTasks.SetCapacity(0);
+#endif
 }
 
 IAssetFactory::Collection& IAssetFactory::Get()
@@ -329,6 +374,7 @@ String LoadingThread::ToString() const
 
 int32 LoadingThread::Run()
 {
+#if PLATFORM_THREADS_LIMIT > 1
     PROFILE_MEM(Content);
 #if USE_EDITOR && PLATFORM_WINDOWS
     // Initialize COM
@@ -366,6 +412,7 @@ int32 LoadingThread::Run()
     }
 
     ThisLoadThread = nullptr;
+#endif
     return 0;
 }
 
@@ -382,7 +429,9 @@ String ContentLoadTask::ToString() const
 void ContentLoadTask::Enqueue()
 {
     LoadTasks.Add(this);
+#if PLATFORM_THREADS_LIMIT > 1
     LoadTasksSignal.NotifyOne();
+#endif
 }
 
 bool ContentLoadTask::Run()
@@ -756,6 +805,27 @@ void Content::DeleteAsset(Asset* asset)
     asset->DeleteObject();
 }
 
+void Content::DeleteScript(const StringView& path)
+{
+    PROFILE_CPU();
+    if (path.IsEmpty())
+        return;
+    
+    // Return if asset
+    Asset* asset = GetAsset(path);
+    if (asset != nullptr)
+    {
+        return;
+    }
+    
+#if USE_EDITOR
+    LOG(Info, "Deleting script '{0}'", path);
+
+    // Delete file
+    deleteFileSafety(path);
+#endif
+}
+
 void Content::DeleteAsset(const StringView& path)
 {
     PROFILE_CPU();
@@ -784,13 +854,13 @@ void Content::DeleteAsset(const StringView& path)
     }
 
     // Delete file
-    deleteFileSafety(path, info.ID);
+    deleteFileSafety(path, &info.ID);
 #endif
 }
 
-void Content::deleteFileSafety(const StringView& path, const Guid& id)
+void Content::deleteFileSafety(const StringView& path, const Guid* id)
 {
-    if (!id.IsValid())
+    if (id && !id->IsValid())
     {
         LOG(Warning, "Cannot remove file \'{0}\'. Given ID is invalid.", path);
         return;
@@ -799,12 +869,12 @@ void Content::deleteFileSafety(const StringView& path, const Guid& id)
 
     // Ensure that file has the same ID (prevent from deleting different assets)
     auto storage = ContentStorageManager::TryGetStorage(path);
-    if (storage)
+    if (storage && id)
     {
         storage->CloseFileHandles(); // Close file handle to allow removing it
-        if (!storage->HasAsset(id))
+        if (!storage->HasAsset(*id))
         {
-            LOG(Warning, "Cannot remove file \'{0}\'. It doesn\'t contain asset {1}.", path, id);
+            LOG(Warning, "Cannot remove file \'{0}\'. It doesn\'t contain asset {1}.", path, *id);
             return;
         }
     }
@@ -1027,9 +1097,16 @@ bool Content::CloneAssetFile(const StringView& dstPath, const StringView& srcPat
             FileSystem::DeleteFile(tmpPath);
 
             // Reload storage
-            if (auto storage = ContentStorageManager::GetStorage(dstPath, false))
+            auto storage = ContentStorageManager::GetStorage(dstPath, false);
+            if (storage && storage->IsLoaded())
             {
                 storage->Reload();
+            }
+            else if (auto dependencies = PendingDependencies.TryGet(dstId))
+            {
+                // Destination storage is not loaded but there are other assets that depend on it so update them
+                for (const auto& e : *dependencies)
+                    e.Item->OnDependencyModified(nullptr);
             }
         }
     }
@@ -1137,6 +1214,7 @@ void Content::WaitForTask(ContentLoadTask* loadingTask, double timeoutInMillisec
 #define CHECK_CONDITIONS() (!Engine::ShouldExit() && (timeoutInSeconds <= 0.0 || Platform::GetTimeSeconds() - startTime < timeoutInSeconds))
         do
         {
+#if PLATFORM_THREADS_LIMIT > 1
             // Give opportunity for other threads to use the current core
             if (loopCounter == 0)
                 ; // First run is fast
@@ -1183,6 +1261,34 @@ void Content::WaitForTask(ContentLoadTask* loadingTask, double timeoutInMillisec
                 LoadTasks.enqueue_bulk(localQueue.Get(), localQueue.Count());
                 localQueue.Clear();
             }
+#else
+            // Try to execute content tasks
+            if (task->IsQueued() && CHECK_CONDITIONS() && !LoadTasks.Remove((ContentLoadTask*)task))
+            {
+                PROFILE_CPU_NAMED("Inline");
+                ZoneColor(0xffaaaaaa);
+                thread->Run((ContentLoadTask*)task);
+            }
+            while (!task->IsQueued() && CHECK_CONDITIONS() && LoadTasks.HasItems())
+            {
+                // Find a task that can be executed (some tasks may be waiting for other tasks to finish so they are not queued yet)
+                int32 index = 0;
+                for (int32 i = 0; i < LoadTasks.Count(); i++)
+                {
+                    if (LoadTasks[i]->GetContinueWithTask() == task)
+                    {
+                        index = i;
+                        break;
+                    }
+                }
+                ContentLoadTask* tmp = LoadTasks[index];
+                LoadTasks.RemoveAt(index);
+
+                PROFILE_CPU_NAMED("Inline");
+                ZoneColor(0xffaaaaaa);
+                thread->Run(tmp);
+            }
+#endif
 
             // Check if task is done
             if (task->IsEnded())
@@ -1218,6 +1324,9 @@ void Content::tryCallOnLoaded(Asset* asset)
     {
         LoadedAssetsToInvoke.RemoveAtKeepOrder(index);
         asset->onLoaded_MainThread();
+#if USE_EDITOR
+        onAddDependencies(asset);
+#endif
     }
 }
 
@@ -1235,6 +1344,10 @@ void Content::onAssetUnload(Asset* asset)
     Assets.Remove(asset->GetID());
     UnloadQueue.Remove(asset);
     LoadedAssetsToInvoke.Remove(asset);
+#if USE_EDITOR
+    for (auto& e : PendingDependencies)
+        e.Value.Remove(asset);
+#endif
 }
 
 void Content::onAssetChangeId(Asset* asset, const Guid& oldId, const Guid& newId)
@@ -1242,7 +1355,41 @@ void Content::onAssetChangeId(Asset* asset, const Guid& oldId, const Guid& newId
     ScopeLock locker(AssetsLocker);
     Assets.Remove(oldId);
     Assets.Add(newId, asset);
+#if USE_EDITOR
+    if (PendingDependencies.ContainsKey(oldId))
+    {
+        auto deps = MoveTemp(PendingDependencies[oldId]);
+        PendingDependencies.Remove(oldId);
+        PendingDependencies.Add(newId, MoveTemp(deps));
+    }
+#endif
 }
+
+#if USE_EDITOR
+
+void Content::onAssetDepend(BinaryAsset* asset, const Guid& otherId)
+{
+    ScopeLock locker(AssetsLocker);
+    PendingDependencies[otherId].Add(asset);
+}
+
+void Content::onAddDependencies(Asset* asset)
+{
+    auto it = PendingDependencies.Find(asset->GetID());
+    if (it.IsNotEnd())
+    {
+        auto& dependencies = it->Value;
+        auto binaryAsset = Asset::Cast<BinaryAsset>(asset);
+        if (binaryAsset)
+        {
+            for (const auto& e : dependencies)
+                binaryAsset->_dependantAssets.Add(e.Item);
+        }
+        PendingDependencies.Remove(it);
+    }
+}
+
+#endif
 
 bool Content::IsAssetTypeIdInvalid(const ScriptingTypeHandle& type, const ScriptingTypeHandle& assetType)
 {
@@ -1297,6 +1444,7 @@ Asset* Content::LoadAsync(const Guid& id, const ScriptingTypeHandle& type)
         return result;
     }
 
+#if PLATFORM_THREADS_LIMIT > 1
     // Check if that asset is during loading
     if (LoadCallAssets.Contains(id))
     {
@@ -1317,9 +1465,12 @@ Asset* Content::LoadAsync(const Guid& id, const ScriptingTypeHandle& type)
 
     // Mark asset as loading and release lock so other threads can load other assets
     LoadCallAssets.Add(id);
-    AssetsLocker.Unlock();
-
 #define LOAD_FAILED() AssetsLocker.Lock(); LoadCallAssets.Remove(id); AssetsLocker.Unlock(); return nullptr
+#else
+#define LOAD_FAILED() return nullptr
+#endif
+
+    AssetsLocker.Unlock();
 
     // Get cached asset info (from registry)
     AssetInfo assetInfo;
@@ -1378,7 +1529,9 @@ Asset* Content::LoadAsync(const Guid& id, const ScriptingTypeHandle& type)
     result->startLoading();
 
     // Remove from the loading queue and release lock
+#if PLATFORM_THREADS_LIMIT > 1
     LoadCallAssets.Remove(id);
+#endif
     AssetsLocker.Unlock();
 
 #undef LOAD_FAILED

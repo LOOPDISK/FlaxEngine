@@ -120,6 +120,8 @@ public:
 
         // Total physics memory.
         Physics,
+        // Cloth simulation and particles data.
+        PhysicsCloth,
 
         // Total scripting memory allocated by game.
         Scripting,
@@ -265,6 +267,7 @@ public:
     static void OnMemoryAlloc(void* ptr, uint64 size);
     static void OnMemoryFree(void* ptr);
     static void OnGroupUpdate(Groups group, int64 sizeDelta, int64 countDelta);
+    static void OnGroupSet(Groups group, int64 size, int64 count);
 
 public:
     /// <summary>

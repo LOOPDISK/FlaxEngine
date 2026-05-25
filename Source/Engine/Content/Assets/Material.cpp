@@ -3,9 +3,9 @@
 #include "Material.h"
 #include "Engine/Core/Log.h"
 #include "Engine/Core/Types/DataContainer.h"
+#include "Engine/Content/Deprecated.h"
 #include "Engine/Content/Upgraders/ShaderAssetUpgrader.h"
 #include "Engine/Content/Factories/BinaryAssetFactory.h"
-#include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Graphics/RenderTools.h"
 #include "Engine/Graphics/Materials/MaterialShader.h"
 #include "Engine/Graphics/Shaders/Cache/ShaderCacheManager.h"
@@ -156,16 +156,8 @@ Asset::LoadResult Material::load()
     FlaxChunk* materialParamsChunk;
 
     // Wait for the GPU Device to be ready (eg. case when loading material before GPU init)
-#define IS_GPU_NOT_READY() (GPUDevice::Instance == nullptr || GPUDevice::Instance->GetState() != GPUDevice::DeviceState::Ready)
-    if (!IsInMainThread() && IS_GPU_NOT_READY())
-    {
-        int32 timeout = 1000;
-        while (IS_GPU_NOT_READY() && timeout-- > 0)
-            Platform::Sleep(1);
-        if (IS_GPU_NOT_READY())
-            return LoadResult::InvalidData;
-    }
-#undef IS_GPU_NOT_READY
+    if (WaitForInitGraphics())
+        return LoadResult::CannotLoadData;
 
     // If engine was compiled with shaders compiling service:
     // - Material should be changed in need to convert it to the newer version (via Visject Surface)
@@ -466,10 +458,6 @@ void Material::OnDependencyModified(BinaryAsset* asset)
     Reload();
 }
 
-#endif
-
-#if USE_EDITOR
-
 void Material::InitCompilationOptions(ShaderCompilationOptions& options)
 {
     // Base
@@ -487,7 +475,7 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
     const bool useForward = ((info.Domain == MaterialDomain::Surface || info.Domain == MaterialDomain::Deformable) && !isOpaque) || info.Domain == MaterialDomain::Particle;
     const bool useTess =
             info.TessellationMode != TessellationMethod::None &&
-            RenderTools::CanSupportTessellation(options.Profile) && isSurfaceOrTerrainOrDeformable;
+            EnumHasAllFlags(RenderTools::GetShaderProfileFeatures(options.Profile), ShaderProfileFeatures::TessellationShaders) && isSurfaceOrTerrainOrDeformable;
     const bool useDistortion =
             (info.Domain == MaterialDomain::Surface || info.Domain == MaterialDomain::Deformable || info.Domain == MaterialDomain::Particle) &&
             !isOpaque &&
@@ -520,6 +508,8 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
     options.Macros.Add({ "USE_REFLECTIONS", Numbers[EnumHasAnyFlags(info.FeaturesFlags, MaterialFeaturesFlags::DisableReflections) ? 0 : 1] });
     if (!(info.FeaturesFlags & MaterialFeaturesFlags::DisableReflections) && EnumHasAnyFlags(info.FeaturesFlags, MaterialFeaturesFlags::ScreenSpaceReflections))
         options.Macros.Add({ "MATERIAL_REFLECTIONS", Numbers[1] });
+    if (useForward && EnumHasAllFlags(info.FeaturesFlags, MaterialFeaturesFlags::DisableShadows))
+        options.Macros.Add({ "LIGHTING_NO_SHADOW", Numbers[1] });
     options.Macros.Add({ "USE_FOG", Numbers[EnumHasAnyFlags(info.FeaturesFlags, MaterialFeaturesFlags::DisableFog) ? 0 : 1] });
     if (useForward)
     {

@@ -16,6 +16,7 @@
 #include "Engine/Engine/Engine.h"
 #include "Engine/Profiler/Profiler.h"
 #include "Engine/Renderer/RenderList.h"
+#include "Engine/Threading/JobSystem.h"
 #include "Engine/Threading/Threading.h"
 #if USE_EDITOR
 #include "Engine/Renderer/Lightmaps.h"
@@ -361,7 +362,13 @@ Viewport SceneRenderTask::GetOutputViewport() const
     if (Output && Output->IsAllocated())
         return Viewport(0, 0, static_cast<float>(Output->Width()), static_cast<float>(Output->Height()));
     if (SwapChain)
+    {
+#if PLATFORM_WEB
+        // Hack fix for Web where swapchain texture might have different size than actual current size of the backbuffer, just precache it (GetBackBufferView might resize internally)
+        SwapChain->GetBackBufferView();
+#endif
         return Viewport(0, 0, static_cast<float>(SwapChain->GetWidth()), static_cast<float>(SwapChain->GetHeight()));
+    }
     return GetViewport();
 }
 
@@ -484,6 +491,7 @@ RenderContextBatch::RenderContextBatch(SceneRenderTask* task)
 {
     Buffers = task->Buffers;
     Task = task;
+    EnableAsync = JobSystem::GetThreadsCount() > 1;
 }
 
 RenderContextBatch::RenderContextBatch(const RenderContext& context)
@@ -491,4 +499,5 @@ RenderContextBatch::RenderContextBatch(const RenderContext& context)
     Buffers = context.Buffers;
     Task = context.Task;
     Contexts.Add(context);
+    EnableAsync = JobSystem::GetThreadsCount() > 1;
 }

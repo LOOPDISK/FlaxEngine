@@ -22,10 +22,13 @@
 
 #include "./Flax/Common.hlsl"
 #include "./Flax/Random.hlsl"
+#include "./Flax/Noise.hlsl"
 #include "./Flax/GammaCorrectionCommon.hlsl"
 
 #define GB_RADIUS 6
 #define GB_KERNEL_SIZE (GB_RADIUS * 2 + 1)
+#define OUTPUT_LINEAR 0 // Copies scene color directly to the output
+#define OUTPUT_SRGB 1 // Converts scene color from linear to sRGB
 
 // Linearize raw device depth
 float LinearizeZ(float depth, float4 viewInfo, float viewFar)
@@ -87,12 +90,15 @@ float2 InvInputSize;
 float ChromaticDistortion;
 float Time;
 
-float Dummy1;
+uint OutputColorSpace;
 float PostExposure;
 float VignetteIntensity;
 float LensDirtIntensity;
 
 float4 ScreenFadeColor;
+
+float3 QuantizationError;
+float Dummy2;
 
 float4x4 LensFlareStarMat;
 
@@ -137,18 +143,20 @@ static const float LUTSize = 32;
 half3 ColorLookupTable(half3 linearColor)
 {
 	// Move from linear color to encoded LUT color space
-	//float3 encodedColor = linearColor; // Default
+#if COLOR_GRADING_LUT_LOG
 	float3 encodedColor = LinearToLog(linearColor + LogToLinear(0)); // Log
+#else
+	float3 encodedColor = linearColor; // Default
+#endif
 
 	float3 uvw = encodedColor * ((LUTSize - 1) / LUTSize) + (0.5f / LUTSize);
-
 #if USE_VOLUME_LUT
 	half3 color = ColorGradingLUT.Sample(SamplerLinearClamp, uvw).rgb;
 #else
 	half3 color = SampleUnwrappedTexture3D(ColorGradingLUT, SamplerLinearClamp, uvw, LUTSize).rgb;
 #endif
 
-	return color;
+	return color * COLOR_GRADING_LUT_SCALE;
 }
 
 // A random texture generator
@@ -1229,6 +1237,12 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     sceneColor = ColorLookupTable(sceneColor);
 #endif
 
+    if (OutputColorSpace == OUTPUT_SRGB)
+    {
+        // Convert into output display color space (sRGB). Inert under our default GammaColorSpace=true (OUTPUT_LINEAR).
+        sceneColor = LinearToSrgb(sceneColor);
+    }
+
     // Apply camera artifacts (vignette, grain, chromatic aberration)
     if (VignetteIntensity > 0.0)
     {
@@ -1256,6 +1270,13 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
 
     // Apply screen fade
     sceneColor = lerp(sceneColor, ScreenFadeColor.rgb, ScreenFadeColor.a);
+
+    // Saturate color since it will be rendered to the screen
+    sceneColor = saturate(sceneColor);
+
+    // Apply quantization error to reduce banding artifacts due to R11G11B10 format
+    float noise = rand2dTo1d(input.TexCoord);
+    sceneColor = QuantizeColor(sceneColor, noise, QuantizationError);
 
     return float4(sceneColor, 1.0);
 }

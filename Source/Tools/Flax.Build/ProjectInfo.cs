@@ -113,6 +113,55 @@ namespace Flax.Build
                     value = "true";
                 else if (reader.TokenType == JsonTokenType.False)
                     value = "false";
+                else if (reader.TokenType == JsonTokenType.StartObject)
+                {
+                    value = "{";
+                    int depth = 1;
+                    while (depth > 0 && reader.Read())
+                    {
+                        switch (reader.TokenType)
+                        {
+                        case JsonTokenType.StartObject:
+                            depth++;
+                            value += "{";
+                            break;
+                        case JsonTokenType.EndObject:
+                            if (value.Last() == ',')
+                                value = value.Substring(0, value.Length - 1);
+                            value += "}";
+                            if (depth != 1)
+                                value += ",";
+                            depth--;
+                            break;
+                        case JsonTokenType.StartArray:
+                            value += "[";
+                            break;
+                        case JsonTokenType.EndArray:
+                            value += "],";
+                            break;
+                        case JsonTokenType.PropertyName:
+                            value += $"\"{reader.GetString()}\":";
+                            break;
+                        case JsonTokenType.String:
+                            value += $"\"{reader.GetString()}\",";
+                            break;
+                            case JsonTokenType.Number:
+                            value += $"{reader.GetString()},";
+                            break;
+                        case JsonTokenType.True:
+                            value += "true,";
+                            break;
+                        case JsonTokenType.False:
+                            value += "false,";
+                            break;
+                        case JsonTokenType.Null:
+                            value += "null,";
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                        }
+                    }
+                }
                 else
                     value = reader.GetString();
                 dictionary.Add(key, value);
@@ -145,6 +194,20 @@ namespace Flax.Build
     public sealed class ProjectInfo
     {
         private static List<ProjectInfo> _projectsCache;
+        private string _versionControlCommit, _versionControlBranch;
+
+        internal static JsonSerializerOptions JsonOptions = new JsonSerializerOptions
+        {
+            Converters =
+            {
+                new FlaxVersionConverter(),
+                new ConfigurationDictionaryConverter(),
+            },
+            IncludeFields = true,
+            AllowTrailingCommas = true,
+            ReadCommentHandling = JsonCommentHandling.Skip,
+            TypeInfoResolver = ProjectInfoSourceGenerationContext.Default,
+        };
 
         /// <summary>
         /// The project reference.
@@ -229,8 +292,51 @@ namespace Flax.Build
         /// <summary>
         /// The custom build configuration entries loaded from project file.
         /// </summary>
-        [System.Text.Json.Serialization.JsonConverter(typeof(ConfigurationDictionaryConverter))]
         public Dictionary<string, string> Configuration;
+
+        /// <summary>
+        /// Gets the name of the branch from Version Control System (VCS) used by the project. Empty when unused.
+        /// </summary>
+        public string VersionControlBranch
+        {
+            get
+            {
+                if (_versionControlBranch == null)
+                    InitVersionControlInfo();
+                return _versionControlBranch;
+            }
+        }
+
+        /// <summary>
+        /// Gets the commit hash/changeset identifier from Version Control System (VCS) used by the project. Empty when unused.
+        /// </summary>
+        public string VersionControlCommit
+        {
+            get
+            {
+                if (_versionControlCommit == null)
+                    InitVersionControlInfo();
+                return _versionControlCommit;
+            }
+        }
+
+        /// <summary>
+        /// Gets the informative version of the project including any Version Control System (VCS) information such as branch name, commit hash or changeset identifier.
+        /// </summary>
+        public string VersionControlInfo
+        {
+            get
+            {
+                if (_versionControlCommit == null)
+                    InitVersionControlInfo();
+                var version = Version.ToString();
+                if (_versionControlBranch.Length != 0)
+                    version += "+" + _versionControlBranch;
+                if (_versionControlCommit.Length != 0)
+                    version += "+" + _versionControlCommit;
+                return version;
+            }
+        }
 
         /// <summary>
         /// True if project is using C#-only and no native toolsets is required to build and use scripts.
@@ -267,6 +373,26 @@ namespace Flax.Build
             });
         }
 
+        private void InitVersionControlInfo()
+        {
+            _versionControlBranch = string.Empty;
+            _versionControlCommit = string.Empty;
+
+            // Git
+            if (Directory.Exists(Path.Combine(ProjectFolderPath, ".git")))
+            {
+                try
+                {
+                    _versionControlBranch = Utilities.ReadProcessOutput("git", "rev-parse --abbrev-ref HEAD", ProjectFolderPath);
+                    _versionControlCommit = Utilities.ReadProcessOutput("git", "rev-parse HEAD", ProjectFolderPath);
+                }
+                catch (Exception)
+                {
+                    // Ignored
+                }
+            }
+        }
+
         /// <summary>
         /// Gets all projects including this project, it's references and their references (any deep level of references).
         /// </summary>
@@ -290,7 +416,7 @@ namespace Flax.Build
         /// </summary>
         public void Save()
         {
-            var contents = JsonSerializer.Serialize<ProjectInfo>(this, new JsonSerializerOptions() { Converters = { new FlaxVersionConverter() }, TypeInfoResolver = ProjectInfoSourceGenerationContext.Default });
+            var contents = JsonSerializer.Serialize<ProjectInfo>(this, JsonOptions);
             File.WriteAllText(ProjectPath, contents);
         }
 
@@ -316,8 +442,7 @@ namespace Flax.Build
                 // Load
                 Log.Verbose("Loading project file from \"" + path + "\"...");
                 var contents = File.ReadAllText(path);
-                var project = JsonSerializer.Deserialize<ProjectInfo>(contents.AsSpan(),
-                                                                      new JsonSerializerOptions() { Converters = { new FlaxVersionConverter() }, IncludeFields = true, TypeInfoResolver = ProjectInfoSourceGenerationContext.Default });
+                var project = JsonSerializer.Deserialize<ProjectInfo>(contents.AsSpan(), JsonOptions);
                 project.ProjectPath = path;
                 project.ProjectFolderPath = Path.GetDirectoryName(path);
 

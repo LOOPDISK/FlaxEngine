@@ -144,7 +144,7 @@ namespace FlaxEditor.Windows.Assets
             // Set paste target if only one actor is selected and no target provided
             if (pasteTargetActor == null && Selection.Count == 1 && Selection[0] is ActorNode actorNode)
             {
-                pasteTargetActor = actorNode.Actor.IsPrefabRoot ? actorNode.Actor : actorNode.Actor.Parent;
+                pasteTargetActor = actorNode.Actor;
             }
 
             // Create paste action
@@ -264,10 +264,17 @@ namespace FlaxEditor.Windows.Assets
             }
 
             /// <inheritdoc />
-            protected override void LinkBrokenParentReference(Actor actor)
+            protected override void LinkBrokenParentReference(ActorNode actorNode)
             {
                 // Link to prefab root
-                actor.SetParent(_window.Graph.MainActor, false);
+                actorNode.Actor.SetParent(_window.Graph.MainActor, false);
+            }
+
+            /// <inheritdoc />
+            protected override void CheckBrokenParentReference(ActorNode actorNode)
+            {
+                if (actorNode.Actor.Scene != null || actorNode.Root != _window.Graph.Root)
+                    LinkBrokenParentReference(actorNode);
             }
 
             /// <inheritdoc />

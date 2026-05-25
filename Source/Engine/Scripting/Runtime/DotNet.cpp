@@ -355,7 +355,7 @@ void MCore::UnloadScriptingAssemblyLoadContext()
         MAssembly* a = e.Value;
         if (!a->IsLoaded() || !a->_hasCachedClasses)
             continue;
-        for (const auto& q : a->GetClasses())
+        for (const auto& q : a->GetTypeClasses())
         {
             MClass* c = q.Value;
             c->_hasCachedAttributes = false;
@@ -781,6 +781,7 @@ const MAssembly::ClassesDictionary& MAssembly::GetClasses() const
         MCore::GC::FreeMemory((void*)managedClasses[i].fullname);
         MCore::GC::FreeMemory((void*)managedClasses[i].namespace_);
     }
+    _typeClasses = _classes;
 
     static void* RegisterManagedClassNativePointersPtr = GetStaticMethodPointer(TEXT("RegisterManagedClassNativePointers"));
     CallStaticMethod<void, NativeClassDefinitions**, int>(RegisterManagedClassNativePointersPtr, &managedClasses, classCount);
@@ -797,6 +798,12 @@ const MAssembly::ClassesDictionary& MAssembly::GetClasses() const
 
     _hasCachedClasses = true;
     return _classes;
+}
+
+MAssembly::ClassesDictionary& MAssembly::GetTypeClasses() const
+{
+    GetClasses();
+    return _typeClasses;
 }
 
 void GetAssemblyName(void* assemblyHandle, StringAnsi& name, StringAnsi& fullname)
@@ -828,7 +835,7 @@ DEFINE_INTERNAL_CALL(void) NativeInterop_CreateClass(NativeClassDefinitions* man
     MClass* klass = assembly->Memory.New<MClass>(assembly, managedClass->typeHandle, managedClass->name, managedClass->fullname, managedClass->namespace_, managedClass->typeAttributes);
     if (assembly != nullptr)
     {
-        auto& classes = const_cast<MAssembly::ClassesDictionary&>(assembly->GetClasses());
+        auto& classes = assembly->GetTypeClasses();
         MClass* oldKlass;
         if (classes.TryGet(klass->GetFullName(), oldKlass))
         {
@@ -1062,10 +1069,39 @@ MClass* MClass::GetElementClass() const
 MMethod* MClass::GetMethod(const char* name, int32 numParams) const
 {
     GetMethods();
-    for (int32 i = 0; i < _methods.Count(); i++)
+    for (MMethod* method : _methods)
     {
-        if (_methods[i]->GetParametersCount() == numParams && _methods[i]->GetName() == name)
-            return _methods[i];
+        if (method->GetParametersCount() == numParams && method->GetName() == name)
+            return method;
+    }
+    return nullptr;
+}
+
+MMethod* MClass::GetMethod(const ScriptingTypeMethodSignature& signature) const
+{
+    GetMethods();
+    for (MMethod* method : _methods)
+    {
+        if (method->IsStatic() != signature.IsStatic)
+            continue;
+        if (method->GetName() != signature.Name)
+            continue;
+        if (method->GetParametersCount() != signature.Params.Count())
+            continue;
+        bool isValid = true;
+        for (int32 paramIdx = 0; paramIdx < signature.Params.Count(); paramIdx++)
+        {
+            auto& param = signature.Params[paramIdx];
+            MType* type = method->GetParameterType(paramIdx);
+            if (param.IsOut != method->GetParameterIsOut(paramIdx) ||
+                !MUtils::VariantTypeEquals(param.Type, type, param.IsOut))
+            {
+                isValid = false;
+                break;
+            }
+        }
+        if (isValid && (signature.ReturnType.Type == VariantType::Null || MUtils::VariantTypeEquals(signature.ReturnType, method->GetReturnType())))
+            return method;
     }
     return nullptr;
 }
@@ -1485,13 +1521,16 @@ void MMethod::CacheSignature() const
 
     static void* GetMethodReturnTypePtr = GetStaticMethodPointer(TEXT("GetMethodReturnType"));
     static void* GetMethodParameterTypesPtr = GetStaticMethodPointer(TEXT("GetMethodParameterTypes"));
+    static void* GetMethodParameterIsOutPtr = GetStaticMethodPointer(TEXT("GetMethodParameterIsOut"));
     _returnType = CallStaticMethod<void*, void*>(GetMethodReturnTypePtr, _handle);
+    _parameterOuts = 0;
     if (_paramsCount != 0)
     {
         void** parameterTypeHandles;
         CallStaticMethod<void, void*, void***>(GetMethodParameterTypesPtr, _handle, &parameterTypeHandles);
         _parameterTypes.Set(parameterTypeHandles, _paramsCount);
         MCore::GC::FreeMemory(parameterTypeHandles);
+        _parameterOuts = CallStaticMethod<uint64, void*>(GetMethodParameterIsOutPtr, _handle);
     }
 
     _hasCachedSignature = true;
@@ -1558,9 +1597,7 @@ bool MMethod::GetParameterIsOut(int32 paramIdx) const
     if (!_hasCachedSignature)
         CacheSignature();
     ASSERT_LOW_LAYER(paramIdx >= 0 && paramIdx < _paramsCount);
-    // TODO: cache GetParameterIsOut maybe?
-    static void* GetMethodParameterIsOutPtr = GetStaticMethodPointer(TEXT("GetMethodParameterIsOut"));
-    return CallStaticMethod<bool, void*, int>(GetMethodParameterIsOutPtr, _handle, paramIdx);
+    return _parameterOuts & (1ull << paramIdx);
 }
 
 bool MMethod::HasAttribute(const MClass* klass) const
@@ -1599,7 +1636,7 @@ FORCE_INLINE StringAnsiView GetPropertyMethodName(MProperty* property, StringAns
     Platform::MemoryCopy(mem, prefix.Get(), prefix.Length());
     Platform::MemoryCopy(mem + prefix.Length(), name.Get(), name.Length());
     mem[name.Length() + prefix.Length()] = 0;
-    return StringAnsiView(mem, name.Length() + prefix.Length() + 1);
+    return StringAnsiView(mem, name.Length() + prefix.Length());
 }
 
 MProperty::MProperty(MClass* parentClass, const char* name, void* handle, void* getterHandle, void* setterHandle, MMethodAttributes getterAttributes, MMethodAttributes setterAttributes)
@@ -1716,7 +1753,7 @@ MClass* GetOrCreateClass(MType* typeHandle)
         klass = assembly->Memory.New<MClass>(assembly, classInfo.typeHandle, classInfo.name, classInfo.fullname, classInfo.namespace_, classInfo.typeAttributes);
         if (assembly != nullptr)
         {
-            auto& classes = const_cast<MAssembly::ClassesDictionary&>(assembly->GetClasses());
+            auto& classes = assembly->GetTypeClasses();
             if (classes.ContainsKey(klass->GetFullName()))
             {
                 LOG(Warning, "Class '{0}' was already added to assembly '{1}'", String(klass->GetFullName()), String(assembly->GetName()));
@@ -2046,10 +2083,23 @@ static MonoAssembly* OnMonoAssemblyLoad(const char* aname)
     LOG(Info, "Loading C# assembly from path = {0}, exist = {1}", path, FileSystem::FileExists(path));
 #endif
     MonoAssembly* assembly = nullptr;
+    MonoImageOpenStatus status = MONO_IMAGE_IMAGE_INVALID;
     if (FileSystem::FileExists(path))
     {
         StringAnsi pathAnsi(path);
-        assembly = mono_assembly_open(pathAnsi.Get(), nullptr);
+#if PLATFORM_IOS
+        Array<byte> data;
+        File::ReadAllBytes(path, data);
+        const auto name = path.ToStringAnsi();
+        const auto assemblyImage = mono_image_open_from_data_with_name(reinterpret_cast<char*>(data.Get()), data.Count(), true, &status, false, name.Get());
+        if (assemblyImage)
+        {
+            assembly = mono_assembly_load_from_full(assemblyImage, name.Substring(0, name.Length() - 3).Get(), &status, false);
+            mono_image_close(assemblyImage);
+        }
+#else
+        assembly = mono_assembly_open(pathAnsi.Get(), &status);
+#endif
     }
     if (!assembly)
     {

@@ -161,6 +161,7 @@ public:
     /// <summary>
     /// Determines whether this asset was marked to be deleted on unload.
     /// </summary>
+    /// <remarks>Only available in Editor.</remarks>
     API_PROPERTY() bool ShouldDeleteFileOnUnload() const;
 #endif
 
@@ -284,6 +285,10 @@ protected:
     bool OnCheckSave(const StringView& path = StringView::Empty) const;
     virtual void onRename(const StringView& newPath) = 0;
 #endif
+
+    // Utilities to ensure specific engine systems are initialized before loading asset (eg. assets can be loaded during engine startup).
+    static bool WaitForInitGraphics();
+    static bool WaitForInitPhysics();
 
 public:
     // [ManagedScriptingObject]

@@ -253,6 +253,9 @@ public:
         // If checked, the imported geometry will be shifted to the center of mass.
         API_FIELD(Attributes="EditorOrder(540), EditorDisplay(\"Transform\")")
         bool CenterGeometry = false;
+        // If checked, the importer will ignore nodes scale property.
+        API_FIELD(Attributes = "EditorOrder(545), EditorDisplay(\"Transform\")")
+        bool IgnoreNodesScale = false;
 
     public: // Animation
 
@@ -304,7 +307,7 @@ public:
         // Whether to do a sloppy mesh optimization. This is faster but does not follow the topology of the original mesh.
         API_FIELD(Attributes="EditorOrder(1140), EditorDisplay(\"Level Of Detail\"), VisibleIf(nameof(ShowGeometry))")
         bool SloppyOptimization = false;
-        // Only used if Sloppy is false. Target error is an approximate measure of the deviation from the original mesh using distance normalized to [0..1] range (e.g. 1e-2f means that simplifier will try to maintain the error to be below 1% of the mesh extents).
+        // Target error is an approximate measure of the deviation from the original mesh using distance normalized to [0,1] range (e.g. 0.01 means that simplifier will try to maintain the error to be below 1% of the mesh extents). Only used if Sloppy is unchecked.
         API_FIELD(Attributes="EditorOrder(1150), EditorDisplay(\"Level Of Detail\"), VisibleIf(nameof(SloppyOptimization), true), VisibleIf(nameof(ShowGeometry)), Limit(0.01f, 1, 0.001f)")
         float LODTargetError = 0.05f;
         // If checked, vertices on topological borders (edges without a paired triangle) will not be moved during simplification. Useful for meshes that tile or share edges with other meshes.
@@ -323,16 +326,19 @@ public:
     public: // Materials
 
         // If checked, the importer will create materials for model meshes as specified in the file.
-        API_FIELD(Attributes="EditorOrder(400), EditorDisplay(\"Materials\"), VisibleIf(nameof(ShowGeometry))")
+        API_FIELD(Attributes="EditorOrder(399), EditorDisplay(\"Materials\"), VisibleIf(nameof(ShowGeometry))")
         bool ImportMaterials = true;
+        // If checked, the importer will create empty material slots for every material without importing materials nor textures.
+        API_FIELD(Attributes="EditorOrder(400), EditorDisplay(\"Materials\"), VisibleIf(nameof(ShowGeometry))")
+        bool CreateEmptyMaterialSlots = false;
         // If checked, the importer will create the model's materials as instances of a base material.
-        API_FIELD(Attributes="EditorOrder(401), EditorDisplay(\"Materials\"), VisibleIf(nameof(ImportMaterials)), VisibleIf(nameof(ShowGeometry))")
+        API_FIELD(Attributes="EditorOrder(401), EditorDisplay(\"Materials\"), VisibleIf(nameof(ImportMaterials)), VisibleIf(nameof(ShowGeometry)), VisibleIf(nameof(CreateEmptyMaterialSlots), true)")
         bool ImportMaterialsAsInstances = false;
         // The material used as the base material that will be instanced as the imported model's material.
-        API_FIELD(Attributes="EditorOrder(402), EditorDisplay(\"Materials\"), VisibleIf(nameof(ImportMaterialsAsInstances)), VisibleIf(nameof(ShowGeometry))")
+        API_FIELD(Attributes="EditorOrder(402), EditorDisplay(\"Materials\"), VisibleIf(nameof(ImportMaterialsAsInstances)), VisibleIf(nameof(ShowGeometry)), VisibleIf(nameof(CreateEmptyMaterialSlots), true)")
         AssetReference<MaterialBase> InstanceToImportAs;
         // If checked, the importer will import texture files used by the model and any embedded texture resources.
-        API_FIELD(Attributes="EditorOrder(410), EditorDisplay(\"Materials\"), VisibleIf(nameof(ShowGeometry))")
+        API_FIELD(Attributes="EditorOrder(410), EditorDisplay(\"Materials\"), VisibleIf(nameof(ShowGeometry)), VisibleIf(nameof(CreateEmptyMaterialSlots), true)")
         bool ImportTextures = true;
         // If checked, the importer will try to keep the model's current overridden material slots, instead of importing materials from the source file.
         API_FIELD(Attributes="EditorOrder(420), EditorDisplay(\"Materials\", \"Keep Overridden Materials\"), VisibleIf(nameof(ShowGeometry))")

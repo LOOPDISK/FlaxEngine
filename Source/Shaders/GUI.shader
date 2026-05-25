@@ -28,10 +28,10 @@ VS2PS VS(Render2DVertex input)
 	VS2PS output;
 
 	// Render2D::RenderingFeatures::VertexSnapping
-	if ((int)input.CustomDataAndClipOrigin.y & 1)
+	if ((int)input.CustomDataAndClipOrigin.y & RENDER2D_FEATURE_VERTEX_SNAPPING)
 		input.Position = (float2)(int2)input.Position;
 
-	output.Position = mul(float4(input.Position, 0, 1), ViewProjection);
+	output.Position = PROJECT_POINT(float4(input.Position, 0, 1), ViewProjection);
 	output.Color = input.Color;
 	output.TexCoord = input.TexCoord;
 	output.ClipOriginAndPos = float4(input.CustomDataAndClipOrigin.zw, input.Position);
@@ -45,23 +45,20 @@ META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_Image(VS2PS input) : SV_Target0
 {
 	PerformClipping(input);
-
-	return Image.Sample(SamplerLinearClamp, input.TexCoord) * input.Color;
+	return GetImageColor(Image.Sample(SamplerLinearClamp, input.TexCoord), input.CustomData) * input.Color;
 }
 
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_ImagePoint(VS2PS input) : SV_Target0
 {
 	PerformClipping(input);
-
-	return Image.Sample(SamplerPointClamp, input.TexCoord) * input.Color;
+	return GetImageColor(Image.Sample(SamplerPointClamp, input.TexCoord), input.CustomData) * input.Color;
 }
 
 META_PS(true, FEATURE_LEVEL_ES2)
 float4 PS_Color(VS2PS input) : SV_Target0
 {
 	PerformClipping(input);
-
 	return input.Color;
 }
 
@@ -91,26 +88,19 @@ float4 PS_Font(VS2PS input) : SV_Target0
 {
 	PerformClipping(input);
 
-	// float4 color = input.Color;
-    // float sd = Image.Sample(SamplerLinearClamp, input.TexCoord).r;
-    // color.a *= sd;
-    // return color;
-    
 	float4 color = input.Color;
-    float sd = Image.Sample(SamplerLinearClamp, input.TexCoord).r;
-    float pxRange = 16.0;
-    uint w, h;
-    Image.GetDimensions(w, h);
-    float2 unitRange = float2(pxRange / w, pxRange / h);
-    float2 fw = fwidth(input.TexCoord);
-    float2 screenTexSize = float2(1.0 / fw);
-    float screenPxRange = max(0.5*dot(unitRange, screenTexSize), 1.0);
+    color.a *= SampleFont(Image, input.TexCoord);
+	return color;
+}
 
-    float screenPxDistance = screenPxRange*(sd - 0.5);
-    float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
-    color.a = opacity;
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_FontMSDF(VS2PS input) : SV_Target0
+{
+	PerformClipping(input);
 
-    return color;
+	float4 color = input.Color;
+    color.a *= SampleFontMSDF(Image, input.TexCoord);
+	return color;
 }
 
 float4 GetSample(float weight, float offset, float2 uv)
@@ -136,7 +126,7 @@ float4 PS_Downscale(Quad_VS2PS input) : SV_Target0
 {
 	float2 boundsPos = input.TexCoord * Bounds.zw + Bounds.xy;
 
-	float4 clipPos = mul(float4(boundsPos, 0, 1), ViewProjection);
+	float4 clipPos = PROJECT_POINT(float4(boundsPos, 0, 1), ViewProjection);
 	clipPos.xy /= clipPos.w;
 
 	float2 uvPos = ClipToUv(clipPos.xy);

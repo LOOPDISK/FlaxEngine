@@ -6,13 +6,15 @@
 #include "Engine/Content/Content.h"
 #include "Engine/Graphics/Graphics.h"
 #include "Engine/Graphics/GPUContext.h"
-#include "Engine/Graphics/RenderTask.h"
+#include "Engine/Graphics/RenderTools.h"
 #include "Engine/Graphics/RenderTargetPool.h"
 #include "Engine/Graphics/RenderBuffers.h"
 #include "Engine/Engine/Time.h"
 
 #define GB_RADIUS 6
 #define GB_KERNEL_SIZE (GB_RADIUS * 2 + 1)
+#define OUTPUT_LINEAR 0 // Copies scene color directly to the output
+#define OUTPUT_SRGB 1 // Converts scene color from linear to sRGB
 
 GPU_CB_STRUCT(Data{
     float DepthHazeIntensity; // Overall depth haze strength multiplier
@@ -60,12 +62,15 @@ GPU_CB_STRUCT(Data{
     float ChromaticDistortion;
     float Time;
 
-    float Dummy1;
+    uint32 OutputColorSpace;
     float PostExposure;
     float VignetteIntensity;
     float LensDirtIntensity;
 
     Color ScreenFadeColor;
+
+    Float3 QuantizationError;
+    float Dummy2;
 
     Matrix LensFlareStarMat;
     Float4 ViewInfo;
@@ -390,7 +395,7 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.GrainAmount = settings.CameraArtifacts.GrainAmount;
         data.GrainParticleSize = Math::Max(0.0001f, settings.CameraArtifacts.GrainParticleSize);
         data.GrainTime = time * 0.5f * settings.CameraArtifacts.GrainSpeed;
-        data.ChromaticDistortion = Math::Saturate(settings.CameraArtifacts.ChromaticDistortion);
+        data.ChromaticDistortion = Math::Saturate(settings.CameraArtifacts.ChromaticDistortion * (float)output->Width() / 1080.0f); // Rescale based on reference 1080p resolution
         data.ScreenFadeColor = settings.CameraArtifacts.ScreenFadeColor;
     }
     else
@@ -468,12 +473,23 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.LensFlareIntensity = 0;
         data.LensDirtIntensity = 0;
     }
+    data.QuantizationError = RenderTools::GetColorQuantizationError(output->Format());
     data.PostExposure = Math::Exp2(settings.EyeAdaptation.PostExposure);
     data.InputSize = Float2(static_cast<float>(w1), static_cast<float>(h1));
     data.InvInputSize = Float2(1.0f / static_cast<float>(w1), 1.0f / static_cast<float>(h1));
     data.InputAspect = static_cast<float>(w1) / h1;
     data.ViewInfo = view.ViewInfo;
     data.ViewFar = view.Far;
+    if (Graphics::GammaColorSpace)
+    {
+        // Gamma-space colors always present image 'as-is'
+        data.OutputColorSpace = OUTPUT_LINEAR;
+    }
+    else
+    {
+        // Convert linear scene color into the display's sRGB curve
+        data.OutputColorSpace = OUTPUT_SRGB;
+    }
     context->UpdateCB(cb0, &data);
     context->BindCB(0, cb0);
 
@@ -651,7 +667,10 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     // - 9 - DepthBuffer - raw depth buffer (for reference depth)
     // - 10 - DepthMips  - depth mip chain (for smooth transitions)
     context->BindSR(0, input->View());
-    context->BindSR(4, GetCustomOrDefault(settings.LensFlares.LensDirt, _defaultLensDirt, TEXT("Engine/Textures/DefaultLensDirt")));
+    if ((useLensFlares || useBloom) && settings.LensFlares.LensDirtIntensity > 0)
+        context->BindSR(4, GetCustomOrDefault(settings.LensFlares.LensDirt, _defaultLensDirt, TEXT("Engine/Textures/DefaultLensDirt")));
+    else
+        context->BindSR(4, device->GetDefaultBlackTexture());
     context->BindSR(7, colorGradingLutView);
 
     // Depth haze is now rendered separately before this pass, so don't bind it here

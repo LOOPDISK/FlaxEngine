@@ -21,6 +21,7 @@ namespace FlaxEditor.Surface
         {
             public GraphParameter Parameter;
             public bool IsPublic;
+            public int Index;
             public Type Type;
             public object Tag;
             public Attribute[] Attributes;
@@ -31,15 +32,16 @@ namespace FlaxEditor.Surface
             public HeaderAttribute Header;
             public string DisplayName;
 
-            public GraphParameterData(GraphParameter parameter, object tag = null)
-            : this(parameter, null, parameter.IsPublic, parameter.Type, SurfaceMeta.GetAttributes(parameter), tag)
+            public GraphParameterData(GraphParameter parameter, int index, object tag = null)
+            : this(parameter, index, null, parameter.IsPublic, parameter.Type, SurfaceMeta.GetAttributes(parameter), tag)
             {
             }
 
-            public GraphParameterData(GraphParameter parameter, string name, bool isPublic, Type type, Attribute[] attributes, object tag)
+            public GraphParameterData(GraphParameter parameter, int index, string name, bool isPublic, Type type, Attribute[] attributes, object tag)
             {
                 Parameter = parameter;
                 IsPublic = isPublic;
+                Index = index;
                 Type = type;
                 Tag = tag;
                 Attributes = attributes;
@@ -74,8 +76,14 @@ namespace FlaxEditor.Surface
                 if (Editor.Instance.Options.Options.General.ScriptMembersOrder == GeneralOptions.MembersOrder.Alphabetical)
                     return string.Compare(x.DisplayName, y.DisplayName, StringComparison.InvariantCulture);
 
-                // Keep same order
-                return 0;
+                // Keep same order (from input indices)
+                return x.Index - y.Index;
+            }
+
+            /// <inheritdoc />
+            public override string ToString()
+            {
+                return $"{Type} {DisplayName}";
             }
         }
 
@@ -163,6 +171,7 @@ namespace FlaxEditor.Surface
                         }
                     }
                 }
+                surface.Dispose();
             }
         }
 
@@ -205,6 +214,7 @@ namespace FlaxEditor.Surface
                 Profiler.EndEvent();
             }
 
+            int index = 0;
             foreach (var parameter in parameters)
             {
                 var parameterId = parameter.ParameterID;
@@ -228,7 +238,7 @@ namespace FlaxEditor.Surface
                     surfaceParameters.Add(surfaceParameter);
                 }
                 var attributes = surfaceParameter?.Meta.GetAttributes() ?? FlaxEngine.Utils.GetEmptyArray<Attribute>();
-                data[i] = new GraphParameterData(null, parameter.Name, parameter.IsPublic, ToType(parameter.ParameterType), attributes, parameter);
+                data[i] = new GraphParameterData(null, index++, parameter.Name, parameter.IsPublic, ToType(parameter.ParameterType), attributes, parameter);
                 i++;
             }
             Array.Sort(data, GraphParameterData.Compare);
@@ -242,7 +252,7 @@ namespace FlaxEditor.Surface
             int i = 0;
             foreach (var parameter in parameters)
             {
-                data[i] = new GraphParameterData(parameter.EmitterParameter, parameter);
+                data[i] = new GraphParameterData(parameter.EmitterParameter, i, parameter);
                 i++;
             }
             Array.Sort(data, GraphParameterData.Compare);
@@ -256,7 +266,7 @@ namespace FlaxEditor.Surface
             int i = 0;
             foreach (var parameter in parameters)
             {
-                data[i] = new GraphParameterData(parameter);
+                data[i] = new GraphParameterData(parameter, i);
                 i++;
             }
             Array.Sort(data, GraphParameterData.Compare);
@@ -573,13 +583,13 @@ namespace FlaxEditor.Surface
             var showSearch = () => editor.ContentFinding.ShowSearch(window);
 
             // Toolstrip
-            saveButton = toolStrip.AddButton(editor.Icons.Save64, window.Save).LinkTooltip("Save", ref inputOptions.Save);
+            saveButton = toolStrip.AddButton(editor.Icons.Save64, window.Save).LinkTooltip("Save.", ref inputOptions.Save);
             toolStrip.AddSeparator();
-            undoButton = toolStrip.AddButton(editor.Icons.Undo64, undo.PerformUndo).LinkTooltip("Undo", ref inputOptions.Undo);
-            redoButton = toolStrip.AddButton(editor.Icons.Redo64, undo.PerformRedo).LinkTooltip("Redo", ref inputOptions.Redo);
+            undoButton = toolStrip.AddButton(editor.Icons.Undo64, undo.PerformUndo).LinkTooltip("Undo.", ref inputOptions.Undo);
+            redoButton = toolStrip.AddButton(editor.Icons.Redo64, undo.PerformRedo).LinkTooltip("Redo.", ref inputOptions.Redo);
             toolStrip.AddSeparator();
-            toolStrip.AddButton(editor.Icons.Search64, showSearch).LinkTooltip("Open content search tool",  ref inputOptions.Search);
-            toolStrip.AddButton(editor.Icons.CenterView64, surface.ShowWholeGraph).LinkTooltip("Show whole graph");
+            toolStrip.AddButton(editor.Icons.Search64, showSearch).LinkTooltip("Open content search tool.",  ref inputOptions.Search);
+            toolStrip.AddButton(editor.Icons.CenterView64, surface.ShowWholeGraph).LinkTooltip("Show whole graph.");
             var gridSnapButton = toolStrip.AddButton(editor.Icons.Grid32, surface.ToggleGridSnapping);
             gridSnapButton.LinkTooltip("Toggle grid snapping for nodes.");
             gridSnapButton.AutoCheck = true;

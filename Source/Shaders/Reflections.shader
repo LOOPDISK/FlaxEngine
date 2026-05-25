@@ -12,9 +12,11 @@
 
 META_CB_BEGIN(0, Data)
 
-ProbeData PData;
+EnvProbeData PData;
 float4x4 WVP;
 GBufferData GBuffer;
+float2 SSRTexelSize;
+float2 Dummy0;
 
 META_CB_END
 
@@ -26,13 +28,13 @@ Texture2D PreIntegratedGF : register(t6);
 Texture2D DiffuseReflections : register(t7);
 
 
-// Vertex Shader for models rendering
+// Vertex Shader for probe shape rendering
 META_VS(true, FEATURE_LEVEL_ES2)
 META_VS_IN_ELEMENT(POSITION, 0, R32G32B32_FLOAT, 0, ALIGN, PER_VERTEX, 0, true)
 Model_VS2PS VS_Model(ModelInput_PosOnly input)
 {
 	Model_VS2PS output;
-	output.Position = mul(float4(input.Position.xyz, 1), WVP);
+	output.Position = PROJECT_POINT(float4(input.Position.xyz, 1), WVP);
 	output.ScreenPos = output.Position;
 	return output;
 }
@@ -65,10 +67,15 @@ ProbeBufferOutput PS_EnvProbe(Model_VS2PS input)
 		return output;
 	}
 
+	// Unpack env probe data (upstream packs fields into Data0/Data1/Data2; see ReflectionsCommon.hlsl)
+	float3 probePos = PData.Data0.xyz;
+	float probeBrightness = abs(PData.Data0.w); // negative w flags box projection
+	float probeInvRadius = 1.0 / PData.Data1.x; // Data1.x = Radius (sphere) / extent.x (box)
+
 	// Calculate distance from probe to the pixel
-	float3 captureVector = gBuffer.WorldPos - PData.ProbePos;
+	float3 captureVector = gBuffer.WorldPos - probePos;
 	float captureVectorLength = length(captureVector);
-	float radius = 1.0 / PData.ProbeInvRadius;
+	float radius = 1.0 / probeInvRadius;
 	
 	// Check if outside probe radius
 	BRANCH
@@ -80,7 +87,7 @@ ProbeBufferOutput PS_EnvProbe(Model_VS2PS input)
 	
 	// Calculate probe weight with size-based blending priority
 	// Smaller probes (higher InvRadius) get higher priority
-	float normalizedDist = saturate(captureVectorLength * PData.ProbeInvRadius);
+	float normalizedDist = saturate(captureVectorLength * probeInvRadius);
 	float weight;
 	if (normalizedDist < 0.5)
 	{
@@ -93,8 +100,8 @@ ProbeBufferOutput PS_EnvProbe(Model_VS2PS input)
 	}
 	
 	// Scale by brightness and add size priority (smaller probes override larger)
-	float sizeWeight = PData.ProbeInvRadius * 0.1; // Smaller probes get higher weight
-	weight = weight * PData.ProbeBrightness * (1.0 + sizeWeight);
+	float sizeWeight = probeInvRadius * 0.1; // Smaller probes get higher weight
+	weight = weight * probeBrightness * (1.0 + sizeWeight);
 	
 	if (weight <= 0.0001f)
 	{
@@ -105,12 +112,12 @@ ProbeBufferOutput PS_EnvProbe(Model_VS2PS input)
 	// Sample for specular reflections
 	float3 V = normalize(gBuffer.WorldPos - gBufferData.ViewPos);
 	float3 R = reflect(V, gBuffer.Normal);
-	float3 specularDir = normalize(captureVector + R / PData.ProbeInvRadius);
+	float3 specularDir = normalize(captureVector + R / probeInvRadius);
 	float specularMip = ProbeMipFromRoughness(gBuffer.Roughness);
 	float3 specularSample = Probe.SampleLevel(SamplerLinearClamp, specularDir, specularMip).rgb;
 
 	// Sample for diffuse ambient lighting (use highest mip for diffuse)
-	float3 diffuseDir = normalize(captureVector + gBuffer.Normal / PData.ProbeInvRadius);
+	float3 diffuseDir = normalize(captureVector + gBuffer.Normal / probeInvRadius);
 	float3 diffuseSample = Probe.SampleLevel(SamplerLinearClamp, diffuseDir, REFLECTION_CAPTURE_NUM_MIPS - 1).rgb;
 
 	output.Specular = float4(specularSample, weight);

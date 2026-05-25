@@ -24,7 +24,7 @@ GPU_CB_STRUCT(Data {
     Matrix WorldViewProjection;
     Matrix InvViewProjection;
     Float3 ViewOffset;
-    float Padding;
+    float NoiseScale;
     ShaderGBufferData GBuffer;
     ShaderAtmosphericFogData Fog;
     Float3 HorizonColor;
@@ -77,7 +77,7 @@ void Sky::InitConfig(ShaderAtmosphericFogData& config) const
 
     if (SunLight)
     {
-        config.AtmosphericFogSunDirection = -SunLight->GetDirection();
+        config.AtmosphericFogSunDirection = -SunLight->GetForward();
         config.AtmosphericFogSunColor = SunLight->Color.ToFloat3() * SunLight->Color.A;
     }
     else
@@ -192,6 +192,7 @@ void Sky::ApplySky(GPUContext* context, RenderContext& renderContext, const Matr
     Matrix::Transpose(renderContext.View.IVP, data.InvViewProjection);
     GBufferPass::SetInputs(renderContext.View, data.GBuffer);
     data.ViewOffset = renderContext.View.Origin + GetPosition();
+    data.NoiseScale = renderContext.View.IsSingleFrame ? 0.01f : 0.03f;
     InitConfig(data.Fog);
     data.HorizonColor = HorizonColor.ToFloat3();
     data.ZenithColor = ZenithColor.ToFloat3();
