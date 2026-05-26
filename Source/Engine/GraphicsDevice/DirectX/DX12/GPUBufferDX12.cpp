@@ -217,7 +217,12 @@ bool GPUBufferDX12::OnInit()
             srvDesc.Buffer.StructureByteStride = 0;
         }
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::RawBuffer))
+        {
             srvDesc.Buffer.Flags |= D3D12_BUFFER_SRV_FLAG_RAW;
+            // Raw views address 4-byte elements over the whole buffer; the Size/Stride count (Stride>4)
+            // would truncate shader reads to Size/Stride*4 bytes.
+            srvDesc.Buffer.NumElements = _desc.Size / 4;
+        }
         _view.SetSRV(srvDesc);
     }
     if (useUAV)
@@ -232,7 +237,10 @@ bool GPUBufferDX12::OnInit()
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::Structured))
             uavDesc.Buffer.StructureByteStride = _desc.Stride;
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::RawBuffer))
+        {
             uavDesc.Buffer.Flags |= D3D12_BUFFER_UAV_FLAG_RAW;
+            uavDesc.Buffer.NumElements = _desc.Size / 4;
+        }
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::Structured))
             uavDesc.Format = DXGI_FORMAT_UNKNOWN;
         else

@@ -19,6 +19,7 @@
 #include "Engine/Graphics/Models/MeshAccessor.h"
 #include "Engine/Graphics/Models/MeshDeformation.h"
 #include "Engine/Renderer/RenderList.h"
+#include "Engine/Renderer/SkinningPass.h"
 #include "Engine/Level/Scene/Scene.h"
 #include "Engine/Level/SceneObjectsFactory.h"
 #include "Engine/Profiler/Profiler.h"
@@ -40,6 +41,9 @@ public:
     void PreDraw(GPUContext* context, RenderContextBatch& renderContextBatch) override
     {
         Items.Clear();
+        SkinningPass::Instance()->ClearPending();
+        // Drain pending GPU prewarm for newly-spawned AnimatedModels. 
+        SkinningPass::Instance()->FlushPrewarm(context);
     }
 
     void PostDraw(GPUContext* context, RenderContextBatch& renderContextBatch) override
@@ -87,6 +91,9 @@ public:
 #endif
 
         Items.Clear();
+
+        // Run skinning dispatches now: after the bone upload above, before any pass samples the output VBs.
+        SkinningPass::Instance()->FlushPending(context);
     }
 };
 
@@ -151,6 +158,10 @@ void AnimatedModel::SetupSkinningData()
     if (targetBonesCount != currentBonesCount)
     {
         _skinningData.Setup(targetBonesCount);
+        // Prewarm compute-skinning output VBs now (BoneMatrices exists) so the wake cost lands during
+        // scene streaming, not on the first visible frame.
+        if (_skinningData.IsReady())
+            SkinningPass::Instance()->QueuePrewarm(&_skinningData, SkinnedModel.Get());
     }
 }
 
@@ -840,6 +851,8 @@ void AnimatedModel::EndPlay()
 {
     Animations::RemoveFromUpdate(this);
     SetMasterPoseModel(nullptr);
+    // Cancel any pending prewarm so the render thread can't dereference this freed SkinnedMeshDrawData.
+    SkinningPass::Instance()->CancelPrewarm(&_skinningData);
 
     // Base
     ModelInstanceActor::EndPlay();
@@ -989,6 +1002,10 @@ void AnimatedModel::OnSkinnedModelChanged()
     }
     if (_deformation)
         _deformation->Clear();
+    // Drop the compute-skinning output cache (sized for the old model) and cancel any pending prewarm
+    // so neither runs against the new model's mismatched vertex counts.
+    SkinningPass::Instance()->CancelPrewarm(&_skinningData);
+    _skinningData.ReleaseOutputVBs();
     GraphInstance.NodesSkeleton = SkinnedModel;
 }
 
@@ -1161,11 +1178,32 @@ void AnimatedModel::Draw(RenderContextBatch& renderContextBatch)
         PRAGMA_DISABLE_DEPRECATION_WARNINGS
         if (ShadowsMode != ShadowsCastingMode::All)
         {
-            // To handle old ShadowsMode option for all meshes we need to call per-context drawing (no batching opportunity)
-            // TODO: maybe deserialize ShadowsMode into ModelInstanceBuffer entries options?
-            for (auto& e : renderContextBatch.Contexts)
+            // Per-context drawing for the legacy ShadowsMode. Cascade contexts use best-fit (one cascade
+            // that Contains the bounds); non-cascade contexts draw gated by frustum intersect.
+            int32 bestFit = -1;
+            const int32 ctxCount = renderContextBatch.Contexts.Count();
+            for (int32 ci = 0; ci < ctxCount; ci++)
             {
+                const auto& e = renderContextBatch.Contexts.Get()[ci];
+                if (e.View.CascadeIndex < 0) continue;
+                if (e.View.CullingFrustum.Contains(draw.Bounds) == ContainmentType::Contains)
+                {
+                    bestFit = ci;
+                    break;
+                }
+            }
+            for (int32 ci = 0; ci < ctxCount; ci++)
+            {
+                auto& e = renderContextBatch.Contexts.Get()[ci];
+                const bool isCascade = e.View.CascadeIndex >= 0;
+                if (isCascade)
+                {
+                    if (bestFit >= 0 ? (ci != bestFit) : !e.View.CullingFrustum.Intersects(draw.Bounds))
+                        continue;
+                }
                 draw.DrawModes = DrawModes & e.View.GetShadowsDrawPassMask(ShadowsMode);
+                if (draw.DrawModes == DrawPass::None)
+                    continue;
                 SkinnedModel->Draw(e, draw);
             }
         }

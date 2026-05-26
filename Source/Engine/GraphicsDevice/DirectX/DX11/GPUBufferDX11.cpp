@@ -122,7 +122,9 @@ bool GPUBufferDX11::OnInit()
             srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
             srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
             srvDesc.BufferEx.FirstElement = 0;
-            srvDesc.BufferEx.NumElements = numElements;
+            // Raw views address 4-byte elements over the whole buffer; the Size/Stride count (Stride>4)
+            // would truncate shader reads to Size/Stride*4 bytes.
+            srvDesc.BufferEx.NumElements = _desc.Size / 4;
             srvDesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
         }
         else
@@ -147,7 +149,10 @@ bool GPUBufferDX11::OnInit()
         uavDesc.Buffer.NumElements = numElements;
         uavDesc.Buffer.Flags = 0;
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::RawBuffer))
+        {
             uavDesc.Buffer.Flags |= D3D11_BUFFER_UAV_FLAG_RAW;
+            uavDesc.Buffer.NumElements = _desc.Size / 4;
+        }
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::Append))
             uavDesc.Buffer.Flags |= D3D11_BUFFER_UAV_FLAG_APPEND;
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::Counter))

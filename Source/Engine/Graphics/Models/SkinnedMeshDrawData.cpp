@@ -10,6 +10,12 @@ SkinnedMeshDrawData::~SkinnedMeshDrawData()
 {
     SAFE_DELETE_GPU_RESOURCE(BoneMatrices);
     SAFE_DELETE_GPU_RESOURCE(PrevBoneMatrices);
+    for (GPUBuffer* b : OutputVB0)
+        SAFE_DELETE_GPU_RESOURCE(b);
+    for (GPUBuffer* b : OutputVB1)
+        SAFE_DELETE_GPU_RESOURCE(b);
+    for (GPUBuffer* b : OutputVB2)
+        SAFE_DELETE_GPU_RESOURCE(b);
 }
 
 void SkinnedMeshDrawData::Setup(int32 bonesCount)
@@ -31,6 +37,20 @@ void SkinnedMeshDrawData::Setup(int32 bonesCount)
     _isDirty = true;
     Data.Resize(BoneMatrices->GetSize());
     SAFE_DELETE_GPU_RESOURCE(PrevBoneMatrices);
+}
+
+void SkinnedMeshDrawData::ReleaseOutputVBs()
+{
+    for (GPUBuffer* b : OutputVB0)
+        SAFE_DELETE_GPU_RESOURCE(b);
+    for (GPUBuffer* b : OutputVB1)
+        SAFE_DELETE_GPU_RESOURCE(b);
+    for (GPUBuffer* b : OutputVB2)
+        SAFE_DELETE_GPU_RESOURCE(b);
+    OutputVB0.Clear();
+    OutputVB1.Clear();
+    OutputVB2.Clear();
+    OutputVersion.Clear();
 }
 
 void SkinnedMeshDrawData::OnDataChanged(bool dropHistory)
@@ -56,4 +76,8 @@ void SkinnedMeshDrawData::OnDataChanged(bool dropHistory)
 
     _isDirty = true;
     _hasValidData = true;
+
+    // Bump skinning version so the compute-skinning pass invalidates its per-mesh cached outputs.
+    // Dormant skeletons that don't call OnDataChanged will keep the cached output and skip dispatch.
+    SkinningVersion++;
 }

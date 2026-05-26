@@ -488,8 +488,15 @@ bool MeshBase::Init(uint32 vertices, uint32 triangles, const Array<const void*, 
 #define MESH_BUFFER_NAME(postfix) String::Empty
 #endif
     vertexBuffer0 = GPUDevice::Instance->CreateBuffer(MESH_BUFFER_NAME(".VB0"));
-    if (vertexBuffer0->Init(GPUBufferDescription::Vertex(vbLayout[0], vertices, vbData[0])))
-        goto ERROR_LOAD_END;
+    {
+        // ShaderResource + RawBuffer + R32_Typeless let the compute-skinning pass bind VB0 as a
+        // ByteAddressBuffer; the per-vertex layout still comes from vbLayout for input assembly.
+        auto desc0 = GPUBufferDescription::Vertex(vbLayout[0], vertices, vbData[0]);
+        desc0.Flags |= GPUBufferFlags::ShaderResource | GPUBufferFlags::RawBuffer;
+        desc0.Format = PixelFormat::R32_Typeless;
+        if (vertexBuffer0->Init(desc0))
+            goto ERROR_LOAD_END;
+    }
     if (vbData.Count() >= 2 && vbData[1])
     {
         vertexBuffer1 = GPUDevice::Instance->CreateBuffer(MESH_BUFFER_NAME(".VB1"));

@@ -35,6 +35,31 @@ public:
     /// </summary>
     Array<byte> Data;
 
+    /// <summary>
+    /// Per-mesh compute-skinning output: pre-skinned Position VB (12 bytes/vert). Indexed by mesh slot.
+    /// </summary>
+    Array<GPUBuffer*> OutputVB0;
+
+    /// <summary>
+    /// Per-mesh compute-skinning output: TexCoord+Normal+Tangent+TexCoord1 VB (16 bytes/vert, TexCoord1 zero).
+    /// </summary>
+    Array<GPUBuffer*> OutputVB1;
+
+    /// <summary>
+    /// Per-mesh compute-skinning output: Color VB (4 bytes/vert), allocated only when the source has Color.
+    /// </summary>
+    Array<GPUBuffer*> OutputVB2;
+
+    /// <summary>
+    /// Bumped on each OnDataChanged. The compute-skinning pass skips dispatch when the output is up to date with it (dormant skeletons).
+    /// </summary>
+    uint64 SkinningVersion = 0;
+
+    /// <summary>
+    /// Per-mesh SkinningVersion at the last dispatch; equal to SkinningVersion means the cached output is valid.
+    /// </summary>
+    Array<uint64> OutputVersion;
+
 public:
     /// <summary>
     /// Finalizes an instance of the <see cref="SkinnedMeshDrawData"/> class.
@@ -77,4 +102,10 @@ public:
     {
         _isDirty = false;
     }
+
+    /// <summary>
+    /// Releases the compute-skinning output VB cache. Call on SkinnedModel change: the cached buffers are
+    /// sized for the old vertex counts and reusing them would truncate the dispatch and collapse vertices.
+    /// </summary>
+    void ReleaseOutputVBs();
 };
