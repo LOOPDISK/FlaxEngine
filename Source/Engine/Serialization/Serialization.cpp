@@ -814,6 +814,12 @@ bool Serialization::ShouldSerializeRef(const SceneObject* v, const SceneObject* 
         // In that case, skip saving reference as it's defined in prefab (will be populated via IdsMapping during deserialization)
         result = v->GetPrefabObjectID() != other->GetPrefabObjectID();
     }
+    else if (result && !v && other && other->HasPrefabLink())
+    {
+        // Special case when the reference is null but the prefab defines a reference to a prefab object
+        // In that case, skip saving the null override as it's defined in prefab (might have just failed to resolve via IdsMapping in nested/duplicated prefab instances)
+        result = false;
+    }
     return result;
 }
 

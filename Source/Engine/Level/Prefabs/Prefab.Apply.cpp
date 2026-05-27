@@ -1027,26 +1027,27 @@ bool Prefab::ApplyAllInternal(Actor* targetActor, bool linkTargetActorObjectToPr
             obj->RegisterObject();
         }
 
-        // Generate nested prefab instances to properly handle Ids Mapping within each nested prefab
-        rapidjson_flax::Document targetDataDocument;
+        // Generate nested prefab instances to properly handle Ids Mapping within each nested prefab.
+        // Use the prefab data (the source sceneObjects were spawned from) so SceneObjects[i] and Data[i] stay index-aligned.
+        // The target instance data has a different object set/order (eg. after object deletes) which mismaps nested ids.
         if (NestedPrefabs.HasItems())
         {
-            targetDataDocument.Parse(dataBuffer.GetString(), dataBuffer.GetSize());
-            SceneObjectsFactory::PrefabSyncData prefabSyncData(*sceneObjects.Value, targetDataDocument, modifier.Value);
+            SceneObjectsFactory::PrefabSyncData prefabSyncData(*sceneObjects.Value, data, modifier.Value);
             SceneObjectsFactory::SetupPrefabInstances(context, prefabSyncData);
 
             if (context.Instances.HasItems())
             {
-                // Only main prefab instance is allowed (in case nested prefab was added to this prefab)
-                for (auto i = context.ObjectToInstance.Begin(); i.IsNotEnd(); ++i)
+                // Use only nested prefab instance mappings: trash the main instance's own ids
+                // mapping (it would remap this prefab's own objects) but keep every other prefab
+                // instance and its nested mappings. A prefab can hold many instances of the same
+                // nested prefab (eg. doors that each nest the same button prefab); discarding all
+                // but Instances[0] collapsed their shared prefab-object-ids onto one instance.
+                // Per-object IdsMappingScope isolation keeps the kept instances from leaking.
+                for (auto& instance : context.Instances)
                 {
-                    if (i->Value != 0)
-                        context.ObjectToInstance.Remove(i);
+                    if (instance.RootIndex == 0)
+                        instance.IdsMapping.Clear();
                 }
-                context.Instances.Resize(1);
-
-                // Trash object mapping to prevent messing up prefab structure when applying hierarchy changes (only nested instances are used)
-                context.Instances[0].IdsMapping.Clear();
             }
         }
 
