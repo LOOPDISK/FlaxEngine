@@ -1027,9 +1027,8 @@ bool Prefab::ApplyAllInternal(Actor* targetActor, bool linkTargetActorObjectToPr
             obj->RegisterObject();
         }
 
-        // Generate nested prefab instances to properly handle Ids Mapping within each nested prefab.
-        // Use the prefab data (the source sceneObjects were spawned from) so SceneObjects[i] and Data[i] stay index-aligned.
-        // The target instance data has a different object set/order (eg. after object deletes) which mismaps nested ids.
+        // Setup nested prefab instances for Ids Mapping. Use prefab data (what sceneObjects were spawned from)
+        // so SceneObjects[i] and Data[i] stay aligned (instance data differs after add/delete and mismaps ids).
         if (NestedPrefabs.HasItems())
         {
             SceneObjectsFactory::PrefabSyncData prefabSyncData(*sceneObjects.Value, data, modifier.Value);
@@ -1037,12 +1036,8 @@ bool Prefab::ApplyAllInternal(Actor* targetActor, bool linkTargetActorObjectToPr
 
             if (context.Instances.HasItems())
             {
-                // Use only nested prefab instance mappings: trash the main instance's own ids
-                // mapping (it would remap this prefab's own objects) but keep every other prefab
-                // instance and its nested mappings. A prefab can hold many instances of the same
-                // nested prefab (eg. doors that each nest the same button prefab); discarding all
-                // but Instances[0] collapsed their shared prefab-object-ids onto one instance.
-                // Per-object IdsMappingScope isolation keeps the kept instances from leaking.
+                // Trash only the main instance's ids mapping (it would remap this prefab's own objects); keep
+                // every nested instance. Discarding the rest collapsed repeated nested prefabs onto one (eg. doors).
                 for (auto& instance : context.Instances)
                 {
                     if (instance.RootIndex == 0)
