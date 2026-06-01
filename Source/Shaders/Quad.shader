@@ -12,6 +12,7 @@ struct MaterialVertexOutput
 
 META_CB_BEGIN(0, Data)
 float4 Color;
+float4 Params;
 META_CB_END
 
 // Vertex Shader for screen space quad rendering
@@ -71,6 +72,62 @@ META_PS(true, FEATURE_LEVEL_ES2)
 float PS_DepthCopy(Quad_VS2PS input) : SV_Depth
 {
     return SAMPLE_RT_DEPTH(Source, input.TexCoord * Color.xy + Color.zw);
+}
+
+#endif
+
+#ifdef _PS_DepthVisualize
+
+Texture2D Source : register(t0);
+
+// HACK: visualize a depth texture as grayscale. Color.x = invert flag (0/1), Color.y = contrast power.
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_DepthVisualize(Quad_VS2PS input) : SV_Target
+{
+	float d = Source.SampleLevel(SamplerPointClamp, input.TexCoord, 0).r;
+	if (Color.x > 0.5)
+		d = 1.0 - d;
+	d = pow(saturate(d), max(Color.y, 0.0001));
+	return float4(d, d, d, 1);
+}
+
+#endif
+
+#ifdef _PS_ClipmapComposite
+
+Texture2D ClipmapDepth : register(t0);
+
+// Pixel Shader for compositing a toroidal shadow clipmap level into a CSM cascade tile.
+// Color.xy = UV scale, Color.zw = UV offset (map cascade tile UV to LOGICAL clipmap UV).
+// Params.x = depth scale, Params.y = depth bias (remap clipmap depth to cascade depth range).
+// Params.zw = toroidal wrap offset: texture UV = frac(logicalUV + Params.zw).
+//
+// "No occluder" pixels (clipmapDepth ~ 1) are discarded so the cleared cascade-tile depth=1
+// stays in place - equivalent to writing 1 but cheaper (skips the MAD + saturate).
+//
+// For occluder pixels we SATURATE the remapped depth instead of discarding when it falls
+// outside [0,1]. The discard variant of this code is silently WRONG for tall geometry:
+//
+//   - Tall structures (skyscrapers, cliffs, mountains) captured in the clipmap have
+//     cascadeDepth < 0 - they occlude FROM ABOVE the cascade's near plane.
+//   - Discarding leaves the cleared tile depth=1 at the structure's projected footprint.
+//   - Lighting pass: fragment in cascade slice (depth ~ 0.5) tests against 1 -> not in shadow
+//     -> light leaks straight through the structure, "cutting holes" in adjacent shadows.
+//
+// Saturating clamps cascadeDepth < 0 to exactly 0 (treat as "at the cascade near plane"),
+// which is the geometrically correct treatment for occluders in front of the cascade slice
+// - they shadow everything in the slice behind them. cascadeDepth > 1 saturates to 1, which
+// matches the cleared tile and produces no shadow (also correct: occluder behind cascade
+// doesn't cast onto cascade fragments).
+META_PS(true, FEATURE_LEVEL_ES2)
+float PS_ClipmapComposite(Quad_VS2PS input) : SV_Depth
+{
+	float2 uv = frac(input.TexCoord * Color.xy + Color.zw + Params.zw);
+	float clipmapDepth = ClipmapDepth.SampleLevel(SamplerPointClamp, uv, 0).r;
+	if (clipmapDepth >= 0.999)
+		discard; // No occluder at this clipmap texel - keep cleared tile depth=1.
+	float cascadeDepth = clipmapDepth * Params.x + Params.y;
+	return saturate(cascadeDepth); // Clamp tall-occluder (< 0) and behind-cascade (> 1) cases.
 }
 
 #endif

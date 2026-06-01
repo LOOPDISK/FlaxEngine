@@ -14,6 +14,7 @@ struct FloatR10G10B10A2;
 
 GPU_CB_STRUCT(QuadShaderData {
     Float4 Color;
+    Float4 Params;
     });
 
 /// <summary>

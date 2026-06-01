@@ -157,7 +157,13 @@ public:
     /// A factor specifying the offset to add to the calculated shadow map depth with respect to the surface normal.
     /// </summary>
     API_FIELD(Attributes="EditorOrder(96), EditorDisplay(\"Shadow\", \"Normal Offset Scale\"), Limit(0.0f, 100.0f, 0.1f)")
-    float ShadowsNormalOffsetScale = 10.0f;
+    float ShadowsNormalOffsetScale = 1.0f;
+
+    /// <summary>
+    /// Apparent source size used for contact-hardening (PCSS) shadows, in shadow-projection units. 0 = sharp PCF only. Typical 0.01-0.1 for soft outdoor sun shadows.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(97), EditorDisplay(\"Shadow\", \"Softness\"), Limit(0.0f, 1.0f, 0.001f)")
+    float ShadowsSoftness = 0.0f;
 
     /// <summary>
     /// The length of the rays for contact shadows computed via the screen-space tracing. Set this to values higher than 0 to enable screen-space shadows rendering for this light. This improves the shadowing details. Actual ray distance is based on the pixel distance from the camera.

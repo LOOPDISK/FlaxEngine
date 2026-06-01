@@ -40,6 +40,7 @@ struct RenderLightData
     float ShadowsDepthBias;
     float ShadowsSharpness;
     float ShadowsDistance;
+    float ShadowsSoftness;
 
     StaticFlags StaticFlags;
     ShadowsCastingMode ShadowsMode;
@@ -76,12 +77,9 @@ struct RenderDirectionalLightData : RenderLightData
     PartitionMode PartitionMode;
     int32 CascadeCount;
 
-    bool EnableDistantShadows;
-    float DistantShadowSize;
-    int32 DistantShadowUpdateRate;
-    int32 DistantShadowResolution;
-    float DistantShadowDepthBias;
-    float DistantShadowNormalBiasScale;
+    bool StaticShadows;
+    bool DynamicShadows;
+    float StaticShadowBeyondCSMExtent;
 
     RenderDirectionalLightData()
     {

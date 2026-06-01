@@ -225,6 +225,11 @@ bool Renderer::IsReady()
     return true;
 }
 
+void Renderer::RequestShadowsDump()
+{
+    ShadowsPass::RequestDump();
+}
+
 void Renderer::Render(SceneRenderTask* task)
 {
     PROFILE_GPU_CPU_NAMED("Render Frame");
@@ -964,6 +969,9 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
             MultiScaler::Instance()->Upscale(context, outputViewport, frameBuffer, outputView);
         }
     }
+
+    // HACK shadow clipmap debug overlay (no-op unless g_ClipmapDebugDraw is true in ShadowsPass.cpp).
+    ShadowsPass::DrawClipmapDebugOverlay(context, renderContext, outputView, outputViewport);
 
     RenderTargetPool::Release(tempBuffer);
     RenderTargetPool::Release(frameBuffer);

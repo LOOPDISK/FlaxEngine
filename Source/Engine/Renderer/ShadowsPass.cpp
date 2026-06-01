@@ -8,14 +8,21 @@
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/RenderBuffers.h"
 #include "Engine/Graphics/PixelFormatExtensions.h"
+#include "Engine/Graphics/Textures/TextureData.h"
 #include "Engine/Content/Content.h"
 #include "Engine/Engine/Engine.h"
+#include "Engine/Engine/Globals.h"
 #include "Engine/Engine/Units.h"
 #include "Engine/Graphics/RenderTools.h"
 #include "Engine/Level/Scene/SceneRendering.h"
+#include "Engine/Platform/FileSystem.h"
 #include "Engine/Scripting/Enums.h"
+#include "Engine/Serialization/FileWriteStream.h"
 #include "Engine/Utilities/RectPack.h"
 #include "Engine/Threading/JobSystem.h"
+#include "Engine/Threading/Task.h"
+#include "Engine/Threading/ThreadPoolTask.h"
+#include "Engine/Core/Math/Mathd.h"
 #if USE_EDITOR
 #include "Engine/Renderer/Lightmaps.h"
 #endif
@@ -29,6 +36,91 @@
 #define NormalOffsetScaleTweak METERS_TO_UNITS(1)
 #define LocalLightNearPlane METERS_TO_UNITS(0.1f)
 
+// Clipmap rasterization pancaking pad. The clipmap's natural ortho [armCenter - DepthRange,
+// armCenter + DepthRange] clips tall structures above the cascade center when DepthRange is
+// small (near cascades). Pad the near (toward-sun) side generously so massive geometry
+// (skyscrapers, cliffs, mountains) casts shadow into near cascades even when far from camera.
+//
+// Sized at 10km because:
+//   - This is a per-strip-render cost, not a per-frame cost - cached pixels are unaffected,
+//     so widening the rasterization extent is "free" in steady-state.
+//   - Real-world tall structures top out around 1km (Burj Khalifa ~830m); 10km covers any
+//     plausible cinematic / sci-fi megastructure with margin.
+//   - Depth-quantum impact at the smallest cascade: with D24 and DepthRange=50m + pad=10000m,
+//     ~0.6mm per depth level - well below shadow-bias scales.
+//   - Mirrors and exceeds the cascade view-projection's `cullRangeExtent = 100000.0f` (1km)
+//     pancaking. The clipmap can afford to go further because it caches.
+//
+// If shadows from very tall structures STILL fail to appear in near cascades, bump this.
+// See: D:\code\notes\shadow_clipmap_assumptions.md (invariant I8 / verticality).
+#define SHADOW_CLIPMAP_NEAR_PAD METERS_TO_UNITS(10000.0f) // 10km of vertical headroom toward the sun
+
+// HACK debug toggles for shadow clipmap investigation. Flip and rebuild.
+// g_ClipmapIsolateStatic: when true and clipmap is active for the directional light, skip
+// the per-cascade dynamic shadow draw so the cascade tile shows ONLY composited clipmap content.
+// g_ClipmapDebugDraw: when true, ShadowsPass::DrawClipmapDebugOverlay paints clipmap level depth
+// textures as grayscale thumbnails down the right edge of the output (called from Renderer.cpp).
+static bool g_ClipmapIsolateStatic = false;
+static bool g_ClipmapDebugDraw = false;
+
+// Light-space basis used by the toroidal shadow clipmap. Every site that constructs a
+// (LightRight, LightUp) pair from a sun direction MUST go through this helper - otherwise
+// the rasterizer, compositor, and cascade matrices can disagree in the sun-angle band
+// between two different threshold values and the cached texture's content rotates 90deg vs
+// the sampling math (silent shadow corruption that "swims" with camera rotation).
+// See: D:\code\notes\shadow_clipmap_assumptions.md (invariant I1).
+static void ComputeLightBasis(const Float3& sunDir, Float3& outRight, Float3& outUp)
+{
+    Float3 up = Float3::Up;
+    if (Math::Abs(Float3::Dot(sunDir, up)) > 0.9f)
+        up = Float3::Right;
+    outRight = Float3::Normalize(Float3::Cross(up, sunDir));
+    outUp = Float3::Cross(sunDir, outRight);
+}
+
+// CSM cascade bounding sphere: world-space center (snapped to the light texel grid) + radius.
+// Shared by the dynamic cascade loop and the clipmap init so the two cannot drift - the lock-step
+// requirement in shadow_clipmap_assumptions.md (invariants I1 + I12). Caller passes the basis from
+// ComputeLightBasis. Double-precision snap is mandatory at cm world scale (see I12).
+static void ComputeCascadeSphere(const Float3* frustumCornersVs, const Matrix& invView, const Float3& lightRight, const Float3& lightUp, const Float3& lightDir, int32 resolution, float splitMinRatio, float splitMaxRatio, float oldSplitMinRatio, float csmOverlap, Float3& outCenter, float& outRadius)
+{
+    // Cascade split frustum corners in view space, then world space.
+    Float3 cornersVs[8];
+    const float overlap = csmOverlap * (splitMinRatio - oldSplitMinRatio);
+    for (int32 j = 0; j < 4; j++)
+    {
+        const Float3 rangeVS = frustumCornersVs[j + 4] - frustumCornersVs[j];
+        cornersVs[j] = frustumCornersVs[j] + rangeVS * (splitMinRatio - overlap);
+        cornersVs[j + 4] = frustumCornersVs[j] + rangeVS * splitMaxRatio;
+    }
+    Float3 cornersWs[8];
+    for (int32 i = 0; i < 8; i++)
+        Float3::Transform(cornersVs[i], invView, cornersWs[i]);
+
+    // Bounding-sphere center + radius (radius quantized to 1/16 to reduce shimmer).
+    Float3 center = Float3::Zero;
+    for (int32 i = 0; i < 8; i++)
+        center += cornersWs[i];
+    center *= 1.0f / 8.0f;
+    float radius = 0.0f;
+    for (int32 i = 0; i < 8; i++)
+        radius = Math::Max(radius, (cornersWs[i] - center).LengthSquared());
+    radius = Math::Ceil(Math::Sqrt(radius) * 16.0f) / 16.0f;
+
+    // Snap center to the texel grid in light space (X/Y); Z is the light depth axis.
+    const double tpu = (double)resolution / ((double)radius * 2.0);
+    const double dotR = (double)center.X * lightRight.X + (double)center.Y * lightRight.Y + (double)center.Z * lightRight.Z;
+    const double dotU = (double)center.X * lightUp.X + (double)center.Y * lightUp.Y + (double)center.Z * lightUp.Z;
+    const double cxL = Math::Floor(dotR * tpu) / tpu;
+    const double cyL = Math::Floor(dotU * tpu) / tpu;
+    const double czL = (double)center.X * lightDir.X + (double)center.Y * lightDir.Y + (double)center.Z * lightDir.Z;
+    outCenter = Float3(
+        (float)(lightRight.X * cxL + lightUp.X * cyL + lightDir.X * czL),
+        (float)(lightRight.Y * cxL + lightUp.Y * cyL + lightDir.Y * czL),
+        (float)(lightRight.Z * cxL + lightUp.Z * cyL + lightDir.Z * czL));
+    outRadius = radius;
+}
+
 GPU_CB_STRUCT(Data {
     ShaderGBufferData GBuffer;
     ShaderLightData Light;
@@ -38,11 +130,10 @@ GPU_CB_STRUCT(Data {
     float TemporalTime;
     float ContactShadowsDistance;
     float ContactShadowsLength;
-    Matrix DistantShadowWorldToShadow;
-    float CSMMaxDistance;
-    float DistantShadowBlendRange;
-    float DistantShadowDepthBias;
-    float DistantShadowNormalBias;
+    Float4 ClipmapSunDir;      // xyz=sunDir, w=levelCount (as float)
+    Float4 ClipmapLightRight;  // xyz=lightRight, w=bias
+    Float4 ClipmapLightUp;     // xyz=lightUp, w=unused
+    Float4 ClipmapParams[MAX_CSM_CASCADES]; // xy=center, z=extent, w=depthRange
     });
 
 struct ShadowsAtlasRectTile : RectPackNode<uint16>
@@ -120,79 +211,361 @@ struct ShadowAtlasLightTile
     }
 };
 
-// Distant Shadow Map for world-space static shadows beyond CSM range
-struct DistantShadowMap
+// Shadow clipmap level for caching static geometry shadows
+struct ShadowClipmapLevel
 {
-    GPUTexture* ShadowMap = nullptr;
-    GPUTexture* BlurredShadowMap = nullptr;
-    Matrix WorldToShadow;
-    Float3 SunDirection;
-    Float3 WorldCenter;
-    float WorldSize;
-    uint32 LastUpdateFrame;
-    uint32 UpdateFrequency;
-    bool IsDirty;
-    bool Enabled;
-    int32 Resolution;
+    GPUTexture* DepthTexture = nullptr; // RxR depth texture for this level
+    int32 Resolution = 0;               // Texels per side
+    float TexelSize = 0.0f;             // World units per texel
+    float WorldExtent = 0.0f;           // = Resolution * TexelSize
+    float DepthRange = 0.0f;            // Far plane of ortho projection
+    Int2 ScrollTexels = Int2::Zero;      // Current camera position in texel coords (level center)
+    Int2 PrevScrollTexels = Int2::Zero;  // Previous frame scroll
+    Int2 DirtyStrip = Int2::Zero;        // Delta scroll (texels in X / Y to render in strip pass)
+    // TextureOriginTexels anchors the toroidal mapping. Texture pixel for world-texel w:
+    //   px = ((w.X - origin.X) mod R + R) mod R
+    //   py = ((origin.Y - 1 - w.Y) mod R + R) mod R   (Y-flip matches existing ortho convention)
+    // Set on full-redraw to (ScrollTexels.X - R/2, ScrollTexels.Y + R/2). Strip updates leave it unchanged.
+    Int2 TextureOriginTexels = Int2::Zero;
+    bool NeedsFullRedraw = true;         // First frame, sun changed, or |scroll delta| >= R
+    // SunDir snapshot at the moment of last full rasterize. The per-frame basis-coherence check
+    // in Init() compares current SunDir against this to detect cumulative drift below the
+    // sunChanged heuristic's threshold - sub-0.81deg rotations would otherwise let the strip update
+    // write current-basis pixels into a stale-basis texture, producing the "rotation glitch" that
+    // settles only after a full rebuild fires. Re-stamped on every successful full rebuild.
+    Float3 LastRedrawSunDir = Float3::Zero;
+    // Stale-anchor instrumentation: snapshot at end of previous Init. If a subsequent Init
+    // produces a different TexelSize or DepthRange without a full redraw, the cached texture
+    // pixels are anchored to old units and the compositor will sample garbage.
+    float PrevTexelSize = 0.0f;
+    float PrevDepthRange = 0.0f;
+    // Cumulative-drift instrumentation: snapshot at time of last full redraw. Per-frame Init only
+    // compares to Prev*, so gradual drift slides under the 0.1% threshold while the cached texture
+    // diverges from current cascade math over many frames. LastRedraw* captures the anchor the
+    // texture content was actually drawn against, so we can measure true divergence.
+    float LastRedrawTexelSize = 0.0f;
+    float LastRedrawDepthRange = 0.0f;
+    float LastRedrawWorldExtent = 0.0f;
+    Float4 CompositingColor;             // xy=UV scale, zw=UV offset (logical) for PS_ClipmapComposite
+    Float2 DepthRemap;                   // x=scale, y=bias for depth remapping
+    Float2 WrapOffsetUV;                 // frac((leftEdgeWorldTexel - origin)/R); added inside frac() in shader
+    // Per-arm/sub-rect view+proj are built locally in RenderClipmapStrip - no cached matrices kept on the level.
 
-    DistantShadowMap()
+    ~ShadowClipmapLevel() { SAFE_DELETE_GPU_RESOURCE(DepthTexture); }
+};
+
+// Toroidal shadow clipmap for caching static geometry across multiple levels
+struct ShadowClipmap
+{
+    ShadowClipmapLevel Levels[MAX_CSM_CASCADES + 1]; // +1 for beyond-CSM level
+    int32 LevelCount = 0;
+    Float3 LightRight, LightUp, SunDir; // Light-space basis vectors
+    Float3 CachedSunDirection;           // For detecting sun rotation
+    // Stale-anchor instrumentation: snapshot of light basis at end of previous Init. A flip
+    // (eg. up-vector threshold crossing) without a sun-rotation trigger means level textures
+    // were rendered with a different (R_L, U_L) basis than the compositor now assumes.
+    Float3 PrevLightRight = Float3::Zero;
+    Float3 PrevLightUp = Float3::Zero;
+    float BeyondCSMExtent = 0.0f;        // World extent of the extra level
+    bool Enabled = false;
+    Guid LightId;                         // ID of directional light using this clipmap
+
+    void Init(PixelFormat format, int32 cascadeCount, const float* cascadeRadii, const float* splitDistances,
+              int32 cascadeResolution, const Float3& sunDir, float beyondExtent)
     {
-        Platform::MemoryClear(this, sizeof(DistantShadowMap));
-        WorldSize = 5000000.0f; // 50km default
-        UpdateFrequency = 30; // Update every 30 frames
-        IsDirty = true;
-        Enabled = false;
-        Resolution = 1024;
-    }
+        // Compute light-space basis (see ComputeLightBasis - single source of truth).
+        SunDir = Float3::Normalize(sunDir);
+        ComputeLightBasis(SunDir, LightRight, LightUp);
 
-    void Init(PixelFormat shadowMapFormat)
-    {
-        // Check if we need to create or recreate textures due to resolution change
-        bool needsRecreate = false;
-        if (!ShadowMap)
-        {
-            ShadowMap = GPUDevice::Instance->CreateTexture(TEXT("Distant Shadow Map"));
-            BlurredShadowMap = GPUDevice::Instance->CreateTexture(TEXT("Distant Shadow Map Blurred"));
-            needsRecreate = true;
-        }
-        else if (ShadowMap->Width() != Resolution || ShadowMap->Height() != Resolution)
-        {
-            // Resolution changed, mark for recreation
-            needsRecreate = true;
-        }
+        // Check if sun direction changed significantly
+        bool sunChanged = Float3::Dot(CachedSunDirection, SunDir) < 0.9999f;
+        if (sunChanged)
+            CachedSunDirection = SunDir;
 
-        if (needsRecreate)
+        // Instrumentation: detect basis flip not driven by sun rotation. If the up-vector
+        // threshold inside ComputeLightBasis crosses, R_L/U_L flip while sunChanged stays false,
+        // and cached levels become rotation-inconsistent unless we force redraw.
+        const bool hasPrevBasis = PrevLightRight != Float3::Zero;
+        const bool basisFlipped = hasPrevBasis && (
+            Float3::Dot(LightRight, PrevLightRight) < 0.9999f ||
+            Float3::Dot(LightUp, PrevLightUp) < 0.9999f);
+        if (basisFlipped && !sunChanged)
         {
-            auto desc = GPUTextureDescription::New2D(Resolution, Resolution, shadowMapFormat, GPUTextureFlags::ShaderResource | GPUTextureFlags::DepthStencil);
-            if (ShadowMap->Init(desc))
+            LOG(Warning, "[ShadowClipmap] light basis flipped without sunChanged: prevR=({0},{1},{2}) curR=({3},{4},{5})",
+                PrevLightRight.X, PrevLightRight.Y, PrevLightRight.Z,
+                LightRight.X, LightRight.Y, LightRight.Z);
+            for (int32 i = 0; i < LevelCount; i++) Levels[i].NeedsFullRedraw = true;
+        }
+        PrevLightRight = LightRight;
+        PrevLightUp = LightUp;
+
+        BeyondCSMExtent = beyondExtent;
+        LevelCount = cascadeCount + (beyondExtent > 0.0f ? 1 : 0);
+
+        for (int32 i = 0; i < cascadeCount; i++)
+        {
+            auto& level = Levels[i];
+            const float prevTexelSize = level.PrevTexelSize;
+            const float prevDepthRange = level.PrevDepthRange;
+            level.Resolution = cascadeResolution;
+            // Clipmap must cover the cascade regardless of camera rotation.
+            // The cascade center can be at most splitDistance from camera in light-space XY,
+            // and the cascade sphere extends cascadeRadius beyond that.
+            float requiredHalfExtent = splitDistances[i] + cascadeRadii[i];
+            float rawExtent = requiredHalfExtent * 2.0f;
+            // Decouple from camera FOV churn. cascadeRadii is the bounding-sphere radius of
+            // the cascade frustum slice's view-space corners - by construction FOV-dependent
+            // via tan(FOV/2). Derelict's Homunculus drives FOVFactor between 1.0 and 1.08
+            // (BASE_FOV x REVEAL = 90deg -> 97.2deg), which scales bounding radius by tan(48.6deg)/
+            // tan(45deg) ~ 1.134 - a 13% swing - and FlinchFov modulates on top. Observed
+            // per-frame rawExtent growth in profiled play: ~8-10% (orders of magnitude beyond
+            // the 0.1-0.5% the 1/16 bucket was tuned for), driving a full per-cascade redraw
+            // every frame for the duration of the lerp. The clipmap is a STATIC SHADOW CACHE
+            // - it must over-cover plausible cascade footprints rather than reshape to fit
+            // current FOV. Quantize to 1/4 (25% bucket -> 37.5% asymmetric hysteresis) so any
+            // realistic gameplay FOV swing stays within one bucket. Cost: cache covers up to
+            // ~25% more world area than the cascade tile, so static-shadow texel density at
+            // the fringe is ~25% lower than dynamic-shadow density. Buckets grow with level
+            // scale so all cascades share the same relative headroom.
+            const float magnitude = Math::Pow(2.0f, Math::Floor(Math::Log2(Math::Max(rawExtent, 1.0f))));
+            const float bucketSize = Math::Max(1.0f, magnitude * (1.0f / 4.0f));
+            const float candidate = Math::Ceil(rawExtent / bucketSize) * bucketSize;
+            // Asymmetric hysteresis: when raw oscillates across a bucket boundary, naive
+            // ceil-snap flip-flops every frame. Growth grants headroom (candidate + 1 bucket)
+            // so subsequent dips don't immediately re-cross. Shrink only when raw drops more
+            // than 1.5 buckets below current - guarantees the post-shrink value still has
+            // 0.5 buckets of margin before the next up-crossing. Net headroom against
+            // oscillation ~ 1.5 buckets (~9%) - absorbs sustained FOV lerps without redrawing.
+            float newExtent;
+            if (level.WorldExtent <= 0.0f)
+                newExtent = candidate + bucketSize;
+            else if (rawExtent > level.WorldExtent)
+                newExtent = candidate + bucketSize;
+            else if (rawExtent < level.WorldExtent - 1.5f * bucketSize)
+                newExtent = candidate + bucketSize;
+            else
+                newExtent = level.WorldExtent;
+            level.WorldExtent = newExtent;
+            level.TexelSize = level.WorldExtent / level.Resolution;
+            level.DepthRange = level.WorldExtent * 2.0f; // Conservative depth range
+
+            // Instrumentation: TexelSize/DepthRange drift while texture content is anchored
+            // to the previous values. Either the assumption "camera intrinsics stable ->
+            // cascadeRadii stable" is wrong, or something else (atlas scaledown, view.Far drift,
+            // partition change) is moving these. Force a full redraw so composite math stays
+            // consistent until we identify root cause.
+            const bool tsDrift = prevTexelSize > 0.0f && Math::Abs(level.TexelSize - prevTexelSize) > 1e-3f * level.TexelSize;
+            const bool drDrift = prevDepthRange > 0.0f && Math::Abs(level.DepthRange - prevDepthRange) > 1e-3f * level.DepthRange;
+            if ((tsDrift || drDrift) && !level.NeedsFullRedraw && !sunChanged)
             {
-                LOG(Warning, "Failed to create distant shadow map");
-                return;
+                LOG(Warning, "[ShadowClipmap] level {0} per-frame drift: TexelSize {1}->{2}, DepthRange {3}->{4}",
+                    i, prevTexelSize, level.TexelSize, prevDepthRange, level.DepthRange);
+                level.NeedsFullRedraw = true;
             }
-            desc.Flags = GPUTextureFlags::ShaderResource | GPUTextureFlags::RenderTarget;
-            desc.Format = PixelFormat::R16_Float;
-            if (BlurredShadowMap->Init(desc))
+            level.PrevTexelSize = level.TexelSize;
+            level.PrevDepthRange = level.DepthRange;
+
+            // Cumulative drift vs. the values used to render the cached texture content. Gradual
+            // FOV/near changes can slide the per-frame check forever; this catches the actual
+            // divergence between cached pixels and current sampling math.
+            const float lastTs = level.LastRedrawTexelSize;
+            const float lastDr = level.LastRedrawDepthRange;
+            const bool tsCum = lastTs > 0.0f && Math::Abs(level.TexelSize - lastTs) > 0.01f * lastTs;
+            const bool drCum = lastDr > 0.0f && Math::Abs(level.DepthRange - lastDr) > 0.01f * lastDr;
+            if ((tsCum || drCum) && !level.NeedsFullRedraw && !sunChanged)
             {
-                LOG(Warning, "Failed to create blurred distant shadow map");
-                return;
+                LOG(Warning, "[ShadowClipmap] level {0} CUMULATIVE drift since last redraw: TexelSize {1}->{2} ({3}%), DepthRange {4}->{5} ({6}%)",
+                    i,
+                    lastTs, level.TexelSize, (lastTs > 0.0f ? 100.0f * (level.TexelSize - lastTs) / lastTs : 0.0f),
+                    lastDr, level.DepthRange, (lastDr > 0.0f ? 100.0f * (level.DepthRange - lastDr) / lastDr : 0.0f));
+                level.NeedsFullRedraw = true;
+            }
+
+            if (sunChanged)
+            {
+                LOG(Info, "[ClipmapTrigger] L{0} sunChanged: cached=({1},{2},{3}) cur=({4},{5},{6}) dot={7}",
+                    i, CachedSunDirection.X, CachedSunDirection.Y, CachedSunDirection.Z,
+                    SunDir.X, SunDir.Y, SunDir.Z, Float3::Dot(CachedSunDirection, SunDir));
+                level.NeedsFullRedraw = true;
+            }
+
+            // Per-level basis-coherence: the cache content was rasterized under level.LastRedrawSunDir.
+            // If the current basis has drifted from that, the cached texels are mis-anchored and must
+            // be rebuilt. The existing `sunChanged` check uses 0.9999 (~0.81deg) against CachedSunDirection
+            // (updated only on jump), letting sub-threshold drift accumulate while strip updates
+            // write current-basis pixels into a stale-basis texture - the rotation-glitch bug.
+            // Threshold 1 - 1e-7 ~ 0.026deg drift; sized so worst-case misalignment at the largest
+            // clipmap extent stays sub-texel (extent ~10km / 2048 res = 4.88m/texel -> arcsin(4.88/10000)
+            // ~ 0.028deg before a visible 1-texel shift). Any drift above this triggers a same-frame
+            // full rebuild so the compositor never reads mis-anchored content.
+            const bool basisCoherent = level.LastRedrawSunDir != Float3::Zero &&
+                                       Float3::Dot(level.LastRedrawSunDir, SunDir) > 1.0f - 1e-7f;
+            if (!basisCoherent)
+            {
+                LOG(Info, "[ClipmapTrigger] L{0} basisCoherent FAIL: dot={1} last=({2},{3},{4}) cur=({5},{6},{7})",
+                    i, Float3::Dot(level.LastRedrawSunDir, SunDir),
+                    level.LastRedrawSunDir.X, level.LastRedrawSunDir.Y, level.LastRedrawSunDir.Z,
+                    SunDir.X, SunDir.Y, SunDir.Z);
+                level.NeedsFullRedraw = true;
+            }
+
+            // Create or resize texture if needed
+            if (!level.DepthTexture)
+            {
+                level.DepthTexture = GPUDevice::Instance->CreateTexture(TEXT("Shadow Clipmap Level"));
+                auto desc = GPUTextureDescription::New2D(cascadeResolution, cascadeResolution, format, GPUTextureFlags::ShaderResource | GPUTextureFlags::DepthStencil);
+                if (level.DepthTexture->Init(desc))
+                {
+                    LOG(Warning, "Failed to create shadow clipmap level texture");
+                    Enabled = false;
+                    return;
+                }
+                level.NeedsFullRedraw = true;
+            }
+            else if (level.DepthTexture->Width() != cascadeResolution)
+            {
+                auto desc = GPUTextureDescription::New2D(cascadeResolution, cascadeResolution, format, GPUTextureFlags::ShaderResource | GPUTextureFlags::DepthStencil);
+                if (level.DepthTexture->Init(desc))
+                {
+                    LOG(Warning, "Failed to resize shadow clipmap level texture");
+                    Enabled = false;
+                    return;
+                }
+                level.NeedsFullRedraw = true;
+            }
+        }
+
+        // Setup beyond-CSM level
+        if (beyondExtent > 0.0f)
+        {
+            auto& level = Levels[cascadeCount];
+            const float prevTexelSize = level.PrevTexelSize;
+            const float prevDepthRange = level.PrevDepthRange;
+            level.Resolution = cascadeResolution;
+            level.WorldExtent = beyondExtent;
+            level.TexelSize = level.WorldExtent / level.Resolution;
+            level.DepthRange = level.WorldExtent * 2.0f;
+
+            const bool tsDrift = prevTexelSize > 0.0f && Math::Abs(level.TexelSize - prevTexelSize) > 1e-3f * level.TexelSize;
+            const bool drDrift = prevDepthRange > 0.0f && Math::Abs(level.DepthRange - prevDepthRange) > 1e-3f * level.DepthRange;
+            if ((tsDrift || drDrift) && !level.NeedsFullRedraw && !sunChanged)
+            {
+                LOG(Warning, "[ShadowClipmap] beyond-CSM stale-anchor drift: TexelSize {0}->{1}, DepthRange {2}->{3}",
+                    prevTexelSize, level.TexelSize, prevDepthRange, level.DepthRange);
+                level.NeedsFullRedraw = true;
+            }
+            level.PrevTexelSize = level.TexelSize;
+            level.PrevDepthRange = level.DepthRange;
+
+            if (sunChanged)
+                level.NeedsFullRedraw = true;
+
+            // Per-level basis-coherence (same rationale as the cascade-level check above).
+            const bool basisCoherent = level.LastRedrawSunDir != Float3::Zero &&
+                                       Float3::Dot(level.LastRedrawSunDir, SunDir) > 1.0f - 1e-7f;
+            if (!basisCoherent)
+            {
+                LOG(Info, "[ClipmapTrigger] Lbeyond basisCoherent FAIL: dot={0} last=({1},{2},{3}) cur=({4},{5},{6})",
+                    Float3::Dot(level.LastRedrawSunDir, SunDir),
+                    level.LastRedrawSunDir.X, level.LastRedrawSunDir.Y, level.LastRedrawSunDir.Z,
+                    SunDir.X, SunDir.Y, SunDir.Z);
+                level.NeedsFullRedraw = true;
+            }
+
+            if (!level.DepthTexture)
+            {
+                level.DepthTexture = GPUDevice::Instance->CreateTexture(TEXT("Shadow Clipmap Beyond"));
+                auto desc = GPUTextureDescription::New2D(cascadeResolution, cascadeResolution, format, GPUTextureFlags::ShaderResource | GPUTextureFlags::DepthStencil);
+                if (level.DepthTexture->Init(desc))
+                {
+                    LOG(Warning, "Failed to create shadow clipmap beyond texture");
+                    Enabled = false;
+                    return;
+                }
+                level.NeedsFullRedraw = true;
+            }
+            else if (level.DepthTexture->Width() != cascadeResolution)
+            {
+                auto desc = GPUTextureDescription::New2D(cascadeResolution, cascadeResolution, format, GPUTextureFlags::ShaderResource | GPUTextureFlags::DepthStencil);
+                if (level.DepthTexture->Init(desc))
+                {
+                    LOG(Warning, "Failed to resize shadow clipmap beyond texture");
+                    Enabled = false;
+                    return;
+                }
+                level.NeedsFullRedraw = true;
+            }
+        }
+
+        Enabled = true;
+    }
+
+    void ComputeScroll(const Float3& cameraPos)
+    {
+        for (int32 i = 0; i < LevelCount; i++)
+        {
+            auto& level = Levels[i];
+            level.PrevScrollTexels = level.ScrollTexels;
+
+            // Project camera position into light-space XY in DOUBLE precision. Single-precision
+            // dot+divide+FloorToInt flips off-by-1 between frames once camera is far from origin
+            // (Flax world units are cm, so the threshold is small - ~500m / 50,000 cm), making
+            // ScrollTexels jump erratically and the entire clipmap level shift by a texel
+            // mid-stride. The visible artifact is the same shadow edge shimmer that the main
+            // cascade snap was originally trying to suppress.
+            const double camX = (double)cameraPos.X * LightRight.X + (double)cameraPos.Y * LightRight.Y + (double)cameraPos.Z * LightRight.Z;
+            const double camY = (double)cameraPos.X * LightUp.X    + (double)cameraPos.Y * LightUp.Y    + (double)cameraPos.Z * LightUp.Z;
+            const double invTs = 1.0 / (double)level.TexelSize;
+            level.ScrollTexels = Int2(
+                (int32)Math::Floor(camX * invTs),
+                (int32)Math::Floor(camY * invTs)
+            );
+
+            // Compute delta - strip update path consumes this in the render loop.
+            // If |delta| >= Resolution, the prior content is entirely stale -> fall back to full redraw.
+            level.DirtyStrip = level.ScrollTexels - level.PrevScrollTexels;
+            if (Math::Abs(level.DirtyStrip.X) >= level.Resolution || Math::Abs(level.DirtyStrip.Y) >= level.Resolution)
+            {
+                LOG(Info, "[ClipmapTrigger] L{0} scroll-overflow: delta=({1},{2}) R={3}",
+                    i, level.DirtyStrip.X, level.DirtyStrip.Y, level.Resolution);
+                level.NeedsFullRedraw = true;
+                level.DirtyStrip = Int2::Zero;
             }
         }
     }
 
-    void MarkDirty()
+    void MarkFullRedraw()
     {
-        IsDirty = true;
+        for (int32 i = 0; i < LevelCount; i++)
+            Levels[i].NeedsFullRedraw = true;
     }
 
-    bool ShouldUpdate(uint32 currentFrame) const
+    void DirtyBounds(const BoundingSphere& bounds)
     {
-        return IsDirty || (UpdateFrequency > 0 && (currentFrame - LastUpdateFrame) >= UpdateFrequency);
-    }
+        // Project bounds into light-space and mark overlapping texels dirty
+        // For now, just mark full redraw on any change (can be optimized later)
+        for (int32 i = 0; i < LevelCount; i++)
+        {
+            float cx = Float3::Dot((Float3)bounds.Center, LightRight);
+            float cy = Float3::Dot((Float3)bounds.Center, LightUp);
+            float r = (float)bounds.Radius;
 
-    ~DistantShadowMap()
-    {
-        SAFE_DELETE_GPU_RESOURCE(ShadowMap);
-        SAFE_DELETE_GPU_RESOURCE(BlurredShadowMap);
+            float minX = (cx - r) / Levels[i].TexelSize;
+            float maxX = (cx + r) / Levels[i].TexelSize;
+            float minY = (cy - r) / Levels[i].TexelSize;
+            float maxY = (cy + r) / Levels[i].TexelSize;
+
+            // Check if bounds overlap with this level's coverage
+            float scrollX = (float)Levels[i].ScrollTexels.X;
+            float scrollY = (float)Levels[i].ScrollTexels.Y;
+            float halfRes = Levels[i].Resolution * 0.5f;
+
+            if (maxX >= scrollX - halfRes && minX <= scrollX + halfRes &&
+                maxY >= scrollY - halfRes && minY <= scrollY + halfRes)
+            {
+                Levels[i].NeedsFullRedraw = true;
+            }
+        }
     }
 };
 
@@ -278,6 +651,12 @@ struct ShadowAtlasLight
     mutable StaticStates StaticState;
     BoundingSphere Bounds;
     float Sharpness, Fade, NormalOffsetScale, Bias, FadeDistance, Distance, TileBorder;
+    // Sticky snapshot of light.ShadowsDistance at the last Distance recompute. Used to keep
+    // atlasLight.Distance stable against per-frame View.Far transients (sub-passes, probes,
+    // dynamic far auto-adjust) while still tracking genuine setting changes.
+    float DistanceSettingAtSnapshot;
+    float Softness; // PCSS apparent source size, in shadow-projection units
+    bool RenderDynamic; // When false, skip per-frame dynamic cascade rendering (clipmap composite + static copy still run)
     Float4 CascadeSplits;
     ShadowAtlasLightTile Tiles[SHADOWS_MAX_TILES];
     ShadowAtlasLightCache Cache;
@@ -285,6 +664,7 @@ struct ShadowAtlasLight
     ShadowAtlasLight()
     {
         Platform::MemoryClear(this, sizeof(ShadowAtlasLight));
+        RenderDynamic = true; // Default for non-directional lights; directional path overrides per-frame
     }
 
     POD_COPYABLE(ShadowAtlasLight);
@@ -389,7 +769,7 @@ public:
     RectPackAtlas<ShadowsAtlasRectTile> Atlas;
     RectPackAtlas<ShadowsAtlasRectTile> StaticAtlas;
     Dictionary<Guid, ShadowAtlasLight> Lights;
-    DistantShadowMap DistantShadow;
+    ShadowClipmap Clipmap;
 
     // Weapon self-shadowing support
     GPUTexture* WeaponShadowMapAtlas = nullptr;
@@ -480,8 +860,9 @@ public:
             }
         }
 
-        // Also dirty distant shadow map if bounds intersect
-        DistantShadow.MarkDirty();
+        // Also dirty clipmap if bounds intersect
+        if (Clipmap.Enabled)
+            Clipmap.DirtyBounds(bounds);
     }
 
     ~ShadowsCustomBuffer()
@@ -492,20 +873,58 @@ public:
         SAFE_DELETE_GPU_RESOURCE(WeaponShadowMapAtlas);
     }
 
+    // An actor's own Shadow-static flag is only meaningful if its entire parent chain is also static
+    // for Transform. A Shadow-static StaticModel under a moving BoneSocket (or any non-Transform-static
+    // ancestor) effectively moves every frame and would dirty the static clipmap on every move - the
+    // asset is mis-flagged. Returns false in that case so we treat the actor as dynamic for clipmap
+    // purposes only (it still casts shadows via the dynamic path).
+    static bool IsEffectivelyShadowStatic(Actor* a)
+    {
+        if (!a->HasStaticFlag(StaticFlags::Shadow))
+            return false;
+        Actor* parent = a->GetParent();
+        int32 depth = 0;
+        while (parent && depth < 16)
+        {
+            if (!parent->HasStaticFlag(StaticFlags::Transform))
+                return false;
+            parent = parent->GetParent();
+            depth++;
+        }
+        return true;
+    }
+
     // [ISceneRenderingListener]
     void OnSceneRenderingAddActor(Actor* a) override
     {
-        if (a->HasStaticFlag(StaticFlags::Shadow))
+        if (IsEffectivelyShadowStatic(a))
             DirtyStaticBounds(a->GetSphere());
     }
 
     void OnSceneRenderingUpdateActor(Actor* a, const BoundingSphere& prevBounds, UpdateFlags flags) override
     {
         // Dirty static objects to redraw when changed (eg. material modification)
-        if (a->HasStaticFlag(StaticFlags::Shadow))
+        if (IsEffectivelyShadowStatic(a))
         {
+            const BoundingSphere curBounds = a->GetSphere();
+            if (Clipmap.Enabled)
+            {
+                String chain = a->GetName();
+                Actor* parent = a->GetParent();
+                int32 depth = 0;
+                while (parent && depth < 8)
+                {
+                    chain = parent->GetName() + TEXT("/") + chain;
+                    parent = parent->GetParent();
+                    depth++;
+                }
+                LOG(Info, "[ClipmapDirty] path='{0}' type='{1}' flags={2} prev=({3},{4},{5})r={6} cur=({7},{8},{9})r={10}",
+                    chain, String(a->GetType().GetName()), (int32)flags,
+                    prevBounds.Center.X, prevBounds.Center.Y, prevBounds.Center.Z, prevBounds.Radius,
+                    curBounds.Center.X, curBounds.Center.Y, curBounds.Center.Z, curBounds.Radius);
+            }
             DirtyStaticBounds(prevBounds);
-            DirtyStaticBounds(a->GetSphere());
+            DirtyStaticBounds(curBounds);
         }
         else if (flags & StaticFlags)
         {
@@ -515,7 +934,7 @@ public:
 
     void OnSceneRenderingRemoveActor(Actor* a) override
     {
-        if (a->HasStaticFlag(StaticFlags::Shadow))
+        if (IsEffectivelyShadowStatic(a))
             DirtyStaticBounds(a->GetSphere());
     }
 
@@ -679,6 +1098,27 @@ bool ShadowsPass::setupResources()
         if (_psDepthCopy->Init(psDesc))
             return true;
     }
+    if (_psClipmapComposite == nullptr)
+    {
+        psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
+        psDesc.PS = GPUDevice::Instance->QuadShader->GetPS("PS_ClipmapComposite");
+        psDesc.DepthEnable = true;
+        psDesc.DepthWriteEnable = true;
+        psDesc.DepthFunc = ComparisonFunc::Always;
+        psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::None;
+        _psClipmapComposite = GPUDevice::Instance->CreatePipelineState();
+        if (_psClipmapComposite->Init(psDesc))
+            return true;
+    }
+    if (_psDepthVisualize == nullptr)
+    {
+        // HACK clipmap debug overlay: color-write fullscreen triangle, no depth.
+        psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
+        psDesc.PS = GPUDevice::Instance->QuadShader->GetPS("PS_DepthVisualize");
+        _psDepthVisualize = GPUDevice::Instance->CreatePipelineState();
+        if (_psDepthVisualize->Init(psDesc))
+            return true;
+    }
 
     return false;
 }
@@ -731,8 +1171,19 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
     atlasLight.Fade = light.ShadowsStrength;
     atlasLight.NormalOffsetScale = light.ShadowsNormalOffsetScale * NormalOffsetScaleTweak * (1.0f / (float)atlasLight.Resolution);
     atlasLight.Bias = light.ShadowsDepthBias;
+    atlasLight.Softness = light.ShadowsSoftness;
     atlasLight.FadeDistance = Math::Max(light.ShadowsFadeDistance, 0.1f);
-    atlasLight.Distance = Math::Min(renderContext.View.Far, light.ShadowsDistance);
+    // Snapshot the View.Far-clamped distance only when the ShadowsDistance setting actually
+    // changes (or on first frame). View.Far gets mutated mid-frame by sub-render passes
+    // (probes, SDF, weapon view, etc.); without this stickiness, cascade radii ping-pong in
+    // lockstep on every View.Far transient and force a full clipmap redraw every frame.
+    // The cache invariant (Cache.Distance == light.ShadowsDistance, see ValidateCache) is
+    // unaffected - we re-snapshot whenever the setting genuinely changes.
+    if (atlasLight.Distance <= 0.0f || !Math::NearEqual(atlasLight.DistanceSettingAtSnapshot, light.ShadowsDistance))
+    {
+        atlasLight.Distance = Math::Min(renderContext.View.Far, light.ShadowsDistance);
+        atlasLight.DistanceSettingAtSnapshot = light.ShadowsDistance;
+    }
     atlasLight.Bounds.Center = light.Position + renderContext.View.Origin; // Keep bounds in world-space to properly handle DirtyStaticBounds
     atlasLight.Bounds.Radius = 0.0f;
 
@@ -875,6 +1326,7 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
 {
     SetupLight(shadows, renderContext, renderContextBatch, (RenderLightData&)light, atlasLight);
 
+    const auto& view = renderContext.View;
     const int32 csmCount = atlasLight.TilesCount;
     const auto shadowMapsSize = (float)atlasLight.Resolution;
     atlasLight.BlendCSM = Graphics::AllowCSMBlending;
@@ -976,10 +1428,20 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
         atlasLight.ContextCount++;
     }
 
-    // Init shadow data
-    if (atlasLight.ContextCount == 0)
+    // Latch dynamic-shadow toggle; the clipmap-composite and static-copy paths still run
+    // when DynamicShadows is off - only per-cascade dynamic geometry gets skipped.
+    atlasLight.RenderDynamic = light.DynamicShadows;
+    if (!atlasLight.RenderDynamic)
+        atlasLight.ContextCount = 0;
+
+    const bool useClipmapForLight = light.StaticShadows && shadows.EnableStaticShadows && EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
+
+    // Init shadow data. Allow non-dynamic paths (clipmap composite, static atlas copy) to still
+    // process even when no dynamic cascade contexts will be added.
+    if (atlasLight.ContextCount == 0 && !useClipmapForLight && !atlasLight.HasStaticShadowContext)
         return;
-    renderContextBatch.Contexts.AddDefault(atlasLight.ContextCount);
+    if (atlasLight.ContextCount > 0)
+        renderContextBatch.Contexts.AddDefault(atlasLight.ContextCount);
     atlasLight.Cache.Set(renderContext.View, light, atlasLight.CascadeSplits);
 
     // Get the 8 points of the view frustum in view-space (unproject from clip-space)
@@ -1002,11 +1464,13 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
             Float3::TransformCoordinate(frustumCornersCs[i], invProjectionMatrix, frustumCornersVs[i]);
     }
 
-    // Create the different view and projection matrices for each split
+    // Create the different view and projection matrices for each split.
+    // Skipped wholesale when DynamicShadows is off - no dynamic contexts will be rendered,
+    // so there's no point computing per-cascade view/proj or allocating shadow contexts.
     float splitMinRatio = 0;
     float splitMaxRatio = (minDistance - renderContext.View.Near) / viewRange;
     int32 contextIndex = 0;
-    for (int32 cascadeIndex = 0; cascadeIndex < csmCount; cascadeIndex++)
+    for (int32 cascadeIndex = 0; cascadeIndex < csmCount && atlasLight.RenderDynamic; cascadeIndex++)
     {
         const auto oldSplitMinRatio = splitMinRatio;
         splitMinRatio = splitMaxRatio;
@@ -1016,39 +1480,16 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
         if (tile.SkipUpdate)
             continue;
 
-        // Calculate cascade split frustum corners in view space
-        Float3 cascadeCornersVs[8];
-        float csmOverlap = atlasLight.BlendCSM ? 0.2f : 0.1f;
-        for (int32 j = 0; j < 4; j++)
-        {
-            float overlapWithPrevSplit = csmOverlap * (splitMinRatio - oldSplitMinRatio);
-            const Float3 frustumRangeVS = frustumCornersVs[j + 4] - frustumCornersVs[j];
-            cascadeCornersVs[j] = frustumCornersVs[j] + frustumRangeVS * (splitMinRatio - overlapWithPrevSplit);
-            cascadeCornersVs[j + 4] = frustumCornersVs[j] + frustumRangeVS * splitMaxRatio;
-        }
+        // Light-space basis (lightUp also feeds the LookAt below; shared with the snap + clipmap, see I1).
+        Float3 lightRight, lightUp;
+        ComputeLightBasis(light.Direction, lightRight, lightUp);
 
-        // Transform the frustum from camera view space to world-space
-        Float3 cascadeCornersWs[8];
-        for (int32 i = 0; i < 8; i++)
-            Float3::Transform(cascadeCornersVs[i], renderContext.View.IV, cascadeCornersWs[i]);
-
-        // Calculate the centroid of the view frustum slice
-        Float3 frustumCenter = Float3::Zero;
-        for (int32 i = 0; i < 8; i++)
-            frustumCenter += cascadeCornersWs[i];
-        frustumCenter *= 1.0f / 8.0f;
-
-        // Calculate the radius of a bounding sphere surrounding the frustum corners
-        float frustumRadius = 0.0f;
-        for (int32 i = 0; i < 8; i++)
-            frustumRadius = Math::Max(frustumRadius, (cascadeCornersWs[i] - frustumCenter).LengthSquared());
-        frustumRadius = Math::Ceil(Math::Sqrt(frustumRadius) * 16.0f) / 16.0f;
-
-        // Snap cascade center to the texel size
-        float texelsPerUnit = (float)atlasLight.Resolution / (frustumRadius * 2.0f);
-        frustumCenter *= texelsPerUnit;
-        frustumCenter = Float3::Floor(frustumCenter);
-        frustumCenter /= texelsPerUnit;
+        // Cascade bounding sphere (center light-texel-snapped + radius), shared with the clipmap
+        // init below so the two stay in lock-step (I1 + I12).
+        const float csmOverlap = atlasLight.BlendCSM ? 0.2f : 0.1f;
+        Float3 frustumCenter;
+        float frustumRadius;
+        ComputeCascadeSphere(frustumCornersVs, renderContext.View.IV, lightRight, lightUp, light.Direction, atlasLight.Resolution, splitMinRatio, splitMaxRatio, oldSplitMinRatio, csmOverlap, frustumCenter, frustumRadius);
 
         // Cascade bounds are built around the sphere at the frustum center to reduce shadow shimmering
         Float3 maxExtents = Float3(frustumRadius);
@@ -1057,11 +1498,8 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
 
         Matrix shadowView, shadowProjection, shadowVP, cullingVP;
 
-        // Create view matrix
-        Float3 up = Float3::Up;
-        if (Math::Abs(Float3::Dot(light.Direction, up)) > 0.9f)
-            up = Float3::Right;
-        Matrix::LookAt(frustumCenter + light.Direction * minExtents.Z, frustumCenter, up, shadowView);
+        // Create view matrix using the basis built above
+        Matrix::LookAt(frustumCenter + light.Direction * minExtents.Z, frustumCenter, lightUp, shadowView);
 
         // Create viewport for culling with extended near/far planes due to culling issues (aka pancaking)
         const float cullRangeExtent = METERS_TO_UNITS(1000.0f);
@@ -1101,41 +1539,143 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
         shadowContext.View.PrepareCache(shadowContext, shadowMapsSize, shadowMapsSize, Float2::Zero, &renderContext.View);
     }
 
-    // Setup Distant Shadow Map (DSM) for static geometry beyond CSM range
-    auto& dsm = shadows.DistantShadow;
-    dsm.Enabled = light.EnableDistantShadows;
+    // Setup shadow clipmap for static geometry caching
+    auto& clipmap = shadows.Clipmap;
+    const bool useClipmap = light.StaticShadows && shadows.EnableStaticShadows && EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
 
-    if (light.EnableDistantShadows)
+    if (useClipmap)
     {
-        // Calculate DSM coverage: from CSM end to camera far plane
-        const float csmEndDistance = light.ShadowsDistance + light.ShadowsFadeDistance; // Where CSM fully fades out
-        const float cameraFarPlane = renderContext.View.Far;
-        const float dsmCoverage = Math::Max(cameraFarPlane - csmEndDistance, 0.0f);
-
-        // Auto-calculate world size to cover the DSM range with some margin
-        // Use the diagonal distance to ensure we cover the frustum corners
-        const float frustumDiagonal = cameraFarPlane * 1.5f; // Approximate frustum diagonal
-        dsm.WorldSize = Math::Max(frustumDiagonal, light.DistantShadowSize);
-
-        // Update settings from light
-        dsm.UpdateFrequency = light.DistantShadowUpdateRate;
-        dsm.Resolution = light.DistantShadowResolution;
-
-        // Always update on first setup or when direction changes significantly
-        const float sunDirectionChangeThreshold = 0.9999f; // ~0.8 degree threshold
-        if (dsm.SunDirection.IsZero() || !Float3::NearEqual(dsm.SunDirection, light.Direction, sunDirectionChangeThreshold))
+        // Per-cascade radii + centers for clipmap init. Uses the SAME ComputeCascadeSphere as the
+        // dynamic cascade loop, so clipmap centers cannot drift from the rendered cascades (I1/I12
+        // lock-step is now structural, not by-convention). Mismatch would misalign the composite.
+        float cascadeRadii[MAX_CSM_CASCADES];
+        Float3 cascadeFrustumCenters[MAX_CSM_CASCADES];
         {
-            dsm.MarkDirty();
-            dsm.SunDirection = light.Direction;
+            Float3 lightRightClip, lightUpClip;
+            ComputeLightBasis(light.Direction, lightRightClip, lightUpClip);
+
+            float splitMinRatio2 = 0;
+            float splitMaxRatio2 = (minDistance - view.Near) / viewRange;
+            for (int32 ci = 0; ci < csmCount; ci++)
+            {
+                const float oldSplitMin2 = splitMinRatio2;
+                splitMinRatio2 = splitMaxRatio2;
+                splitMaxRatio2 = cascadeSplits[ci];
+
+                const float csmOverlap = atlasLight.BlendCSM ? 0.2f : 0.1f;
+                ComputeCascadeSphere(frustumCornersVs, renderContext.View.IV, lightRightClip, lightUpClip, light.Direction, atlasLight.Resolution, splitMinRatio2, splitMaxRatio2, oldSplitMin2, csmOverlap, cascadeFrustumCenters[ci], cascadeRadii[ci]);
+            }
         }
 
-        // Update world center to follow camera (with large hysteresis to avoid constant updates)
-        const float worldCenterUpdateThreshold = 100000.0f; // 1km
-        Float3 viewWorldPos = renderContext.View.Position;
-        if (dsm.WorldCenter.IsZero() || !Float3::NearEqual(dsm.WorldCenter, viewWorldPos, worldCenterUpdateThreshold))
+        const PixelFormat clipmapFormat = shadows.ShadowMapAtlas->GetDescription().Format;
+        float splitDistances[MAX_CSM_CASCADES];
+        for (int32 i = 0; i < csmCount; i++)
+            splitDistances[i] = atlasLight.CascadeSplits.Raw[i];
+        clipmap.Init(clipmapFormat, csmCount, cascadeRadii, splitDistances, atlasLight.Resolution, light.Direction, light.StaticShadowBeyondCSMExtent);
+        clipmap.LightId = light.ID;
+
+        if (clipmap.Enabled)
         {
-            dsm.WorldCenter = viewWorldPos;
-            dsm.MarkDirty();
+            clipmap.ComputeScroll(view.Position);
+
+            // Compute compositing parameters per cascade level
+            for (int32 ci = 0; ci < csmCount; ci++)
+            {
+                auto& level = clipmap.Levels[ci];
+
+                // Pre-set TextureOriginTexels to the value the rasterizer's full-rebuild branch
+                // will assign later this frame. Compositor params (WrapOffsetUV especially) are
+                // computed here, BEFORE the rasterize runs - if we used the stale origin, the
+                // composite would read freshly-rebuilt content through last-frame's toroidal-wrap
+                // math, producing a 1-frame glitch on every invalidation event. The full-rebuild
+                // branch in the rasterize loop redundantly re-assigns the same value (kept there
+                // for locality with the rect bounds that derive from it).
+                // See: D:\code\notes\shadow_clipmap_assumptions.md (invariant I4 - WrapOffsetUV
+                // coherence with the rasterizer's anchor).
+                if (level.NeedsFullRedraw)
+                {
+                    level.TextureOriginTexels = Int2(
+                        level.ScrollTexels.X - level.Resolution / 2,
+                        level.ScrollTexels.Y + level.Resolution / 2);
+                }
+
+                // Cascade center in light-space XY
+                Float2 cascadeCenterLight(
+                    Float3::Dot(cascadeFrustumCenters[ci], clipmap.LightRight),
+                    Float3::Dot(cascadeFrustumCenters[ci], clipmap.LightUp)
+                );
+
+                // Clipmap center in light-space XY
+                Float2 clipCenterLight(
+                    level.ScrollTexels.X * level.TexelSize,
+                    level.ScrollTexels.Y * level.TexelSize
+                );
+
+                // UV scale = cascade diameter / clipmap extent
+                float scale = 2.0f * cascadeRadii[ci] / level.WorldExtent;
+
+                // UV offset: maps cascade tile TexCoord to clipmap texture UV
+                // X uses +dx, Y uses -dy due to texture Y-down convention
+                float dx = cascadeCenterLight.X - clipCenterLight.X;
+                float dy = cascadeCenterLight.Y - clipCenterLight.Y;
+                float halfScaleComplement = 0.5f * (1.0f - scale);
+                Float2 uvOffset(dx / level.WorldExtent + halfScaleComplement,
+                                -dy / level.WorldExtent + halfScaleComplement);
+
+                level.CompositingColor = Float4(scale, scale, uvOffset.X, uvOffset.Y);
+
+                // Toroidal wrap offset: shader does texUV = frac(logicalUV + WrapOffsetUV).
+                // Logical uv.x=0 maps to world-texel-X = ScrollTexels.X - R/2 (left edge of rect).
+                // Texture pixel X for world-texel-X w.X = ((w.X - origin.X) mod R + R) mod R.
+                // Continuous: texU = frac((leftEdgeWorldTexel.X - origin.X)/R + uv.x).
+                // For Y (Y-flipped): texV = frac((origin.Y - topEdgeWorldTexel.Y)/R + uv.y).
+                // topEdgeWorldTexel.Y = ScrollTexels.Y + R/2 - 1; using origin.Y as "row above top".
+                const float rInv = 1.0f / (float)level.Resolution;
+                level.WrapOffsetUV = Float2(
+                    Math::Frac((float)(level.ScrollTexels.X - level.Resolution / 2 - level.TextureOriginTexels.X) * rInv),
+                    Math::Frac((float)(level.TextureOriginTexels.Y - (level.ScrollTexels.Y + level.Resolution / 2 - 1) - 1) * rInv));
+
+                // Depth remap: cascadeDepth = clipmapDepth * A + B
+                // Clipmap now covers [-(DepthRange + NEAR_PAD), +DepthRange] along SunDir axis
+                // (eye pancaked by SHADOW_CLIPMAP_NEAR_PAD toward sun; ortho near=0, far=2*DepthRange + NEAR_PAD).
+                // Cascade covers [frustumCenter - R, frustumCenter + R] along SunDir axis (near=0, far=2R).
+                // General formula: A = clipmapWorldRange / cascadeWorldRange,
+                //                  B = (clipmapNearWorldZ - cascadeNearWorldZ) / cascadeWorldRange.
+                const float cascadeRadius = cascadeRadii[ci];
+                const float clipmapWorldRange = 2.0f * level.DepthRange + SHADOW_CLIPMAP_NEAR_PAD;
+                const float cascadeWorldRange = 2.0f * cascadeRadius;
+                const float clipmapNearWorldZ = -(level.DepthRange + SHADOW_CLIPMAP_NEAR_PAD);
+                const float frustumCenterLightZ = Float3::Dot(cascadeFrustumCenters[ci], clipmap.SunDir);
+                const float cascadeNearWorldZ = frustumCenterLightZ - cascadeRadius;
+                const float depthA = clipmapWorldRange / cascadeWorldRange;
+                const float depthB = (clipmapNearWorldZ - cascadeNearWorldZ) / cascadeWorldRange;
+                level.DepthRemap = Float2(depthA, depthB);
+            }
+
+        }
+    }
+    else
+    {
+        clipmap.Enabled = false;
+    }
+
+    // Cascade static-exclusion filter. Applied when:
+    //   - clipmap is providing static shadows (don't double-render in cascade), OR
+    //   - StaticShadows is off (user explicitly wants no static contribution from any path).
+    // NOT applied when StaticShadows is on but clipmap failed to enable (e.g. light not flagged
+    // Static, atlas alloc failed) - in that case let the cascade render static the old way so we
+    // don't silently drop shadows. Skipped when DynamicShadows is off (no contexts allocated).
+    if (atlasLight.RenderDynamic && (clipmap.Enabled || !light.StaticShadows))
+    {
+        int32 ctxIdx = 0;
+        for (int32 ci = 0; ci < csmCount; ci++)
+        {
+            auto& tile = atlasLight.Tiles[ci];
+            if (tile.SkipUpdate)
+                continue;
+            auto& shadowCtx = renderContextBatch.Contexts[atlasLight.ContextIndex + ctxIdx++];
+            shadowCtx.View.StaticFlagsMask = StaticFlags::Shadow;
+            shadowCtx.View.StaticFlagsCompare = StaticFlags::None;
         }
     }
 }
@@ -1247,6 +1787,8 @@ void ShadowsPass::Dispose()
     _sphereModel = nullptr;
     SAFE_DELETE_GPU_RESOURCE(_psDepthClear);
     SAFE_DELETE_GPU_RESOURCE(_psDepthCopy);
+    SAFE_DELETE_GPU_RESOURCE(_psClipmapComposite);
+    SAFE_DELETE_GPU_RESOURCE(_psDepthVisualize);
 }
 
 void ShadowsPass::SetupShadows(RenderContext& renderContext, RenderContextBatch& renderContextBatch)
@@ -1573,7 +2115,7 @@ RETRY_ATLAS_SETUP:
         {
             // Shadow info
             auto* packed = shadows.ShadowsBuffer.WriteReserve<Float4>(2);
-            Color32 packed0x((byte)(atlasLight.Sharpness * (255.0f / 10.0f)), (byte)(atlasLight.Fade * 255.0f), (byte)atlasLight.TilesCount, 0);
+            Color32 packed0x((byte)(atlasLight.Sharpness * (255.0f / 10.0f)), (byte)(atlasLight.Fade * 255.0f), (byte)atlasLight.TilesCount, (byte)Math::Clamp(atlasLight.Softness * 255.0f, 0.0f, 255.0f));
             packed[0] = Float4(*(const float*)&packed0x, atlasLight.FadeDistance, atlasLight.NormalOffsetScale, atlasLight.Bias);
             packed[1] = atlasLight.CascadeSplits;
         }
@@ -1595,6 +2137,430 @@ RETRY_ATLAS_SETUP:
     GPUContext* context = GPUDevice::Instance->GetMainContext();
     shadows.ShadowsBuffer.Flush(context);
     shadows.ShadowsBufferView = shadows.ShadowsBuffer.GetBuffer()->View();
+}
+
+// Render one rectangular world-texel region of static geometry into a shadow clipmap level,
+// honouring toroidal addressing (texture pixel = world-texel - level.TextureOriginTexels, mod R,
+// with Y flipped to match the existing ortho convention).
+//
+// Collects scene draw calls ONCE over the union world-rect (SceneDraw + SceneDrawAsync, async waited),
+// then issues up to 4 sub-rect draws that mutate ctx.View per sub-rect and re-bind per-view CB.
+// Caller must have called context->SetRenderTarget(level.DepthTexture->View(), nullptr).
+//
+// wMin/wMax are absolute world-texel coords (light-XY plane). wMax exclusive. Width & height must each be in [1, R].
+static void RenderClipmapStrip(
+    GPUContext* context,
+    const RenderContext& mainRenderContext,
+    const ShadowClipmap& clipmap,
+    ShadowClipmapLevel& level,
+    Int2 wMin,
+    Int2 wMax,
+    GPUPipelineState* psDepthClear,
+    GPUConstantBuffer* quadShaderCB)
+{
+    const int32 R = level.Resolution;
+    const int32 wWidth = wMax.X - wMin.X;
+    const int32 wHeight = wMax.Y - wMin.Y;
+    if (wWidth <= 0 || wHeight <= 0 || wWidth > R || wHeight > R)
+        return;
+    const float ts = level.TexelSize;
+    const Int2& origin = level.TextureOriginTexels;
+
+    // World-rect bounds of the arm (used as the collection frustum)
+    const float wx0 = (float)wMin.X * ts;
+    const float wx1 = (float)wMax.X * ts;
+    const float wy0 = (float)wMin.Y * ts;
+    const float wy1 = (float)wMax.Y * ts;
+    const float armCx = 0.5f * (wx0 + wx1);
+    const float armCy = 0.5f * (wy0 + wy1);
+    const float armHx = 0.5f * (wx1 - wx0);
+    const float armHy = 0.5f * (wy1 - wy0);
+    const Float3 armCenterW = clipmap.LightRight * armCx + clipmap.LightUp * armCy;
+    // Pancake the near plane SHADOW_CLIPMAP_NEAR_PAD further toward the sun so tall geometry
+    // above the cascade center isn't clipped (matches cascade view's `cullRangeExtent`).
+    const float armEyeOffset = level.DepthRange + SHADOW_CLIPMAP_NEAR_PAD;
+    const Float3 armEye = armCenterW - clipmap.SunDir * armEyeOffset;
+
+    // Use the SAME LightUp the clipmap stored at Init time (single source of truth via
+    // ComputeLightBasis). Recomputing it here from a world-axis "up hint" with a threshold
+    // check would risk disagreeing with the compositor in the threshold band, leaving the
+    // rasterized texture content rotated 90deg relative to the sampling math.
+    Matrix armView, armProj;
+    Matrix::LookAt(armEye, armCenterW, clipmap.LightUp, armView);
+    // Far plane extended by the same pad so the full far-side reach (armCenter + SunDir * DepthRange)
+    // remains captured. Total ortho range: 2*DepthRange + NEAR_PAD.
+    Matrix::OrthoOffCenter(-armHx, armHx, -armHy, armHy, 0.0f, level.DepthRange * 2.0f + SHADOW_CLIPMAP_NEAR_PAD, armProj);
+    Matrix armVP;
+    Matrix::Multiply(armView, armProj, armVP);
+
+    // Collect once over the arm (both sync + async actor categories; matches weapon-shadow pattern)
+    RenderContext armCtx;
+    armCtx.Buffers = mainRenderContext.Buffers;
+    armCtx.Task = mainRenderContext.Task;
+    armCtx.List = RenderList::GetFromPool();
+    armCtx.List->Clear();
+    armCtx.LodProxyView = const_cast<RenderView*>(&mainRenderContext.View);
+    armCtx.View.Position = armEye;
+    armCtx.View.Direction = clipmap.SunDir;
+    armCtx.View.SetUp(armView, armProj);
+    armCtx.View.Pass = DrawPass::Depth;
+    armCtx.View.Flags = mainRenderContext.View.Flags;
+    armCtx.View.StaticFlagsMask = StaticFlags::Shadow;
+    armCtx.View.StaticFlagsCompare = StaticFlags::Shadow; // Static only
+    armCtx.View.RenderLayersMask = mainRenderContext.View.RenderLayersMask;
+    armCtx.View.Origin = mainRenderContext.View.Origin;
+    armCtx.View.CullingFrustum.SetMatrix(armVP);
+    armCtx.View.PrepareCache(armCtx, (float)wWidth, (float)wHeight, Float2::Zero, &mainRenderContext.View);
+
+    RenderContextBatch armBatch;
+    armBatch.Contexts.Add(armCtx);
+    if (!mainRenderContext.Task)
+        return;
+    mainRenderContext.Task->OnCollectDrawCalls(armBatch, SceneRendering::DrawCategory::SceneDraw);
+    mainRenderContext.Task->OnCollectDrawCalls(armBatch, SceneRendering::DrawCategory::SceneDrawAsync);
+    for (const uint64 label : armBatch.WaitLabels)
+        JobSystem::Wait(label);
+    armBatch.WaitLabels.Clear();
+    auto& ctx = armBatch.Contexts[0];
+    if (!ctx.List)
+    {
+        return;
+    }
+
+// Split world-texel X range into up to 2 texture-pixel sub-ranges based on wrap around R.
+    // Texture pixel px for world-texel w.X = ((w.X - origin.X) mod R + R) mod R.
+    struct SubRange { int32 worldStart; int32 texStart; int32 count; };
+    auto modR = [R](int32 v) -> int32 { int32 m = v % R; return m < 0 ? m + R : m; };
+
+    SubRange xR[2]; int32 nx;
+    {
+        const int32 tStart = modR(wMin.X - origin.X);
+        if (tStart + wWidth <= R)
+        {
+            xR[0] = { wMin.X, tStart, wWidth };
+            nx = 1;
+        }
+        else
+        {
+            const int32 first = R - tStart;
+            xR[0] = { wMin.X, tStart, first };
+            xR[1] = { wMin.X + first, 0, wWidth - first };
+            nx = 2;
+        }
+    }
+
+    // For Y the texture pixel py for world-texel w.Y is ((origin.Y - 1 - w.Y) mod R + R) mod R.
+    // That's descending in py as w.Y ascends. For w.Y in [wMin.Y, wMax.Y) the texture pixel range
+    // is [py(wMax.Y-1), py(wMin.Y)] inclusive = [tStart, tStart + wHeight) with tStart = py(wMax.Y-1).
+    SubRange yR[2]; int32 ny;
+    {
+        const int32 tStart = modR(origin.Y - wMax.Y);
+        if (tStart + wHeight <= R)
+        {
+            // Texture pixel tStart corresponds to world-texel wMax.Y - 1 (the topmost row of this strip in light-Y).
+            // We want yR[i].worldStart to be the LOWEST world-Y in the sub-range (so a +Y-flipped ortho centers cleanly).
+            // Sub-range covers world-Y in [wMin.Y, wMax.Y), texture pixels [tStart, tStart + wHeight).
+            yR[0] = { wMin.Y, tStart, wHeight };
+            ny = 1;
+        }
+        else
+        {
+            // The Y-axis wraps: top texture-pixels [tStart, R) cover the upper world-Y slice,
+            // and texture-pixels [0, ...) cover the lower world-Y slice.
+            const int32 first = R - tStart;            // count of top sub-range
+            // Top sub-range (texture rows [tStart, R)) covers the highest world-Y rows: w.Y in [wMax.Y - first, wMax.Y).
+            yR[0] = { wMax.Y - first, tStart, first };
+            // Bottom sub-range (texture rows [0, wHeight - first)) covers the rest: w.Y in [wMin.Y, wMax.Y - first).
+            yR[1] = { wMin.Y, 0, wHeight - first };
+            ny = 2;
+        }
+    }
+
+    // Per-sub-rect: build a tight ortho over its world-rect, viewport+scissor to its texture-pixel rect, ExecuteDrawCalls.
+    for (int32 yi = 0; yi < ny; yi++)
+    {
+        const SubRange& yr = yR[yi];
+        for (int32 xi = 0; xi < nx; xi++)
+        {
+            const SubRange& xr = xR[xi];
+
+            const float subWx0 = (float)xr.worldStart * ts;
+            const float subWx1 = (float)(xr.worldStart + xr.count) * ts;
+            const float subWy0 = (float)yr.worldStart * ts;
+            const float subWy1 = (float)(yr.worldStart + yr.count) * ts;
+            const float subCx = 0.5f * (subWx0 + subWx1);
+            const float subCy = 0.5f * (subWy0 + subWy1);
+            const float subHx = 0.5f * (subWx1 - subWx0);
+            const float subHy = 0.5f * (subWy1 - subWy0);
+            const Float3 subCenterW = clipmap.LightRight * subCx + clipmap.LightUp * subCy;
+            // Same pancaking as the parent arm - eye pushed SHADOW_CLIPMAP_NEAR_PAD further toward
+            // the sun, ortho far extended by the same pad. Total range matches.
+            const Float3 subEye = subCenterW - clipmap.SunDir * (level.DepthRange + SHADOW_CLIPMAP_NEAR_PAD);
+
+            Matrix subView, subProj;
+            Matrix::LookAt(subEye, subCenterW, clipmap.LightUp, subView);
+            Matrix::OrthoOffCenter(-subHx, subHx, -subHy, subHy, 0.0f, level.DepthRange * 2.0f + SHADOW_CLIPMAP_NEAR_PAD, subProj);
+
+            ctx.View.Position = subEye;
+            ctx.View.SetUp(subView, subProj);
+            ctx.View.PrepareCache(ctx, (float)xr.count, (float)yr.count, Float2::Zero, &mainRenderContext.View);
+
+            const Viewport vp((float)xr.texStart, (float)yr.texStart, (float)xr.count, (float)yr.count);
+            context->SetViewportAndScissors(vp);
+
+            // Clear this sub-rect's depth to 1.0 before rasterizing into it.
+            // Critical for toroidal addressing: when scroll re-anchors a texture pixel to a NEW
+            // world position, the cached depth value from the OLD world point will survive a
+            // standard LESS depth test if the new world point has higher depth - manifests as
+            // bright "stale closer-to-sun" bands across recently-scrolled strips. Full-redraw
+            // doesn't hit this because the caller ClearDepth's the whole texture first.
+            // Uses PS_DepthClear (writes SV_Depth = Color.r = 1.0), the same pattern as
+            // ClearShadowMapTile - viewport+scissor confines the clear to this sub-rect.
+            if (psDepthClear && quadShaderCB)
+            {
+                QuadShaderData clearData;
+                clearData.Color = Float4::One; // Color.r = 1.0 -> SV_Depth = 1.0
+                clearData.Params = Float4::Zero;
+                context->UpdateCB(quadShaderCB, &clearData);
+                context->BindCB(0, quadShaderCB);
+                context->SetState(psDepthClear);
+                context->DrawFullscreenTriangle();
+            }
+
+            ctx.List->ExecuteDrawCalls(ctx, DrawCallsListType::Depth);
+        }
+    }
+
+    context->ResetSR();
+    RenderList::ReturnToPool(ctx.List);
+}
+
+// One-shot debug dump trigger. Set via ShadowsPass::RequestDump(); consumed once per request
+// at the end of RenderShadowMaps. Volatile (rather than atomic) because the read and the
+// reset both happen on the main render thread; writers (key handler, console) just set it.
+static volatile bool ShadowsDumpRequested = false;
+
+void ShadowsPass::RequestDump()
+{
+    ShadowsDumpRequested = true;
+}
+
+// Worker-thread routine: pulls texture bytes from GPU and writes the raw blob to disk.
+// Lives on a thread-pool task because GPUTexture::DownloadData asserts off-main-thread
+// (it queues a copy-to-staging on the GPU side then blocks on a CPU fence).
+static void DumpTextureRawWorker(GPUTexture* tex, String path)
+{
+    if (!tex)
+        return;
+    TextureData data;
+    if (tex->DownloadData(data))
+    {
+        LOG(Warning, "[ShadowDump] DownloadData failed for {0}", path);
+        return;
+    }
+    if (data.Items.IsEmpty() || data.Items[0].Mips.IsEmpty())
+    {
+        LOG(Warning, "[ShadowDump] no mip data for {0}", path);
+        return;
+    }
+    const TextureMipData& mip = data.Items[0].Mips[0];
+    if (mip.Data.Length() == 0)
+    {
+        LOG(Warning, "[ShadowDump] empty mip data for {0}", path);
+        return;
+    }
+    auto* file = FileWriteStream::Open(path);
+    if (!file)
+    {
+        LOG(Warning, "[ShadowDump] failed to open {0}", path);
+        return;
+    }
+    // 32-byte header: magic, width, height, format, rowPitch, dataBytes, reserved, reserved
+    const uint32 magic = 0x4D444853u; // 'SHDM'
+    const uint32 width = (uint32)data.Width;
+    const uint32 height = (uint32)data.Height;
+    const uint32 format = (uint32)data.Format;
+    const uint32 rowPitch = mip.RowPitch;
+    const uint32 dataBytes = (uint32)mip.Data.Length();
+    const uint32 reserved0 = 0, reserved1 = 0;
+    file->WriteBytes(&magic, sizeof(uint32));
+    file->WriteBytes(&width, sizeof(uint32));
+    file->WriteBytes(&height, sizeof(uint32));
+    file->WriteBytes(&format, sizeof(uint32));
+    file->WriteBytes(&rowPitch, sizeof(uint32));
+    file->WriteBytes(&dataBytes, sizeof(uint32));
+    file->WriteBytes(&reserved0, sizeof(uint32));
+    file->WriteBytes(&reserved1, sizeof(uint32));
+    file->WriteBytes(mip.Data.Get(), dataBytes);
+    file->Close();
+    Delete(file);
+}
+
+static void DumpTextureRaw(GPUTexture* tex, const String& path)
+{
+    if (!tex)
+        return;
+    // Capture pointer + path by value; the texture lives as long as the renderer does.
+    Task::StartNew(Function<void()>([tex, path]() { DumpTextureRawWorker(tex, path); }));
+}
+
+static String JsonFloat(float v)
+{
+    // Avoid "inf"/"nan" tripping strict JSON parsers (no Math::IsFinite in Flax - inline check)
+    if (v != v || v > 1e30f || v < -1e30f)
+        return TEXT("null");
+    return String::Format(TEXT("{0}"), v);
+}
+
+static String JsonFloat3(const Float3& v)
+{
+    return String::Format(TEXT("[{0}, {1}, {2}]"), JsonFloat(v.X), JsonFloat(v.Y), JsonFloat(v.Z));
+}
+
+static String JsonFloat4(const Float4& v)
+{
+    return String::Format(TEXT("[{0}, {1}, {2}, {3}]"), JsonFloat(v.X), JsonFloat(v.Y), JsonFloat(v.Z), JsonFloat(v.W));
+}
+
+static String JsonMatrix(const Matrix& m)
+{
+    String s = TEXT("[");
+    for (int32 r = 0; r < 4; r++)
+    {
+        if (r) s += TEXT(", ");
+        s += String::Format(TEXT("[{0}, {1}, {2}, {3}]"),
+            JsonFloat(m.Values[r][0]), JsonFloat(m.Values[r][1]), JsonFloat(m.Values[r][2]), JsonFloat(m.Values[r][3]));
+    }
+    return s + TEXT("]");
+}
+
+static void DumpShadowsToDisk(const ShadowsCustomBuffer& shadows, const RenderContext& renderContext)
+{
+    PROFILE_CPU_NAMED("Shadow Dump");
+    const uint64 frame = Engine::FrameCount;
+    const String folder = Globals::ProjectFolder / TEXT("ShadowDumps") / String::Format(TEXT("dump_{0}"), frame);
+    if (!FileSystem::DirectoryExists(folder))
+    {
+        if (FileSystem::CreateDirectory(folder))
+        {
+            LOG(Warning, "[ShadowDump] failed to create folder {0}", folder);
+            return;
+        }
+    }
+
+    // Textures: dynamic atlas, static atlas, weapon atlas, per-clipmap-level depth
+    DumpTextureRaw(shadows.ShadowMapAtlas, folder / TEXT("atlas_dynamic.bin"));
+    if (shadows.StaticShadowMapAtlas)
+        DumpTextureRaw(shadows.StaticShadowMapAtlas, folder / TEXT("atlas_static.bin"));
+    if (shadows.WeaponShadowMapAtlas)
+        DumpTextureRaw(shadows.WeaponShadowMapAtlas, folder / TEXT("atlas_weapon.bin"));
+    for (int32 i = 0; i < shadows.Clipmap.LevelCount; i++)
+    {
+        auto* tex = shadows.Clipmap.Levels[i].DepthTexture;
+        if (tex)
+            DumpTextureRaw(tex, folder / String::Format(TEXT("clipmap_L{0}.bin"), i));
+    }
+
+    // Metadata sidecar. Hand-rolled JSON because we only need write here and the engine's
+    // JSON writer wants a full document object. Format is plain ASCII so any parser works.
+    String j = TEXT("{\n");
+    j += String::Format(TEXT("  \"frame\": {0},\n"), frame);
+    j += String::Format(TEXT("  \"atlasResolution\": {0},\n"), shadows.Resolution);
+    j += String::Format(TEXT("  \"viewOrigin\": {0},\n"), JsonFloat3((Float3)shadows.ViewOrigin));
+    j += String::Format(TEXT("  \"viewPosition\": {0},\n"), JsonFloat3((Float3)renderContext.View.Position));
+    j += String::Format(TEXT("  \"viewDirection\": {0},\n"), JsonFloat3(renderContext.View.Direction));
+    j += String::Format(TEXT("  \"viewNear\": {0},\n"), JsonFloat(renderContext.View.Near));
+    j += String::Format(TEXT("  \"viewFar\": {0},\n"), JsonFloat(renderContext.View.Far));
+    j += String::Format(TEXT("  \"viewMatrix\": {0},\n"), JsonMatrix(renderContext.View.View));
+    j += String::Format(TEXT("  \"projection\": {0},\n"), JsonMatrix(renderContext.View.NonJitteredProjection));
+
+    // Clipmap-level math
+    j += TEXT("  \"clipmap\": {\n");
+    const auto& cm = shadows.Clipmap;
+    j += String::Format(TEXT("    \"enabled\": {0},\n"), cm.Enabled ? TEXT("true") : TEXT("false"));
+    j += String::Format(TEXT("    \"levelCount\": {0},\n"), cm.LevelCount);
+    j += String::Format(TEXT("    \"sunDir\": {0},\n"), JsonFloat3(cm.SunDir));
+    j += String::Format(TEXT("    \"lightRight\": {0},\n"), JsonFloat3(cm.LightRight));
+    j += String::Format(TEXT("    \"lightUp\": {0},\n"), JsonFloat3(cm.LightUp));
+    j += String::Format(TEXT("    \"beyondCSMExtent\": {0},\n"), JsonFloat(cm.BeyondCSMExtent));
+    j += TEXT("    \"levels\": [\n");
+    for (int32 i = 0; i < cm.LevelCount; i++)
+    {
+        const auto& L = cm.Levels[i];
+        j += TEXT("      {");
+        j += String::Format(TEXT("\"index\": {0}, "), i);
+        j += String::Format(TEXT("\"resolution\": {0}, "), L.Resolution);
+        j += String::Format(TEXT("\"worldExtent\": {0}, "), JsonFloat(L.WorldExtent));
+        j += String::Format(TEXT("\"texelSize\": {0}, "), JsonFloat(L.TexelSize));
+        j += String::Format(TEXT("\"lastRedrawTexelSize\": {0}, "), JsonFloat(L.LastRedrawTexelSize));
+        j += String::Format(TEXT("\"depthRange\": {0}, "), JsonFloat(L.DepthRange));
+        j += String::Format(TEXT("\"lastRedrawDepthRange\": {0}, "), JsonFloat(L.LastRedrawDepthRange));
+        j += String::Format(TEXT("\"lastRedrawWorldExtent\": {0}, "), JsonFloat(L.LastRedrawWorldExtent));
+        j += String::Format(TEXT("\"scrollTexels\": [{0}, {1}], "), L.ScrollTexels.X, L.ScrollTexels.Y);
+        j += String::Format(TEXT("\"prevScrollTexels\": [{0}, {1}], "), L.PrevScrollTexels.X, L.PrevScrollTexels.Y);
+        j += String::Format(TEXT("\"originTexels\": [{0}, {1}], "), L.TextureOriginTexels.X, L.TextureOriginTexels.Y);
+        j += String::Format(TEXT("\"dirtyStrip\": [{0}, {1}], "), L.DirtyStrip.X, L.DirtyStrip.Y);
+        j += String::Format(TEXT("\"compositingColor\": {0}, "), JsonFloat4(L.CompositingColor));
+        j += String::Format(TEXT("\"depthRemap\": [{0}, {1}], "), JsonFloat(L.DepthRemap.X), JsonFloat(L.DepthRemap.Y));
+        j += String::Format(TEXT("\"wrapOffsetUV\": [{0}, {1}], "), JsonFloat(L.WrapOffsetUV.X), JsonFloat(L.WrapOffsetUV.Y));
+        j += String::Format(TEXT("\"needsFullRedraw\": {0}"), L.NeedsFullRedraw ? TEXT("true") : TEXT("false"));
+        j += (i + 1 < cm.LevelCount) ? TEXT("},\n") : TEXT("}\n");
+    }
+    j += TEXT("    ]\n");
+    j += TEXT("  },\n");
+
+    // Per-light cascade tile data
+    j += TEXT("  \"lights\": [\n");
+    int32 lightIdx = 0;
+    const int32 lightCount = shadows.Lights.Count();
+    for (auto it = shadows.Lights.Begin(); it.IsNotEnd(); ++it)
+    {
+        const auto& al = it->Value;
+        j += TEXT("    {");
+        j += String::Format(TEXT("\"id\": \"{0}\", "), it->Key.ToString());
+        j += String::Format(TEXT("\"resolution\": {0}, "), al.Resolution);
+        j += String::Format(TEXT("\"tilesCount\": {0}, "), al.TilesCount);
+        j += String::Format(TEXT("\"renderDynamic\": {0}, "), al.RenderDynamic ? TEXT("true") : TEXT("false"));
+        j += String::Format(TEXT("\"hasStaticShadowContext\": {0}, "), al.HasStaticShadowContext ? TEXT("true") : TEXT("false"));
+        j += String::Format(TEXT("\"cascadeSplits\": {0}, "), JsonFloat4(al.CascadeSplits));
+        j += String::Format(TEXT("\"bias\": {0}, "), JsonFloat(al.Bias));
+        j += String::Format(TEXT("\"softness\": {0}, "), JsonFloat(al.Softness));
+        j += TEXT("\"tiles\": [");
+        for (int32 t = 0; t < al.TilesCount; t++)
+        {
+            const auto& tile = al.Tiles[t];
+            j += TEXT("{");
+            if (tile.RectTile)
+            {
+                j += String::Format(TEXT("\"rect\": [{0}, {1}, {2}, {3}], "),
+                    tile.RectTile->X, tile.RectTile->Y, tile.RectTile->Width, tile.RectTile->Height);
+            }
+            else
+            {
+                j += TEXT("\"rect\": null, ");
+            }
+            j += String::Format(TEXT("\"skipUpdate\": {0}, "), tile.SkipUpdate ? TEXT("true") : TEXT("false"));
+            j += String::Format(TEXT("\"hasStaticGeometry\": {0}, "), tile.HasStaticGeometry ? TEXT("true") : TEXT("false"));
+            j += String::Format(TEXT("\"worldToShadow\": {0}"), JsonMatrix(tile.WorldToShadow));
+            j += (t + 1 < al.TilesCount) ? TEXT("}, ") : TEXT("}");
+        }
+        j += TEXT("]");
+        j += (++lightIdx < lightCount) ? TEXT("},\n") : TEXT("}\n");
+    }
+    j += TEXT("  ]\n");
+    j += TEXT("}\n");
+
+    const String metaPath = folder / TEXT("meta.json");
+    auto* metaFile = FileWriteStream::Open(metaPath);
+    if (metaFile)
+    {
+        const StringAsANSI<2048> ansi(j.Get(), j.Length());
+        metaFile->WriteBytes(ansi.Get(), j.Length());
+        metaFile->Close();
+        Delete(metaFile);
+    }
+
+    LOG(Info, "[ShadowDump] frame {0} -> {1} (textures download async on worker threads)", frame, folder);
 }
 
 void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
@@ -1692,90 +2658,102 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
         }
     }
 
-    // Render Distant Shadow Map (DSM) for directional light
-    // Note: We need to modify DSM so we cast away const
+    // Render shadow clipmap updates for static geometry
     ShadowsCustomBuffer& shadowsMutable = const_cast<ShadowsCustomBuffer&>(shadows);
-    auto& dsm = shadowsMutable.DistantShadow;
-    if (dsm.Enabled && dsm.ShouldUpdate(Engine::FrameCount))
+    auto& clipmap = shadowsMutable.Clipmap;
+    if (clipmap.Enabled)
     {
-        PROFILE_GPU_CPU("Distant Shadow");
+        PROFILE_GPU_CPU("Shadow Clipmap");
 
-        // Initialize DSM texture if needed
-        dsm.Init(_shadowMapFormat);
-
-        if (dsm.ShadowMap)
+        for (int32 levelIdx = 0; levelIdx < clipmap.LevelCount; levelIdx++)
         {
-            // Setup world-space orthographic projection from sun
-            Matrix shadowView, shadowProjection, shadowVP;
-            Float3 sunDirection = dsm.SunDirection;
-            Float3 worldCenter = dsm.WorldCenter;
-            float worldSize = dsm.WorldSize * 0.5f; // Half-extents
+            auto& level = clipmap.Levels[levelIdx];
+            if (!level.DepthTexture)
+                continue;
 
-            // Create view matrix looking from sun towards world center
-            Matrix::LookAt(worldCenter - sunDirection * worldSize * 2.0f, worldCenter, Float3::Up, shadowView);
+            // Skip if nothing to update
+            if (!level.NeedsFullRedraw && level.DirtyStrip.X == 0 && level.DirtyStrip.Y == 0)
+                continue;
 
-            // Create large orthographic projection to cover entire distant area
-            Matrix::OrthoOffCenter(-worldSize, worldSize, -worldSize, worldSize, 0.0f, worldSize * 4.0f, shadowProjection);
-            Matrix::Multiply(shadowView, shadowProjection, shadowVP);
+            const int32 R = level.Resolution;
+            const Int2 newScroll = level.ScrollTexels;
 
-            // Transform to UV space for shader sampling
-            const Matrix ClipToUV(
-                0.5f, 0.0f, 0.0f, 0.0f,
-                0.0f, -0.5f, 0.0f, 0.0f,
-                0.0f, 0.0f, 1.0f, 0.0f,
-                0.5f, 0.5f, 0.0f, 1.0f);
-            Matrix m;
-            Matrix::Multiply(shadowVP, ClipToUV, m);
-            m.Transpose();
-            dsm.WorldToShadow = m;
+            if (level.NeedsFullRedraw)
+            {
+                LOG(Info, "[ClipmapRedraw] L{0} FULL redraw extent={1} R={2} ts={3} dr={4} scroll=({5},{6})",
+                    levelIdx, level.WorldExtent, R, level.TexelSize, level.DepthRange,
+                    newScroll.X, newScroll.Y);
+                // Anchor the toroidal mapping so the full rect renders into the texture without wrap
+                // (texture pixel (0,0) holds the rect's top-left world-texel; matches the existing
+                // non-flipped + Y-flipped ortho convention used by RenderClipmapStrip).
+                level.TextureOriginTexels = Int2(newScroll.X - R / 2, newScroll.Y + R / 2);
 
-            // Create render context for distant shadow rendering
-            RenderContext dsmContext;
-            dsmContext.Buffers = renderContext.Buffers;
-            dsmContext.Task = renderContext.Task;
-            dsmContext.List = RenderList::GetFromPool();
-            dsmContext.List->Clear();
-            dsmContext.LodProxyView = const_cast<RenderView*>(&renderContext.View);
+                context->SetRenderTarget(level.DepthTexture->View(), (GPUTextureView*)nullptr);
+                context->ClearDepth(level.DepthTexture->View(), 1.0f);
+                RenderClipmapStrip(context, renderContext, clipmap, level,
+                                   Int2(newScroll.X - R / 2, newScroll.Y - R / 2),
+                                   Int2(newScroll.X + R / 2, newScroll.Y + R / 2),
+                                   _psDepthClear, quadShaderCB);
+                context->ResetRenderTarget();
+                level.NeedsFullRedraw = false;
+                // Stamp the basis the cache content was rendered against. Per-frame Init compares
+                // current SunDir against this to detect any drift (catches sub-threshold cumulative
+                // rotation that would otherwise slip past the coarser sunChanged heuristic).
+                level.LastRedrawSunDir = clipmap.SunDir;
+                // Stamp the math state the cache content was actually rendered with. Subsequent
+                // frames compare current TexelSize/DepthRange against these to detect cumulative
+                // drift (gradual FOV/near changes that slide under per-frame thresholds).
+                level.LastRedrawTexelSize = level.TexelSize;
+                level.LastRedrawDepthRange = level.DepthRange;
+                level.LastRedrawWorldExtent = level.WorldExtent;
+            }
+            else
+            {
+                // Strip update - render only the L-shaped strip of new texels at the leading edges.
+                // X-strip: full Y extent, |dx| wide. Y-strip: |dy| tall, with width = R - |dx| so the
+                // corner (already covered by X-strip) isn't double-rendered.
+                context->SetRenderTarget(level.DepthTexture->View(), (GPUTextureView*)nullptr);
 
-            // Setup view for static geometry only
-            dsmContext.View.Position = worldCenter - sunDirection * worldSize * 2.0f;
-            dsmContext.View.Direction = sunDirection;
-            dsmContext.View.SetUp(shadowView, shadowProjection);
-            dsmContext.View.Pass = DrawPass::Depth;
-            dsmContext.View.Flags = renderContext.View.Flags;
-            dsmContext.View.StaticFlagsMask = StaticFlags::Shadow;
-            dsmContext.View.StaticFlagsCompare = StaticFlags::Shadow; // Only static geometry
-            dsmContext.View.RenderLayersMask = renderContext.View.RenderLayersMask;
-            dsmContext.View.Origin = renderContext.View.Origin;
-            dsmContext.View.CullingFrustum.SetMatrix(shadowVP);
-            dsmContext.View.PrepareCache(dsmContext, (float)dsm.Resolution, (float)dsm.Resolution, Float2::Zero, &renderContext.View);
+                const int32 dx = level.DirtyStrip.X;
+                const int32 dy = level.DirtyStrip.Y;
+                const int32 absDx = Math::Abs(dx);
+                const int32 absDy = Math::Abs(dy);
 
-            // Collect geometry using a temporary batch
-            RenderContextBatch dsmBatch;
-            dsmBatch.Contexts.Add(dsmContext);
-            renderContext.Task->OnCollectDrawCalls(dsmBatch, SceneRendering::DrawCategory::SceneDraw);
+                if (absDx != 0)
+                {
+                    // X-arm spans full Y range, |dx| wide at the leading X edge.
+                    const Int2 wMin(dx > 0 ? newScroll.X + R / 2 - absDx : newScroll.X - R / 2,
+                                    newScroll.Y - R / 2);
+                    const Int2 wMax(wMin.X + absDx,
+                                    newScroll.Y + R / 2);
+                    RenderClipmapStrip(context, renderContext, clipmap, level, wMin, wMax, _psDepthClear, quadShaderCB);
+                }
+                if (absDy != 0)
+                {
+                    // Y-arm spans Y range = |dy|, X range excludes the X-arm's columns (avoid corner overdraw).
+                    const int32 yArmWidth = R - absDx;
+                    if (yArmWidth > 0)
+                    {
+                        // X range of Y-arm: the part of the level NOT covered by the X-arm.
+                        // If dx>0, X-arm sits at the +X edge so Y-arm is on the -X side.
+                        // If dx<0, X-arm sits at the -X edge so Y-arm is on the +X side.
+                        // If dx==0, Y-arm covers full X range.
+                        const int32 yArmXMin = (dx > 0) ? (newScroll.X - R / 2)
+                                              : (dx < 0) ? (newScroll.X - R / 2 + absDx)
+                                                         : (newScroll.X - R / 2);
+                        const Int2 wMin(yArmXMin,
+                                        dy > 0 ? newScroll.Y + R / 2 - absDy : newScroll.Y - R / 2);
+                        const Int2 wMax(yArmXMin + yArmWidth,
+                                        wMin.Y + absDy);
+                        RenderClipmapStrip(context, renderContext, clipmap, level, wMin, wMax, _psDepthClear, quadShaderCB);
+                    }
+                }
 
-            // Get the updated context from batch
-            auto& dsmCtx = dsmBatch.Contexts[0];
+                context->ResetRenderTarget();
+            }
 
-            // Render depth
-            context->SetRenderTarget(dsm.ShadowMap->View(), (GPUTextureView*)nullptr);
-            context->SetViewportAndScissors(Viewport(0, 0, (float)dsm.Resolution, (float)dsm.Resolution));
-            context->ClearDepth(dsm.ShadowMap->View(), 1.0f);
-            dsmCtx.List->ExecuteDrawCalls(dsmCtx, DrawCallsListType::Depth);
-
-            // Apply blur to DSM for soft distant shadows
-            // TODO: Implement separable Gaussian blur pass here (horizontal + vertical)
-            // For now, the shader will sample the unblurred depth map
-            // The blur helps hide low resolution and creates atmospheric shadow effect
-
-            // Cleanup
-            context->ResetSR();
-            context->ResetRenderTarget();
-            RenderList::ReturnToPool(dsmCtx.List);
-
-            dsm.LastUpdateFrame = Engine::FrameCount;
-            dsm.IsDirty = false;
+            // Consume strip delta so the next frame's ComputeScroll starts from this baseline
+            level.DirtyStrip = Int2::Zero;
         }
     }
 
@@ -1786,8 +2764,14 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
     for (auto& e : shadows.Lights)
     {
         const ShadowAtlasLight& atlasLight = e.Value;
-        if (atlasLight.ContextCount == 0)
+
+        // Check if this light uses the shadow clipmap
+        const bool useClipmapForLight = clipmap.Enabled && e.Key == clipmap.LightId;
+
+        // Allow non-dynamic paths (clipmap composite / static atlas copy) to still process.
+        if (atlasLight.ContextCount == 0 && !useClipmapForLight && atlasLight.StaticState != ShadowAtlasLight::CopyStaticShadow)
             continue;
+
         int32 contextIndex = 0;
         for (int32 tileIndex = 0; tileIndex < atlasLight.TilesCount; tileIndex++)
         {
@@ -1799,7 +2783,30 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
 
             // Set viewport for tile
             context->SetViewportAndScissors(tile.CachedViewport);
-            if (tile.LinkedRectTile)
+
+            if (useClipmapForLight && tileIndex < clipmap.LevelCount && clipmap.Levels[tileIndex].DepthTexture)
+            {
+                // Composite from shadow clipmap level into this cascade tile.
+                // CRITICAL: clear the tile first when the atlas wasn't globally cleared this frame.
+                // PS_ClipmapComposite discards no-occluder pixels and out-of-cascade-range pixels;
+                // discarded pixels retain whatever was in the tile from the previous frame, which
+                // was rendered for a *different camera orientation* -> "solitaire trailing" ghosting
+                // of shadows from prior frames as the camera rotates. All non-clipmap branches in
+                // the else-if chain below do this same conditional clear.
+                if (!shadows.ClearShadowMapAtlas)
+                    ClearShadowMapTile(context, quadShaderCB, quadShaderData);
+
+                auto& level = clipmap.Levels[tileIndex];
+                quadShaderData.Color = level.CompositingColor;
+                quadShaderData.Params = Float4(level.DepthRemap.X, level.DepthRemap.Y, level.WrapOffsetUV.X, level.WrapOffsetUV.Y);
+                context->UpdateCB(quadShaderCB, &quadShaderData);
+                context->BindCB(0, quadShaderCB);
+                context->BindSR(0, level.DepthTexture->View());
+                context->SetState(_psClipmapComposite);
+                context->DrawFullscreenTriangle();
+                context->UnBindSR(0);
+            }
+            else if (tile.LinkedRectTile)
             {
                 // Copy linked shadow
                 ASSERT(shadows.LinkedShadows);
@@ -1816,10 +2823,21 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
                 ClearShadowMapTile(context, quadShaderCB, quadShaderData);
             }
 
-            // Draw objects depth
-            auto& shadowContext = renderContextBatch.Contexts[atlasLight.ContextIndex + contextIndex++];
-            shadowContext.List->ExecuteDrawCalls(shadowContext, DrawCallsListType::Depth);
-            shadowContext.List->ExecuteDrawCalls(shadowContext, shadowContext.List->ShadowDepthDrawCallsList, renderContext.List, nullptr);
+            // Draw objects depth (dynamic-only when clipmap is active for this light).
+            // Skipped when DynamicShadows is off - no per-cascade contexts exist to draw from.
+            // HACK g_ClipmapIsolateStatic: skip dynamic draws on clipmap-active light so the
+            // cascade tile shows ONLY composited clipmap content (still need to advance the
+            // context-index counter so the static-shadow context lookup remains correct).
+            const bool skipDynamicForIsolation = g_ClipmapIsolateStatic && useClipmapForLight;
+            if (atlasLight.RenderDynamic && atlasLight.ContextCount > 0)
+            {
+                auto& shadowContext = renderContextBatch.Contexts[atlasLight.ContextIndex + contextIndex++];
+                if (!skipDynamicForIsolation)
+                {
+                    shadowContext.List->ExecuteDrawCalls(shadowContext, DrawCallsListType::Depth);
+                    shadowContext.List->ExecuteDrawCalls(shadowContext, shadowContext.List->ShadowDepthDrawCallsList, renderContext.List, nullptr);
+                }
+            }
             if (atlasLight.HasStaticShadowContext)
             {
                 auto& shadowContextStatic = renderContextBatch.Contexts[atlasLight.ContextIndex + contextIndex++];
@@ -2060,6 +3078,14 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
     context->ResetRenderTarget();
     context->SetViewportAndScissors(renderContext.Task->GetViewport());
     shadows.ClearShadowMapAtlas = false;
+
+    // One-shot debug dump (RequestDump() set the flag). Runs after all shadow textures are
+    // populated for this frame so the downloaded data matches the metadata we serialise.
+    if (ShadowsDumpRequested)
+    {
+        ShadowsDumpRequested = false;
+        DumpShadowsToDisk(shadows, renderContext);
+    }
 }
 
 void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, RenderLightData& light, GPUTextureView* shadowMask)
@@ -2098,36 +3124,6 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
     sperLight.ContactShadowsDistance = light.ShadowsDistance;
     sperLight.ContactShadowsLength = EnumHasAnyFlags(view.Flags, ViewFlags::ContactShadows) ? light.ContactShadowsLength : 0.0f;
 
-    // Setup Distant Shadow Map data for directional lights
-    if (light.IsDirectionalLight && shadows.DistantShadow.Enabled && shadows.DistantShadow.ShadowMap)
-    {
-        auto& dirLight = (RenderDirectionalLightData&)light;
-        sperLight.DistantShadowWorldToShadow = shadows.DistantShadow.WorldToShadow;
-
-        // CSM fade range: from ShadowsDistance to ShadowsDistance + FadeDistance
-        sperLight.CSMMaxDistance = light.ShadowsDistance + light.ShadowsFadeDistance;
-
-        // Blend DSM during CSM fade for perfect transition
-        // Use CSM fade distance as blend range to ensure DSM replaces CSM as it fades
-        sperLight.DistantShadowBlendRange = Math::Max(100.0f, light.ShadowsFadeDistance);
-
-        // Bias values to prevent z-fighting (scaled for large world size)
-        // Depth bias: scaled by world size / resolution for consistent bias across different resolutions
-        const float depthBiasScale = shadows.DistantShadow.WorldSize / (float)shadows.DistantShadow.Resolution;
-        sperLight.DistantShadowDepthBias = dirLight.DistantShadowDepthBias * depthBiasScale; // Adaptive depth bias
-
-        // Normal bias: use light's normal offset scale scaled for DSM world size
-        sperLight.DistantShadowNormalBias = light.ShadowsNormalOffsetScale * depthBiasScale * dirLight.DistantShadowNormalBiasScale;
-    }
-    else
-    {
-        sperLight.DistantShadowWorldToShadow = Matrix::Identity;
-        sperLight.CSMMaxDistance = 0.0f;
-        sperLight.DistantShadowBlendRange = 0.0f;
-        sperLight.DistantShadowDepthBias = 0.0f;
-        sperLight.DistantShadowNormalBias = 0.0f;
-    }
-
     bool isViewInside;
     if (isLocalLight)
     {
@@ -2144,7 +3140,6 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
     context->BindCB(0, cb0);
     context->BindSR(5, shadows.ShadowsBufferView);
     context->BindSR(6, shadows.ShadowMapAtlas);
-    context->BindSR(7, shadows.DistantShadow.ShadowMap ? shadows.DistantShadow.ShadowMap : nullptr);
     context->BindSR(8, shadows.WeaponShadowsBufferView);
     context->BindSR(9, shadows.WeaponShadowMapAtlas);
 
@@ -2184,9 +3179,72 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
     context->ResetRenderTarget();
     context->UnBindSR(5);
     context->UnBindSR(6);
-    context->UnBindSR(7);
     context->UnBindSR(8);
     context->UnBindSR(9);
+}
+
+// HACK debug overlay: paint each shadow clipmap level's depth texture as a grayscale thumbnail
+// down the right edge of the output. Order is top-to-bottom = level 0 (nearest cascade) ...
+// level N (farthest / beyond-CSM). Sized so all levels fit even with 5 levels (4 CSM + 1 beyond).
+void ShadowsPass::DrawClipmapDebugOverlay(GPUContext* context, RenderContext& renderContext, GPUTextureView* output, const Viewport& outputViewport)
+{
+    if (!g_ClipmapDebugDraw)
+        return;
+    if (!renderContext.Buffers)
+        return;
+    const ShadowsCustomBuffer* shadowsPtr = renderContext.Buffers->FindCustomBuffer<ShadowsCustomBuffer>(TEXT("Shadows"), false);
+    if (!shadowsPtr)
+        return;
+    const ShadowsCustomBuffer& shadows = *shadowsPtr;
+    if (!shadows.Clipmap.Enabled || shadows.Clipmap.LevelCount <= 0)
+        return;
+    auto* instance = ShadowsPass::Instance();
+    if (!instance || !instance->_psDepthVisualize || !instance->_psDepthVisualize->IsValid())
+        return;
+
+    PROFILE_GPU("Clipmap Debug Overlay");
+
+    // Layout: right-edge strip, square thumbnails stacked vertically.
+    const int32 levelCount = shadows.Clipmap.LevelCount;
+    const float vpW = outputViewport.Width;
+    const float vpH = outputViewport.Height;
+    const float vpX = outputViewport.X;
+    const float vpY = outputViewport.Y;
+    // Thumbnail size: 1/levelCount of viewport height, but capped to ~1/5 of viewport width
+    // so on wide viewports they don't dominate the screen.
+    float thumb = vpH / (float)Math::Max(levelCount, 1);
+    const float maxThumb = vpW * 0.2f;
+    if (thumb > maxThumb)
+        thumb = maxThumb;
+    const float stripX = vpX + vpW - thumb;
+
+    GPUConstantBuffer* quadShaderCB = GPUDevice::Instance->QuadShader->GetCB(0);
+    QuadShaderData quadShaderData;
+    quadShaderData.Color = Float4(1.0f, 1.0f, 0, 0); // x=invert (1 for far=white->near=dark hmm), y=contrast power
+    quadShaderData.Params = Float4::Zero;
+
+    context->ResetRenderTarget();
+    context->SetRenderTarget(output);
+    context->SetState(instance->_psDepthVisualize);
+
+    for (int32 i = 0; i < levelCount; i++)
+    {
+        const auto& level = shadows.Clipmap.Levels[i];
+        if (!level.DepthTexture)
+            continue;
+
+        const float yTop = vpY + (float)i * thumb;
+        context->SetViewportAndScissors(Viewport(stripX, yTop, thumb, thumb));
+
+        context->UpdateCB(quadShaderCB, &quadShaderData);
+        context->BindCB(0, quadShaderCB);
+        context->BindSR(0, level.DepthTexture->View());
+        context->DrawFullscreenTriangle();
+        context->UnBindSR(0);
+    }
+
+    context->ResetRenderTarget();
+    context->SetViewportAndScissors(outputViewport);
 }
 
 void ShadowsPass::GetShadowAtlas(const RenderBuffers* renderBuffers, GPUTexture*& shadowMapAtlas, GPUBufferView*& shadowsBuffer)
