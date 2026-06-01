@@ -33,41 +33,22 @@ public:
     /// </summary>
     bool IsReady() const { return _csSkin != nullptr; }
 
-    /// <summary>
-    /// Per-mesh draw setup: lazy-allocates output VBs, queues this frame's dispatch (deduped via dormant-version),
-    /// returns the VB pointers. False when not applicable (shader not ready, no ShaderResource, zero verts) - caller
-    /// falls back to VS-time skinning. Dispatch runs in FlushPending after bone upload.
-    /// </summary>
+    /// <summary>Ensures output VBs and queues this mesh's skinning dispatch (deduped per slot); false if not applicable so the caller falls back to VS-time skinning.</summary>
     bool PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMesh* mesh, int32 slot, GPUBuffer*& outVB0, GPUBuffer*& outVB1, GPUBuffer*& outVB2);
 
-    /// <summary>
-    /// Dispatches all pending work queued via PrepareForDraw this frame. Call once per frame, after bone
-    /// matrices are uploaded and before any draw pass consumes the output VBs. Always clears the queue.
-    /// </summary>
+    /// <summary>Dispatches all work queued this frame. Call once after bone upload, before any pass reads the output VBs.</summary>
     void FlushPending(GPUContext* context);
 
-    /// <summary>
-    /// Drops the pending dispatch queue without running it. Call at frame start to recover from a frame
-    /// that queued via PrepareForDraw but never reached FlushPending.
-    /// </summary>
+    /// <summary>Drops the pending dispatch queue unrun (frame-start reset).</summary>
     void ClearPending();
 
-    /// <summary>
-    /// Registers Skinning+model for one-shot GPU prewarm next render frame, moving alloc + first-use cost off the
-    /// first dormant->active wake (~50 ms GBuffer spike) onto scene streaming. Game-thread safe; deduped by Skinning.
-    /// </summary>
+    /// <summary>Queues a one-shot GPU prewarm for a new model, moving alloc + first skin off the first dormant->active wake. Game-thread safe.</summary>
     void QueuePrewarm(SkinnedMeshDrawData* skinning, SkinnedModel* model);
 
-    /// <summary>
-    /// Removes a pending prewarm entry. Call from AnimatedModel::EndPlay so the render thread can't
-    /// dereference a freed SkinnedMeshDrawData. Safe when no entry exists.
-    /// </summary>
+    /// <summary>Removes a pending prewarm entry; call from EndPlay so the render thread can't touch freed data.</summary>
     void CancelPrewarm(SkinnedMeshDrawData* skinning);
 
-    /// <summary>
-    /// Drains the prewarm queue (from the AnimatedModel render-list PreDraw). May run against stale bones, so
-    /// OutputVersion[slot] resets to force re-dispatch on the first real frame; only alloc + first-use is amortized.
-    /// </summary>
+    /// <summary>Drains the prewarm queue (allocs output VBs); OutputVersion stays 0 so the first real frame still dispatches.</summary>
     void FlushPrewarm(GPUContext* context);
 
 protected:
