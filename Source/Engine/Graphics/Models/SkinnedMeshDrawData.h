@@ -13,6 +13,8 @@ class FLAXENGINE_API SkinnedMeshDrawData
 private:
     bool _hasValidData = false;
     bool _isDirty = false;
+    bool _settled = false; // last pose unchanged (Prev==Bone), so the next identical frame may skip
+    Array<byte> _prevData; // last accepted Data, for dormant (byte-identical) detection
 
 public:
     /// <summary>
@@ -51,7 +53,7 @@ public:
     Array<GPUBuffer*> OutputVB2;
 
     /// <summary>
-    /// Bumped on each OnDataChanged. The compute-skinning pass skips dispatch when the output is up to date with it (dormant skeletons).
+    /// Bumped on each data change; the skinning pass skips dispatch when its output matches (dormant skeletons).
     /// </summary>
     uint64 SkinningVersion = 0;
 
@@ -93,7 +95,8 @@ public:
     /// After bones Data has been modified externally. Updates the bone matrices data for the GPU buffer. Ensure to call Flush before rendering.
     /// </summary>
     /// <param name="dropHistory">True if drop previous update bones used for motion blur, otherwise will keep them and do the update.</param>
-    void OnDataChanged(bool dropHistory);
+    /// <returns>True if data changed (dirty/version bumped); false if byte-identical and skipped.</returns>
+    bool OnDataChanged(bool dropHistory);
 
     /// <summary>
     /// After bones Data has been sent to the GPU buffer.
@@ -104,8 +107,7 @@ public:
     }
 
     /// <summary>
-    /// Releases the compute-skinning output VB cache. Call on SkinnedModel change: the cached buffers are
-    /// sized for the old vertex counts and reusing them would truncate the dispatch and collapse vertices.
+    /// Releases the compute-skinning output VB cache. Call on SkinnedModel change; stale buffers sized for the old vertex counts collapse verts.
     /// </summary>
     void ReleaseOutputVBs();
 };

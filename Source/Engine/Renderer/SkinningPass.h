@@ -17,9 +17,8 @@ class SkinnedMeshDrawData;
 class SkinnedModel;
 
 /// <summary>
-/// Compute pre-skinning pass. Once per frame per visible skinned mesh, dispatches a CS that skins the
-/// source VB into static-layout output VBs so draw calls run the static VS variant with no VS-time
-/// skinning. Dormant skeletons reuse the cached output and skip dispatch.
+/// Compute pre-skinning pass: a CS skins the source VB into static-layout output VBs so draws use the
+/// static VS (no VS-time skinning). Dormant skeletons reuse the cached output and skip dispatch.
 /// </summary>
 class SkinningPass : public RendererPass<SkinningPass>
 {
@@ -35,11 +34,9 @@ public:
     bool IsReady() const { return _csSkin != nullptr; }
 
     /// <summary>
-    /// Called from per-mesh draw setup. Lazy-allocates the per-slot output VBs, queues a dispatch for
-    /// this frame (deduped via the dormant-version check) and returns the output VB pointers. Returns
-    /// false when compute skinning isn't applicable (shader not ready, source VB lacks ShaderResource,
-    /// zero vertices) and the caller should fall back to VS-time skinning. The dispatch itself runs in
-    /// FlushPending, after bone matrices are uploaded this frame.
+    /// Per-mesh draw setup: lazy-allocates output VBs, queues this frame's dispatch (deduped via dormant-version),
+    /// returns the VB pointers. False when not applicable (shader not ready, no ShaderResource, zero verts) - caller
+    /// falls back to VS-time skinning. Dispatch runs in FlushPending after bone upload.
     /// </summary>
     bool PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMesh* mesh, int32 slot, GPUBuffer*& outVB0, GPUBuffer*& outVB1, GPUBuffer*& outVB2);
 
@@ -56,9 +53,8 @@ public:
     void ClearPending();
 
     /// <summary>
-    /// Registers a SkinnedMeshDrawData + SkinnedModel for one-shot GPU prewarm next render frame. Moves
-    /// the lazy alloc + first-use cost off the first dormant->active wake (a ~50 ms GBuffer spike) onto
-    /// scene streaming. Game-thread safe; deduped by Skinning pointer. BoneMatrices must already exist.
+    /// Registers Skinning+model for one-shot GPU prewarm next render frame, moving alloc + first-use cost off the
+    /// first dormant->active wake (~50 ms GBuffer spike) onto scene streaming. Game-thread safe; deduped by Skinning.
     /// </summary>
     void QueuePrewarm(SkinnedMeshDrawData* skinning, SkinnedModel* model);
 
@@ -69,9 +65,8 @@ public:
     void CancelPrewarm(SkinnedMeshDrawData* skinning);
 
     /// <summary>
-    /// Drains the prewarm queue (from the AnimatedModel render-list extension PreDraw). The dispatch may
-    /// run against stale bones, so OutputVersion[slot] is reset to force a re-dispatch on the first real
-    /// frame; only the alloc + first-use cost is amortized, the prewarm output is discarded.
+    /// Drains the prewarm queue (from the AnimatedModel render-list PreDraw). May run against stale bones, so
+    /// OutputVersion[slot] resets to force re-dispatch on the first real frame; only alloc + first-use is amortized.
     /// </summary>
     void FlushPrewarm(GPUContext* context);
 

@@ -710,7 +710,7 @@ void ShadowsPass::SetupRenderContext(RenderContext& renderContext, RenderContext
         shadowView.ModelLODDistanceFactor = view.ModelLODDistanceFactor;
         shadowView.Pass = DrawPass::Depth;
         shadowView.Origin = view.Origin;
-        shadowView.CascadeIndex = -1; // Default; directional cascade setup overrides per-cascade after this
+        shadowView.CascadeIndex = -1; // default; cascade setup overrides per-cascade below
         if (atlasLight && atlasLight->StaticState != ShadowAtlasLight::Unused && atlasLight->StaticState != ShadowAtlasLight::FailedToInsertTiles)
         {
             // Draw only dynamic geometry

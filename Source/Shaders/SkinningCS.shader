@@ -1,9 +1,7 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
-// Compute skinning: reads a skinned VB + bone matrices, applies linear-blend skinning, and writes a
-// static-layout output (VB0 = Position; VB1 = TexCoord+Normal+Tangent+TexCoord1). At draw time the actor
-// nulls Surface.Skinning and binds these, so the static VS variant runs with no VS-time skinning. The
-// input layout isn't hardcoded - the host passes per-element offsets, stride and format flags via the CB.
+// Compute skinning: reads a skinned VB + bone matrices, applies LBS, writes static-layout output
+// (VB0 = Position; VB1 = TexCoord+Normal+Tangent+TexCoord1). Host passes layout (offsets/stride/flags) via CB; draw nulls Surface.Skinning.
 
 #include "./Flax/Common.hlsl"
 
@@ -32,8 +30,7 @@ uint OffsetColor;
 uint _padding;
 META_CB_END
 
-// Bone matrices: 3 float4 per bone (4x3 transposed transform). Matches the existing material binding
-// (Buffer<float4>) in Surface.shader, so we reuse SkinnedMeshDrawData::BoneMatrices directly.
+// Bone matrices: 3 float4 per bone (4x3 transposed). Matches Surface.shader's Buffer<float4>, so we reuse BoneMatrices directly.
 Buffer<float4> BoneMatrices : register(t0);
 
 // Skinned source VB as raw bytes (mixed formats, hand-unpacked below).
@@ -184,8 +181,7 @@ void CS_Skin(uint3 dispatchId : SV_DispatchThreadID)
     OutputVB1.Store(out1Base +  8, packedTangent);
     OutputVB1.Store(out1Base + 12, 0u); // TexCoord1 unused (skinned source has no second UV)
 
-    // Write VB2: Color (R8G8B8A8_UNorm). Skinning doesn't transform vertex color, so this is a
-    // straight passthrough of the source 32-bit word. Skipped entirely for meshes without color.
+    // Write VB2: Color (R8G8B8A8_UNorm), straight passthrough (skinning doesn't transform color); skipped if no color.
     if (Flags & FLAG_HAS_VERTEX_COLOR)
     {
         uint colorRaw = InputVB.Load(base + OffsetColor);

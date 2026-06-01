@@ -219,8 +219,7 @@ bool GPUBufferDX12::OnInit()
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::RawBuffer))
         {
             srvDesc.Buffer.Flags |= D3D12_BUFFER_SRV_FLAG_RAW;
-            // Raw views address 4-byte elements over the whole buffer; the Size/Stride count (Stride>4)
-            // would truncate shader reads to Size/Stride*4 bytes.
+            // Raw views address 4-byte elements over the whole buffer; Size/Stride (Stride>4) would truncate reads.
             srvDesc.Buffer.NumElements = _desc.Size / 4;
         }
         _view.SetSRV(srvDesc);

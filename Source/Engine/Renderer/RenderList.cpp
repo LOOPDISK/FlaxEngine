@@ -774,9 +774,8 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
     float minObjectPixelSizeSq = Math::Square(Graphics::Shadows::MinObjectPixelSize);
     float cullingDistanceSq = Math::Square(Graphics::Shadows::CullingDistance);
 
-    // Cascade-best-fit: a caster fully contained in a finer cascade is added only to that cascade
-    // instead of every coarser one it intersects. Straddling casters and non-cascade contexts (point,
-    // spot, clipmap) fall back to the legacy intersect-and-add.
+    // Cascade best-fit: a caster fully in a finer cascade is added only there, not every coarser one it intersects.
+    // Straddling casters + non-cascade contexts (point, spot, clipmap) fall back to legacy intersect-and-add.
     const int32 contextCount = renderContextBatch.Contexts.Count();
     int32 i = 1;
     while (i < contextCount)

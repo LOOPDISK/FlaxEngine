@@ -92,6 +92,13 @@ private:
     uint64 _lastUpdateFrame;
     mutable MeshDeformation* _deformation = nullptr;
     ScriptingObjectReference<AnimatedModel> _masterPose;
+    // Cached master->this node remap for differing skeletons; rebuilt lazily, keyed by the two SkinnedModel ptrs.
+    Array<int32> _masterPoseMap;
+    const void* _masterPoseMapSrc = nullptr;
+    const void* _masterPoseMapDst = nullptr;
+    // Last bounds inputs applied; lets a dormant-pose skip still refresh bounds when these change.
+    float _lastBoundsScale = -1.0f;
+    BoundingBox _lastCustomBounds = BoundingBox::Zero;
     Array<Pair<String, float>> _blendShapeWeights;
     Array<BlendShapeMesh> _blendShapeMeshes;
     Array<BoneSocket*> _sockets;
@@ -453,6 +460,7 @@ private:
     void OnAnimationUpdated_Async();
     void OnAnimationUpdated_Sync();
     void OnAnimationUpdated();
+    void RebuildMasterPoseMap();
 
     void OnSkinnedModelChanged();
     void OnSkinnedModelLoaded();

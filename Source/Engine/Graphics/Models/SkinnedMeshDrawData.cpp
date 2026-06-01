@@ -1,6 +1,7 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 #include "SkinnedMeshDrawData.h"
+#include "Engine/Platform/Platform.h"
 #include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Animations/Config.h"
 #include "Engine/Core/Log.h"
@@ -35,6 +36,8 @@ void SkinnedMeshDrawData::Setup(int32 bonesCount)
     BonesCount = bonesCount;
     _hasValidData = false;
     _isDirty = true;
+    _settled = false;
+    _prevData.Resize(0);
     Data.Resize(BoneMatrices->GetSize());
     SAFE_DELETE_GPU_RESOURCE(PrevBoneMatrices);
 }
@@ -53,8 +56,16 @@ void SkinnedMeshDrawData::ReleaseOutputVBs()
     OutputVersion.Clear();
 }
 
-void SkinnedMeshDrawData::OnDataChanged(bool dropHistory)
+bool SkinnedMeshDrawData::OnDataChanged(bool dropHistory)
 {
+    // Dormant skeleton: bone data byte-identical to last update.
+    const bool unchanged = _hasValidData && _prevData.Count() == Data.Count() && Platform::MemoryCompare(_prevData.Get(), Data.Get(), Data.Count()) == 0;
+
+    // Skip flush + dispatch on a dormant pose (reuse cached output, hold SkinningVersion).
+    // No motion blur: skip any unchanged frame. With motion blur: run one settling frame (Prev==Bone) before skipping.
+    if (unchanged && (dropHistory || _settled))
+        return false;
+
     // Setup previous frame bone matrices if needed
     if (_hasValidData && !dropHistory)
     {
@@ -74,10 +85,12 @@ void SkinnedMeshDrawData::OnDataChanged(bool dropHistory)
         SAFE_DELETE_GPU_RESOURCE(PrevBoneMatrices);
     }
 
+    _prevData.Set(Data.Get(), Data.Count());
+    _settled = unchanged; // settling frame ran: Prev==Bone now, next identical frame may skip
     _isDirty = true;
     _hasValidData = true;
 
-    // Bump skinning version so the compute-skinning pass invalidates its per-mesh cached outputs.
-    // Dormant skeletons that don't call OnDataChanged will keep the cached output and skip dispatch.
+    // Bump version so the skinning pass re-dispatches; dormant skeletons (no change) keep the cached output.
     SkinningVersion++;
+    return true;
 }

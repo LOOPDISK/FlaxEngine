@@ -339,8 +339,7 @@ void SkinnedMesh::Draw(const RenderContext& renderContext, const DrawInfo& info,
     // Setup draw call
     DrawCall drawCall;
     drawCall.Geometry.IndexBuffer = _indexBuffer;
-    // Compute-skinning fast path: bind SkinningPass's pre-skinned static-layout VBs and null
-    // Surface.Skinning so the static VS variant runs. Falls back to VS-time skinning when not eligible.
+    // Compute-skinning fast path: bind pre-skinned static-layout VBs + null Surface.Skinning so the static VS runs (else VS-time skinning).
     GPUBuffer* skinnedOutVB0 = nullptr;
     GPUBuffer* skinnedOutVB1 = nullptr;
     GPUBuffer* skinnedOutVB2 = nullptr;

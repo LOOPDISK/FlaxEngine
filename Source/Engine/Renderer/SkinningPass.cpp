@@ -70,8 +70,7 @@ GPU_CB_STRUCT(SkinningCBData {
 
 namespace
 {
-    // Read per-element offsets + stride from the source VB layout. Cooked skinned VBs use a flexible
-    // interleaved layout (varying UVs, weight/index precision), so the stride can't be hardcoded.
+    // Read per-element offsets + stride from the source VB layout (cooked skinned VBs vary, so stride isn't hardcoded).
     bool ResolveInputLayout(GPUBuffer* sourceVB, SkinningCBData& cb)
     {
         GPUVertexLayout* layout = sourceVB ? sourceVB->GetVertexLayout() : nullptr;
@@ -117,15 +116,14 @@ namespace
             case VertexElement::Types::Color:
                 cb.OffsetColor = e.Offset;
                 cb.Flags |= SKINNING_FLAG_HAS_VERTEX_COLOR;
-                // Cooked skinned VBs always write Color as R8G8B8A8_UNorm (ModelBase.cpp:750).
+                // Cooked skinned VBs always write Color as R8G8B8A8_UNorm.
                 // If a future format variant lands, branch here on e.Format.
                 break;
             default:
                 break;
             }
         }
-        // All six are required for skinning math; if TexCoord0 is absent we can synthesize zero,
-        // but the others must exist or this isn't a real skinned mesh and we shouldn't dispatch.
+        // All six required; TexCoord0 absent can be synthesized, the rest must exist or it's not a skinned mesh.
         const uint32 required = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5);
         if ((found & required) != required)
             return false;
@@ -143,8 +141,7 @@ String SkinningPass::ToString() const
 bool SkinningPass::Init()
 {
     _supported = GPUDevice::Instance->GetFeatureLevel() >= FeatureLevel::SM5;
-    // Driven on demand from AnimatedModel, not a per-frame callback. Kick resource setup early so
-    // shader compile errors surface at startup; the dispatch path retries via IsReady() until loaded.
+    // Driven on demand from AnimatedModel. Kick setup early so shader errors surface at startup; dispatch retries via IsReady().
     if (_supported)
         checkIfSkipPass();
     return false;
@@ -212,7 +209,7 @@ bool SkinningPass::setupResources()
 void SkinningPass::OnShaderReloading(Asset* obj)
 {
     _csSkin = nullptr;
-    // Pool entries can be retained across reloads since size hasn't changed; leave them alone.
+    // Pool entries survive reloads (size unchanged); leave them.
     invalidateResources();
 }
 #endif
@@ -250,16 +247,14 @@ bool SkinningPass::PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMe
         }
     }
 
-    // Lazy alloc under a lock (concurrent per-actor Draws, CreateBuffer isn't thread-safe). Once the
-    // buffers exist the early-out below skips the lock.
+    // Lazy alloc under a lock (concurrent Draws; CreateBuffer isn't thread-safe); existing buffers skip the lock below.
     if (skinning->OutputVB0.Count() <= slot || skinning->OutputVB0[slot] == nullptr || skinning->OutputVB1[slot] == nullptr ||
         (hasVertexColor && (skinning->OutputVB2.Count() <= slot || skinning->OutputVB2[slot] == nullptr)))
     {
         ScopeLock lock(_allocLock);
         if (skinning->OutputVB0.Count() <= slot)
         {
-            // Array::Resize doesn't zero trivially-constructible elements, so null the new slots
-            // explicitly - the == nullptr checks and SAFE_DELETE would otherwise hit garbage pointers.
+            // Array::Resize doesn't zero trivial elements; null new slots or the ==nullptr/SAFE_DELETE checks hit garbage.
             const int32 oldCount = skinning->OutputVB0.Count();
             skinning->OutputVB0.Resize(slot + 1);
             skinning->OutputVB1.Resize(slot + 1);
@@ -319,8 +314,7 @@ bool SkinningPass::PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMe
     outVB1 = skinning->OutputVB1[slot];
     outVB2 = (hasVertexColor && slot < skinning->OutputVB2.Count()) ? skinning->OutputVB2[slot] : nullptr;
 
-    // Enqueue a dispatch only if the cached output is stale (dormant-skip). Stamp the version now so
-    // multiple per-pass draw setups for the same mesh this frame coalesce into one dispatch.
+    // Enqueue only if output is stale (dormant-skip). Stamp version now so same-mesh setups this frame coalesce to one dispatch.
     if (skinning->OutputVersion[slot] != skinning->SkinningVersion)
     {
         skinning->OutputVersion[slot] = skinning->SkinningVersion;
@@ -404,9 +398,8 @@ void SkinningPass::FlushPrewarm(GPUContext* context)
         _pendingPrewarm.Clear();
     }
     PROFILE_GPU_CPU_NAMED("SkinningPass.FlushPrewarm");
-    // Allocate output VBs directly here rather than via PrepareForDraw (which corrupts BoneMatrices when
-    // run during prewarm). OutputVersion is left at 0 so the first real draw still dispatches; this only
-    // pays the alloc + first-use cost up front. LOD0 mesh0 only - the heaviest slot for the wake spike.
+    // Allocate output VBs directly (PrepareForDraw corrupts BoneMatrices during prewarm). OutputVersion stays 0 so the
+    // first real draw still dispatches; only the alloc + first-use cost is paid up front. LOD0 mesh0 only.
     auto* device = GPUDevice::Instance;
     const GPUBufferFlags flags = GPUBufferFlags::VertexBuffer | GPUBufferFlags::UnorderedAccess | GPUBufferFlags::RawBuffer | GPUBufferFlags::ShaderResource;
     GPUVertexLayout* layoutVB0 = GetComputeSkinVB0Layout();

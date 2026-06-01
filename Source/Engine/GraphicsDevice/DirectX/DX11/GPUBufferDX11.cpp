@@ -122,8 +122,7 @@ bool GPUBufferDX11::OnInit()
             srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
             srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
             srvDesc.BufferEx.FirstElement = 0;
-            // Raw views address 4-byte elements over the whole buffer; the Size/Stride count (Stride>4)
-            // would truncate shader reads to Size/Stride*4 bytes.
+            // Raw views address 4-byte elements over the whole buffer; Size/Stride (Stride>4) would truncate reads.
             srvDesc.BufferEx.NumElements = _desc.Size / 4;
             srvDesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
         }
