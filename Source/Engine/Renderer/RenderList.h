@@ -40,6 +40,7 @@ struct RenderLightData
     float ShadowsDepthBias;
     float ShadowsSharpness;
     float ShadowsDistance;
+    float ShadowsSoftness;
 
     StaticFlags StaticFlags;
     ShadowsCastingMode ShadowsMode;
