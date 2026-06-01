@@ -489,10 +489,13 @@ bool MeshBase::Init(uint32 vertices, uint32 triangles, const Array<const void*, 
 #endif
     vertexBuffer0 = GPUDevice::Instance->CreateBuffer(MESH_BUFFER_NAME(".VB0"));
     {
-        // ShaderResource|RawBuffer|R32_Typeless: lets the skinning CS bind VB0 as a ByteAddressBuffer (layout still from vbLayout).
         auto desc0 = GPUBufferDescription::Vertex(vbLayout[0], vertices, vbData[0]);
-        desc0.Flags |= GPUBufferFlags::ShaderResource | GPUBufferFlags::RawBuffer;
-        desc0.Format = PixelFormat::R32_Typeless;
+        // Skinnable VB0 (has blend data) gets a raw SRV so the skinning CS can bind it as a ByteAddressBuffer; rigid meshes skip it (layout still from vbLayout).
+        if (vbLayout[0]->FindElement(VertexElement::Types::BlendIndices).Format != PixelFormat::Unknown)
+        {
+            desc0.Flags |= GPUBufferFlags::ShaderResource | GPUBufferFlags::RawBuffer;
+            desc0.Format = PixelFormat::R32_Typeless;
+        }
         if (vertexBuffer0->Init(desc0))
             goto ERROR_LOAD_END;
     }
