@@ -131,6 +131,59 @@ namespace
             cb.OffsetTexCoord = 0; // no UVs: read offset 0, harmless for shadow/unlit meshes
         return true;
     }
+
+    const GPUBufferFlags ComputeSkinVBFlags = GPUBufferFlags::VertexBuffer | GPUBufferFlags::UnorderedAccess | GPUBufferFlags::RawBuffer | GPUBufferFlags::ShaderResource;
+
+    // Source VB has a Color element? (CS passes color through; output VB2 is allocated only when present.)
+    bool HasVertexColor(GPUBuffer* sourceVB)
+    {
+        if (GPUVertexLayout* layout = sourceVB ? sourceVB->GetVertexLayout() : nullptr)
+        {
+            for (const VertexElement& e : layout->GetElements())
+            {
+                if (e.Type == VertexElement::Types::Color)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    // Grow the per-slot output arrays to cover `slot`, null-initializing new entries (Resize leaves trivial elements garbage).
+    void EnsureComputeSkinSlots(SkinnedMeshDrawData* skinning, int32 slot, bool hasColor)
+    {
+        if (skinning->OutputVB0.Count() <= slot)
+        {
+            const int32 oldCount = skinning->OutputVB0.Count();
+            skinning->OutputVB0.Resize(slot + 1);
+            skinning->OutputVB1.Resize(slot + 1);
+            skinning->OutputVersion.Resize(slot + 1);
+            for (int32 i = oldCount; i <= slot; i++)
+            {
+                skinning->OutputVB0[i] = nullptr;
+                skinning->OutputVB1[i] = nullptr;
+                skinning->OutputVersion[i] = 0;
+            }
+        }
+        if (hasColor && skinning->OutputVB2.Count() <= slot)
+        {
+            const int32 oldCount = skinning->OutputVB2.Count();
+            skinning->OutputVB2.Resize(slot + 1);
+            for (int32 i = oldCount; i <= slot; i++)
+                skinning->OutputVB2[i] = nullptr;
+        }
+    }
+
+    // Create one compute-skin output VB; returns null on failure (caller decides whether to abort or retry next frame).
+    GPUBuffer* CreateComputeSkinVB(const Char* name, uint32 vertexCount, uint32 stride, GPUVertexLayout* layout)
+    {
+        GPUBuffer* buf = GPUDevice::Instance->CreateBuffer(name);
+        auto desc = GPUBufferDescription::Buffer(vertexCount * stride, ComputeSkinVBFlags, PixelFormat::R32_Typeless, nullptr, stride, GPUResourceUsage::Default);
+        desc.VertexLayout = layout;
+        if (buf && !buf->Init(desc))
+            return buf;
+        SAFE_DELETE_GPU_RESOURCE(buf);
+        return nullptr;
+    }
 }
 
 String SkinningPass::ToString() const
@@ -234,79 +287,31 @@ bool SkinningPass::PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMe
         return false;
 
     // Only allocate the Color output VB when the source has a Color element.
-    bool hasVertexColor = false;
-    if (GPUVertexLayout* layout = sourceVB->GetVertexLayout())
-    {
-        for (const VertexElement& e : layout->GetElements())
-        {
-            if (e.Type == VertexElement::Types::Color)
-            {
-                hasVertexColor = true;
-                break;
-            }
-        }
-    }
+    const bool hasVertexColor = HasVertexColor(sourceVB);
 
     // Lazy alloc under a lock (concurrent Draws; CreateBuffer isn't thread-safe); existing buffers skip the lock below.
     if (skinning->OutputVB0.Count() <= slot || skinning->OutputVB0[slot] == nullptr || skinning->OutputVB1[slot] == nullptr ||
         (hasVertexColor && (skinning->OutputVB2.Count() <= slot || skinning->OutputVB2[slot] == nullptr)))
     {
         ScopeLock lock(_allocLock);
-        if (skinning->OutputVB0.Count() <= slot)
-        {
-            // Array::Resize doesn't zero trivial elements; null new slots or the ==nullptr/SAFE_DELETE checks hit garbage.
-            const int32 oldCount = skinning->OutputVB0.Count();
-            skinning->OutputVB0.Resize(slot + 1);
-            skinning->OutputVB1.Resize(slot + 1);
-            skinning->OutputVersion.Resize(slot + 1);
-            for (int32 i = oldCount; i <= slot; i++)
-            {
-                skinning->OutputVB0[i] = nullptr;
-                skinning->OutputVB1[i] = nullptr;
-                skinning->OutputVersion[i] = 0;
-            }
-        }
-        if (hasVertexColor && skinning->OutputVB2.Count() <= slot)
-        {
-            const int32 oldCount = skinning->OutputVB2.Count();
-            skinning->OutputVB2.Resize(slot + 1);
-            for (int32 i = oldCount; i <= slot; i++)
-                skinning->OutputVB2[i] = nullptr;
-        }
-        auto* device = GPUDevice::Instance;
-        const GPUBufferFlags outFlags = GPUBufferFlags::VertexBuffer | GPUBufferFlags::UnorderedAccess | GPUBufferFlags::RawBuffer | GPUBufferFlags::ShaderResource;
+        EnsureComputeSkinSlots(skinning, slot, hasVertexColor);
         if (skinning->OutputVB0[slot] == nullptr)
         {
-            skinning->OutputVB0[slot] = device->CreateBuffer(TEXT("ComputeSkin VB0"));
-            auto desc0 = GPUBufferDescription::Buffer(vertexCount * SKINNING_OUTPUT0_STRIDE, outFlags, PixelFormat::R32_Typeless, nullptr, SKINNING_OUTPUT0_STRIDE, GPUResourceUsage::Default);
-            desc0.VertexLayout = GetComputeSkinVB0Layout();
-            if (skinning->OutputVB0[slot]->Init(desc0))
-            {
-                SAFE_DELETE_GPU_RESOURCE(skinning->OutputVB0[slot]);
+            skinning->OutputVB0[slot] = CreateComputeSkinVB(TEXT("ComputeSkin VB0"), vertexCount, SKINNING_OUTPUT0_STRIDE, GetComputeSkinVB0Layout());
+            if (skinning->OutputVB0[slot] == nullptr)
                 return false;
-            }
         }
         if (skinning->OutputVB1[slot] == nullptr)
         {
-            skinning->OutputVB1[slot] = device->CreateBuffer(TEXT("ComputeSkin VB1"));
-            auto desc1 = GPUBufferDescription::Buffer(vertexCount * SKINNING_OUTPUT1_STRIDE, outFlags, PixelFormat::R32_Typeless, nullptr, SKINNING_OUTPUT1_STRIDE, GPUResourceUsage::Default);
-            desc1.VertexLayout = GetComputeSkinVB1Layout();
-            if (skinning->OutputVB1[slot]->Init(desc1))
-            {
-                SAFE_DELETE_GPU_RESOURCE(skinning->OutputVB1[slot]);
+            skinning->OutputVB1[slot] = CreateComputeSkinVB(TEXT("ComputeSkin VB1"), vertexCount, SKINNING_OUTPUT1_STRIDE, GetComputeSkinVB1Layout());
+            if (skinning->OutputVB1[slot] == nullptr)
                 return false;
-            }
         }
         if (hasVertexColor && skinning->OutputVB2[slot] == nullptr)
         {
-            skinning->OutputVB2[slot] = device->CreateBuffer(TEXT("ComputeSkin VB2"));
-            auto desc2 = GPUBufferDescription::Buffer(vertexCount * SKINNING_OUTPUT2_STRIDE, outFlags, PixelFormat::R32_Typeless, nullptr, SKINNING_OUTPUT2_STRIDE, GPUResourceUsage::Default);
-            desc2.VertexLayout = GetComputeSkinVB2Layout();
-            if (skinning->OutputVB2[slot]->Init(desc2))
-            {
-                SAFE_DELETE_GPU_RESOURCE(skinning->OutputVB2[slot]);
+            skinning->OutputVB2[slot] = CreateComputeSkinVB(TEXT("ComputeSkin VB2"), vertexCount, SKINNING_OUTPUT2_STRIDE, GetComputeSkinVB2Layout());
+            if (skinning->OutputVB2[slot] == nullptr)
                 return false;
-            }
         }
     }
 
@@ -400,8 +405,6 @@ void SkinningPass::FlushPrewarm(GPUContext* context)
     PROFILE_GPU_CPU_NAMED("SkinningPass.FlushPrewarm");
     // Allocate output VBs directly (PrepareForDraw corrupts BoneMatrices during prewarm). OutputVersion stays 0 so the
     // first real draw still dispatches; only the alloc + first-use cost is paid up front. LOD0 mesh0 only.
-    auto* device = GPUDevice::Instance;
-    const GPUBufferFlags flags = GPUBufferFlags::VertexBuffer | GPUBufferFlags::UnorderedAccess | GPUBufferFlags::RawBuffer | GPUBufferFlags::ShaderResource;
     GPUVertexLayout* layoutVB0 = GetComputeSkinVB0Layout();
     GPUVertexLayout* layoutVB1 = GetComputeSkinVB1Layout();
     GPUVertexLayout* layoutVB2 = GetComputeSkinVB2Layout();
@@ -419,71 +422,16 @@ void SkinningPass::FlushPrewarm(GPUContext* context)
         GPUBuffer* sourceVB = mesh.GetVertexBuffer(0);
         if (!sourceVB || !sourceVB->GetDescription().IsShaderResource())
             continue;
-        bool hasVertexColor = false;
-        if (GPUVertexLayout* layout = sourceVB->GetVertexLayout())
-        {
-            for (const VertexElement& e : layout->GetElements())
-            {
-                if (e.Type == VertexElement::Types::Color)
-                {
-                    hasVertexColor = true;
-                    break;
-                }
-            }
-        }
+        const bool hasVertexColor = HasVertexColor(sourceVB);
         const uint32 vertexCount = (uint32)mesh.GetVertexCount();
         const int32 slot = 0;
-        const int32 targetSize = slot + 1;
-        if (skinning->OutputVB0.Count() < targetSize)
-        {
-            const int32 oldCount = skinning->OutputVB0.Count();
-            skinning->OutputVB0.Resize(targetSize);
-            skinning->OutputVB1.Resize(targetSize);
-            skinning->OutputVersion.Resize(targetSize);
-            for (int32 i = oldCount; i < targetSize; i++)
-            {
-                skinning->OutputVB0[i] = nullptr;
-                skinning->OutputVB1[i] = nullptr;
-                skinning->OutputVersion[i] = 0;
-            }
-        }
-        if (hasVertexColor && skinning->OutputVB2.Count() < targetSize)
-        {
-            const int32 oldCount = skinning->OutputVB2.Count();
-            skinning->OutputVB2.Resize(targetSize);
-            for (int32 i = oldCount; i < targetSize; i++)
-                skinning->OutputVB2[i] = nullptr;
-        }
+        EnsureComputeSkinSlots(skinning, slot, hasVertexColor);
         if (skinning->OutputVB0[slot] == nullptr)
-        {
-            GPUBuffer* buf0 = device->CreateBuffer(TEXT("ComputeSkin VB0"));
-            auto desc0 = GPUBufferDescription::Buffer(vertexCount * SKINNING_OUTPUT0_STRIDE, flags, PixelFormat::R32_Typeless, nullptr, SKINNING_OUTPUT0_STRIDE, GPUResourceUsage::Default);
-            desc0.VertexLayout = layoutVB0;
-            if (buf0 && !buf0->Init(desc0))
-                skinning->OutputVB0[slot] = buf0;
-            else
-                SAFE_DELETE_GPU_RESOURCE(buf0);
-        }
+            skinning->OutputVB0[slot] = CreateComputeSkinVB(TEXT("ComputeSkin VB0"), vertexCount, SKINNING_OUTPUT0_STRIDE, layoutVB0);
         if (skinning->OutputVB1[slot] == nullptr)
-        {
-            GPUBuffer* buf1 = device->CreateBuffer(TEXT("ComputeSkin VB1"));
-            auto desc1 = GPUBufferDescription::Buffer(vertexCount * SKINNING_OUTPUT1_STRIDE, flags, PixelFormat::R32_Typeless, nullptr, SKINNING_OUTPUT1_STRIDE, GPUResourceUsage::Default);
-            desc1.VertexLayout = layoutVB1;
-            if (buf1 && !buf1->Init(desc1))
-                skinning->OutputVB1[slot] = buf1;
-            else
-                SAFE_DELETE_GPU_RESOURCE(buf1);
-        }
+            skinning->OutputVB1[slot] = CreateComputeSkinVB(TEXT("ComputeSkin VB1"), vertexCount, SKINNING_OUTPUT1_STRIDE, layoutVB1);
         if (hasVertexColor && skinning->OutputVB2[slot] == nullptr)
-        {
-            GPUBuffer* buf2 = device->CreateBuffer(TEXT("ComputeSkin VB2"));
-            auto desc2 = GPUBufferDescription::Buffer(vertexCount * SKINNING_OUTPUT2_STRIDE, flags, PixelFormat::R32_Typeless, nullptr, SKINNING_OUTPUT2_STRIDE, GPUResourceUsage::Default);
-            desc2.VertexLayout = layoutVB2;
-            if (buf2 && !buf2->Init(desc2))
-                skinning->OutputVB2[slot] = buf2;
-            else
-                SAFE_DELETE_GPU_RESOURCE(buf2);
-        }
+            skinning->OutputVB2[slot] = CreateComputeSkinVB(TEXT("ComputeSkin VB2"), vertexCount, SKINNING_OUTPUT2_STRIDE, layoutVB2);
     }
 }
 
