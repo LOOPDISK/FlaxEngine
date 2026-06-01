@@ -35,6 +35,7 @@ void DirectionalLight::Draw(RenderContext& renderContext)
         data.ShadowsNormalOffsetScale = ShadowsNormalOffsetScale;
         data.ShadowsDepthBias = ShadowsDepthBias;
         data.ShadowsSharpness = ShadowsSharpness;
+        data.ShadowsSoftness = ShadowsSoftness;
         data.VolumetricScatteringIntensity = VolumetricScatteringIntensity;
         data.IndirectLightingIntensity = IndirectLightingIntensity;
         data.CastVolumetricShadow = CastVolumetricShadow;
@@ -49,12 +50,9 @@ void DirectionalLight::Draw(RenderContext& renderContext)
         data.Cascade3Spacing = Cascade3Spacing;
         data.Cascade4Spacing = Cascade4Spacing;
         data.PartitionMode = PartitionMode;
-        data.EnableDistantShadows = EnableDistantShadows;
-        data.DistantShadowSize = DistantShadowSize;
-        data.DistantShadowUpdateRate = DistantShadowUpdateRate;
-        data.DistantShadowResolution = DistantShadowResolution;
-        data.DistantShadowDepthBias = DistantShadowDepthBias;
-        data.DistantShadowNormalBiasScale = DistantShadowNormalBiasScale;
+        data.StaticShadows = StaticShadows;
+        data.StaticShadowBeyondCSMExtent = StaticShadowBeyondCSMExtent;
+        data.DynamicShadows = DynamicShadows;
         data.ContactShadowsLength = ContactShadowsLength;
         data.StaticFlags = GetStaticFlags();
         data.ID = GetID();
@@ -76,12 +74,9 @@ void DirectionalLight::Serialize(SerializeStream& stream, const void* otherObj)
     SERIALIZE(Cascade3Spacing);
     SERIALIZE(Cascade4Spacing);
     SERIALIZE(PartitionMode);
-    SERIALIZE(EnableDistantShadows);
-    SERIALIZE(DistantShadowSize);
-    SERIALIZE(DistantShadowUpdateRate);
-    SERIALIZE(DistantShadowResolution);
-    SERIALIZE(DistantShadowDepthBias);
-    SERIALIZE(DistantShadowNormalBiasScale);
+    SERIALIZE(StaticShadows);
+    SERIALIZE(StaticShadowBeyondCSMExtent);
+    SERIALIZE(DynamicShadows);
 }
 
 void DirectionalLight::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
@@ -95,12 +90,9 @@ void DirectionalLight::Deserialize(DeserializeStream& stream, ISerializeModifier
     DESERIALIZE(Cascade3Spacing);
     DESERIALIZE(Cascade4Spacing);
     DESERIALIZE(PartitionMode);
-    DESERIALIZE(EnableDistantShadows);
-    DESERIALIZE(DistantShadowSize);
-    DESERIALIZE(DistantShadowUpdateRate);
-    DESERIALIZE(DistantShadowResolution);
-    DESERIALIZE(DistantShadowDepthBias);
-    DESERIALIZE(DistantShadowNormalBiasScale);
+    DESERIALIZE(StaticShadows);
+    DESERIALIZE(StaticShadowBeyondCSMExtent);
+    DESERIALIZE(DynamicShadows);
 }
 
 bool DirectionalLight::IntersectsItself(const Ray& ray, Real& distance, Vector3& normal)

@@ -49,40 +49,22 @@ public:
     float Cascade4Spacing = 1.0f;
 
     /// <summary>
-    /// Enables distant shadow map for rendering shadows of static geometry beyond CSM range. This provides low-resolution, blurred shadows for distant structures.
+    /// Enables shadow clipmap for caching static geometry shadows. When enabled, static objects are rendered once into a toroidal clipmap and composited into CSM each frame, avoiding per-frame rasterization.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(70), DefaultValue(true), EditorDisplay(\"Shadow\", \"Enable Distant Shadows\")")
-    bool EnableDistantShadows = true;
+    API_FIELD(Attributes="EditorOrder(70), DefaultValue(true), EditorDisplay(\"Shadow\", \"Static Shadows\")")
+    bool StaticShadows = true;
 
     /// <summary>
-    /// The world-space size (in cm) covered by the distant shadow map. Larger values cover more area but reduce shadow detail. Default is 5000000 (50km).
+    /// Enables per-frame dynamic shadow cascade rendering. When disabled, only the static clipmap content contributes to shadows (no animated/moving casters). Useful for perf testing, low-spec modes, or stylistic intent.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(71), DefaultValue(5000000.0f), VisibleIf(nameof(ShowDistantShadowSettings)), Limit(100000, 100000000, 100000), EditorDisplay(\"Shadow\", \"Distant Shadow Size\")")
-    float DistantShadowSize = 5000000.0f;
+    API_FIELD(Attributes="EditorOrder(70), DefaultValue(true), EditorDisplay(\"Shadow\", \"Dynamic Shadows\")")
+    bool DynamicShadows = true;
 
     /// <summary>
-    /// How often (in frames) to update the distant shadow map. Higher values improve performance. Default is 30 frames. Set to 0 to update only when dirty.
+    /// World-space extent (in cm) for an additional clipmap level beyond the CSM range. Set to 0 to disable. Provides low-cost distant static shadows.
     /// </summary>
-    API_FIELD(Attributes="EditorOrder(72), DefaultValue(30), VisibleIf(nameof(ShowDistantShadowSettings)), Limit(0, 300), EditorDisplay(\"Shadow\", \"Distant Shadow Update Rate\")")
-    int32 DistantShadowUpdateRate = 30;
-
-    /// <summary>
-    /// Resolution of the distant shadow map. Lower resolutions are acceptable due to blur. Default is 1024.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(73), DefaultValue(1024), VisibleIf(nameof(ShowDistantShadowSettings)), EditorDisplay(\"Shadow\", \"Distant Shadow Resolution\")")
-    int32 DistantShadowResolution = 1024;
-
-    /// <summary>
-    /// Depth bias multiplier for distant shadows to prevent z-fighting. Higher values reduce self-shadowing artifacts. Default is 0.0005.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(74), DefaultValue(0.0005f), VisibleIf(nameof(ShowDistantShadowSettings)), Limit(0, 0.01f, 0.0001f), EditorDisplay(\"Shadow\", \"Distant Shadow Depth Bias\")")
-    float DistantShadowDepthBias = 0.0005f;
-
-    /// <summary>
-    /// Normal offset bias scale for distant shadows. Reduces peter-panning on grazing angles. Default is 0.5.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(75), DefaultValue(0.5f), VisibleIf(nameof(ShowDistantShadowSettings)), Limit(0, 2.0f, 0.1f), EditorDisplay(\"Shadow\", \"Distant Shadow Normal Bias Scale\")")
-    float DistantShadowNormalBiasScale = 0.5f;
+    API_FIELD(Attributes="EditorOrder(71), DefaultValue(0.0f), Limit(0, 100000000, 100000), EditorDisplay(\"Shadow\", \"Static Shadow Beyond CSM Extent\")")
+    float StaticShadowBeyondCSMExtent = 0.0f;
 
 public:
     // [LightWithShadow]

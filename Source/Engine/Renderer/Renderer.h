@@ -32,6 +32,11 @@ public:
     API_FUNCTION() static void Render(SceneRenderTask* task);
 
     /// <summary>
+    /// Requests a one-shot shadow-map / clipmap dump to disk on the next frame. Dumps land in {ProjectFolder}/ShadowDumps/dump_{frame}/ as raw depth bins + a JSON sidecar with the per-level math state. Useful for diagnosing static-clipmap projection bugs.
+    /// </summary>
+    API_FUNCTION() static void RequestShadowsDump();
+
+    /// <summary>
     /// Draws scene objects depth (to the output Z buffer). The output must be depth texture to write hardware depth to it.
     /// </summary>
     /// <param name="context">The GPU commands context to use.</param>

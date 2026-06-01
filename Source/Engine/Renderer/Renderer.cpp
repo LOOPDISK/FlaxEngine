@@ -223,6 +223,11 @@ bool Renderer::IsReady()
     return true;
 }
 
+void Renderer::RequestShadowsDump()
+{
+    ShadowsPass::RequestDump();
+}
+
 void Renderer::Render(SceneRenderTask* task)
 {
     PROFILE_GPU_CPU_NAMED("Render Frame");
@@ -569,6 +574,9 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         // Perform custom post-scene drawing (eg. GPU dispatches used by VFX)
         for (int32 i = 0; i < renderContextBatch.Contexts.Count(); i++)
             renderContextBatch.Contexts[i].List->DrainDelayedDraws(context, renderContextBatch, i);
+        // Drain all HZB cull dispatches queued by the delayed draws into per-pyramid batched passes:
+        // one ClearUA + one async readback per pyramid instead of N per-slot pairs.
+        HierarchialZBufferPass::Instance()->FlushPendingCulls(context);
         renderContext.List->PostDraw(context, renderContextBatch);
 
 #if USE_EDITOR
@@ -962,6 +970,9 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
             MultiScaler::Instance()->Upscale(context, outputViewport, frameBuffer, outputView);
         }
     }
+
+    // HACK shadow clipmap debug overlay (no-op unless g_ClipmapDebugDraw is true in ShadowsPass.cpp).
+    ShadowsPass::DrawClipmapDebugOverlay(context, renderContext, outputView, outputViewport);
 
     RenderTargetPool::Release(tempBuffer);
     RenderTargetPool::Release(frameBuffer);
