@@ -10,11 +10,19 @@
 #define SHADOWS_CSM_DITHERING 0
 #endif
 // Receiver plane depth bias needs screen-space derivatives (ddx/ddy) -> pixel-shader only.
-// Compute shaders that sample shadows (e.g. volumetric fog) must define this 0 before including,
-// else ddx/ddy fail to map to the compute instruction set (X4532). With it off, the slope-scaled
-// constant bias still applies; only the per-tap receiver-plane refinement is dropped.
+// Compute shaders that sample shadows must not hit those ops (X4532 on cs_5_0). A consumer can
+// set this 0 before including, but engine shaders bake a stale flattened root into their .flax
+// (includes resolve live, the root does not), so a .shader-side #define won't apply until the
+// engine shader is recompiled. To stay correct without that rebuild, auto-disable for the known
+// compute entry points that reach shadow sampling - Flax defines _<EntryName> for the function
+// being compiled (e.g. _CS_LightScattering for volumetric fog). With the bias off, the slope-
+// scaled constant bias still applies; only the per-tap receiver-plane refinement is dropped.
 #ifndef SHADOWS_USE_RECEIVER_PLANE_BIAS
-#define SHADOWS_USE_RECEIVER_PLANE_BIAS 1
+    #if defined(_CS_LightScattering)
+        #define SHADOWS_USE_RECEIVER_PLANE_BIAS 0
+    #else
+        #define SHADOWS_USE_RECEIVER_PLANE_BIAS 1
+    #endif
 #endif
 
 #include "./Flax/ShadowsCommon.hlsl"
