@@ -168,7 +168,7 @@ private:
     //                  staging copies from this pointer in HZBCullSlot::Dispatch.
     //  _hzbCount:      number of valid bound entries (== this type's instance count after the
     //                  last rebuild). Drives the dispatch's thread count.
-    //  _hzbDirtyAll:   needs full rewalk over Instances to reassign HZBKey + repopulate bounds.
+    //  _hzbDirtyAll:   needs full cluster-tree rewalk to restamp per-cluster HZBBase + repopulate bounds.
     //  _hzbActiveSlot: borrowed verdict slot on the main pyramid for this frame; nullptr when
     //                  HZB cull is not in play this frame (multi-frustum batch / disabled).
     Array<Array<Float4>> _hzbBoundsCpu;
@@ -190,7 +190,7 @@ private:
     void SetupHzbForMainView(RenderContext& mainContext);
 
     bool CheckVisibility(FoliageCluster* cluster, const BoundingSphere& bounds) const;
-    bool CheckVisibility(FoliageInstance& instance, const BoundingSphere& bounds) const;
+    bool CheckVisibility(const FoliageInstance& instance, const FoliageCluster* cluster, int32 localIndex) const;
     void AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_SIZE>& clusters, FoliageCluster* cluster, FoliageInstance& instance);
     struct DrawContext
     {
