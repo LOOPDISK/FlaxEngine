@@ -8,6 +8,7 @@
 #include "Engine/Level/Actor.h"
 #include "Engine/Scripting/Scripting.h"
 #include "Engine/Threading/Threading.h"
+#include <cstdio>
 
 extern void RetargetSkeletonPose(const SkeletonData& sourceSkeleton, const SkeletonData& targetSkeleton, const SkinnedModel::SkeletonMapping& mapping, const Transform* sourceNodes, Transform* targetNodes);
 
@@ -418,18 +419,51 @@ void AnimGraphExecutor::Update(AnimGraphInstanceData& data, float dt)
         ANIM_GRAPH_PROFILE_EVENT("Global Pose");
 
         ASSERT(animResultSkeleton->Nodes.Count() == animResult->Nodes.Count());
-        data.NodesPose.Resize(animResultSkeleton->Nodes.Count(), false);
-        Transform* nodesTransformations = animResult->Nodes.Get();
-
-        // Note: this assumes that nodes are sorted (parents first)
-        for (int32 nodeIndex = 0; nodeIndex < animResultSkeleton->Nodes.Count(); nodeIndex++)
+        const int32 nodeCount = animResultSkeleton->Nodes.Count();
         {
-            const int32 parentIndex = animResultSkeleton->Nodes[nodeIndex].ParentIndex;
-            if (parentIndex != -1)
+            ANIM_GRAPH_PROFILE_EVENT("NodesPose Resize");
+            data.NodesPose.Resize(nodeCount, false);
+        }
+        Transform* nodesTransformations = animResult->Nodes.Get();
+        const SkeletonNode* skelNodes = animResultSkeleton->Nodes.Get();
+        Matrix* posesOut = data.NodesPose.Get();
+
+#if ANIM_GRAPH_PROFILE
+        // Bake the node count into a stack-local zone name so in-game profiler dumps
+        // can distinguish "huge skeleton" (legit work scales with N) vs "thread stall"
+        // (small N but huge wall-clock = preemption inside the loop).
+        char _poseLoopName[48];
+        snprintf(_poseLoopName, sizeof(_poseLoopName), "Pose Loop [N=%d]", nodeCount);
+#endif
+
+        // Split the per-node transform loop in halves. If half-A and half-B take
+        // wildly different time despite identical work, the thread stalled midway.
+        // If both halves are proportionally large, the skeleton is genuinely big.
+        const int32 half = nodeCount / 2;
+        {
+#if ANIM_GRAPH_PROFILE
+            ScopeProfileBlockCPU _poseLoopOuter(_poseLoopName);
+#endif
             {
-                nodesTransformations[parentIndex].LocalToWorld(nodesTransformations[nodeIndex], nodesTransformations[nodeIndex]);
+                ANIM_GRAPH_PROFILE_EVENT("Pose Loop A");
+                for (int32 nodeIndex = 0; nodeIndex < half; nodeIndex++)
+                {
+                    const int32 parentIndex = skelNodes[nodeIndex].ParentIndex;
+                    if (parentIndex != -1)
+                        nodesTransformations[parentIndex].LocalToWorld(nodesTransformations[nodeIndex], nodesTransformations[nodeIndex]);
+                    nodesTransformations[nodeIndex].GetWorld(posesOut[nodeIndex]);
+                }
             }
-            nodesTransformations[nodeIndex].GetWorld(data.NodesPose[nodeIndex]);
+            {
+                ANIM_GRAPH_PROFILE_EVENT("Pose Loop B");
+                for (int32 nodeIndex = half; nodeIndex < nodeCount; nodeIndex++)
+                {
+                    const int32 parentIndex = skelNodes[nodeIndex].ParentIndex;
+                    if (parentIndex != -1)
+                        nodesTransformations[parentIndex].LocalToWorld(nodesTransformations[nodeIndex], nodesTransformations[nodeIndex]);
+                    nodesTransformations[nodeIndex].GetWorld(posesOut[nodeIndex]);
+                }
+            }
         }
 
         // Process the root node transformation and the motion

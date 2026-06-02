@@ -436,6 +436,13 @@ Task* GPUBuffer::DownloadDataAsync(BytesContainer& result)
 bool GPUBuffer::GetData(BytesContainer& output)
 {
     PROFILE_CPU();
+    // Add a child zone tagged with the buffer's debug name. Readback stalls show up
+    // anonymously on Thread Pool N otherwise, so we can't tell which subsystem the
+    // blocking GPU sync is waiting on.
+#if COMPILE_WITH_PROFILER
+    const StringView bufName = GetName();
+    ScopeProfileBlockCPU _bufNameZone(bufName.HasChars() ? bufName.Get() : TEXT("<unnamed>"));
+#endif
     void* mapped = Map(GPUResourceMapMode::Read);
     if (!mapped)
         return true;

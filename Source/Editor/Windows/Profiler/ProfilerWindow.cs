@@ -1,6 +1,8 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 using System;
+using System.Globalization;
+using System.IO;
 using FlaxEditor.GUI;
 using FlaxEditor.GUI.Tabs;
 using FlaxEngine;
@@ -21,12 +23,14 @@ namespace FlaxEditor.Windows.Profiler
         private readonly ToolStripButton _nextFrameButton;
         private readonly ToolStripButton _lastFrameButton;
         private readonly ToolStripButton _showOnlyLastUpdateEventsButton;
+        private readonly ToolStripButton _dumpFramesButton;
         private readonly Tabs _tabs;
         private int _frameIndex = -1;
         private int _framesCount;
         private bool _showOnlyLastUpdateEvents = true;
         private long _lastManagedMemory = 0;
         private long _lastManagedMemoryProfiler = 0;
+        private SamplesBuffer<ProfilingTools.MainStats> _frameStats;
 
         /// <summary>
         /// Gets or sets a value indicating whether live events recording is enabled.
@@ -110,6 +114,9 @@ namespace FlaxEditor.Windows.Profiler
             toolstrip.AddSeparator();
             _showOnlyLastUpdateEventsButton = toolstrip.AddButton(editor.Icons.CenterView64, () => ShowOnlyLastUpdateEvents = !ShowOnlyLastUpdateEvents);
             _showOnlyLastUpdateEventsButton.LinkTooltip("Show only last update events and hide events from the other callbacks (e.g. draw or fixed update)");
+            toolstrip.AddSeparator();
+            _dumpFramesButton = toolstrip.AddButton(editor.Icons.Save64, DumpAllFrames);
+            _dumpFramesButton.LinkTooltip("Dump every buffered frame to a folder. One text file per frame, with update/draw/gpu times in the filename.");
 
             _tabs = new Tabs
             {
@@ -163,6 +170,7 @@ namespace FlaxEditor.Windows.Profiler
             _frameIndex = -1;
             _framesCount = 0;
             _lastManagedMemory = 0;
+            _frameStats?.Clear();
             for (int i = 0; i < _tabs.ChildrenCount; i++)
             {
                 if (_tabs.Children[i] is ProfilerMode mode)
@@ -194,6 +202,7 @@ namespace FlaxEditor.Windows.Profiler
             _nextFrameButton.Enabled = (_framesCount - _frameIndex - 1) > 0;
             _lastFrameButton.Enabled = _framesCount > 0;
             _showOnlyLastUpdateEventsButton.Checked = _showOnlyLastUpdateEvents;
+            _dumpFramesButton.Enabled = _framesCount > 0;
         }
 
         private void UpdateView()
@@ -204,6 +213,58 @@ namespace FlaxEditor.Windows.Profiler
                 mode.UpdateView(_frameIndex, _showOnlyLastUpdateEvents);
                 FlaxEngine.Profiler.EndEvent();
             }
+        }
+
+        private void DumpAllFrames()
+        {
+            if (_framesCount <= 0)
+                return;
+            var stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
+            var folder = Path.Combine(Globals.ProjectFolder, "Logs", "ProfilerDumps", stamp);
+            try
+            {
+                Directory.CreateDirectory(folder);
+            }
+            catch (Exception ex)
+            {
+                Editor.LogError("Failed to create profiler dump folder: " + ex.Message);
+                return;
+            }
+            int written = 0;
+            var inv = CultureInfo.InvariantCulture;
+            for (int i = 0; i < _framesCount; i++)
+            {
+                var stats = _frameStats != null && i < _frameStats.Count ? _frameStats[i] : default;
+                string name = string.Format(inv,
+                    "frame_{0:D4}_update{1:0.00}ms_draw{2:0.00}ms_gpu{3:0.00}ms.txt",
+                    i, stats.UpdateTimeMs, stats.DrawCPUTimeMs, stats.DrawGPUTimeMs);
+                var path = Path.Combine(folder, name);
+                try
+                {
+                    using (var writer = new StreamWriter(path))
+                    {
+                        writer.WriteLine("# Profiler frame dump");
+                        writer.WriteLine("Frame index : " + i.ToString(inv));
+                        writer.WriteLine("FPS         : " + stats.FPS.ToString(inv));
+                        writer.WriteLine("Update (ms) : " + stats.UpdateTimeMs.ToString("0.0000", inv));
+                        writer.WriteLine("Draw CPU(ms): " + stats.DrawCPUTimeMs.ToString("0.0000", inv));
+                        writer.WriteLine("Draw GPU(ms): " + stats.DrawGPUTimeMs.ToString("0.0000", inv));
+                        writer.WriteLine("Physics(ms) : " + stats.PhysicsTimeMs.ToString("0.0000", inv));
+                        writer.WriteLine();
+                        for (int t = 0; t < _tabs.ChildrenCount; t++)
+                        {
+                            if (_tabs.Children[t] is ProfilerMode mode)
+                                mode.DumpFrame(i, writer);
+                        }
+                    }
+                    written++;
+                }
+                catch (Exception ex)
+                {
+                    Editor.LogError("Failed to write profiler dump for frame " + i + ": " + ex.Message);
+                }
+            }
+            Editor.Log($"Profiler: dumped {written}/{_framesCount} frames to {folder}");
         }
 
         /// <inheritdoc />
@@ -255,6 +316,9 @@ namespace FlaxEditor.Windows.Profiler
                 ProfilerMode.SharedUpdateData sharedData = new ProfilerMode.SharedUpdateData();
                 sharedData.Begin();
                 sharedData.ManagedMemoryAllocation = (int)managedAllocs;
+                if (_frameStats == null)
+                    _frameStats = new SamplesBuffer<ProfilingTools.MainStats>();
+                _frameStats.Add(sharedData.Stats);
                 for (int i = 0; i < _tabs.ChildrenCount; i++)
                 {
                     if (_tabs.Children[i] is ProfilerMode mode)

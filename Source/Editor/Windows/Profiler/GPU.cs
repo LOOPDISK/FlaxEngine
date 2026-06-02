@@ -195,6 +195,38 @@ namespace FlaxEditor.Windows.Profiler
             base.OnDestroy();
         }
 
+        /// <inheritdoc />
+        public override void DumpFrame(int frameIndex, System.IO.TextWriter writer)
+        {
+            if (_events == null || _events.Count == 0)
+                return;
+            var events = _events.Get(frameIndex);
+            if (events == null || events.Length == 0)
+                return;
+            writer.WriteLine("=== GPU ===");
+            for (int i = 0; i < events.Length; i++)
+            {
+                ref var e = ref events[i];
+                writer.Write(new string(' ', (e.Depth + 1) * 2));
+                writer.Write(new string(e.Name));
+                writer.Write("  ");
+                writer.Write(e.Time.ToString("0.0000"));
+                writer.Write(" ms");
+                if (e.Stats.DrawCalls != 0 || e.Stats.Triangles != 0 || e.Stats.Vertices != 0)
+                {
+                    writer.Write("  (draws=");
+                    writer.Write(e.Stats.DrawCalls);
+                    writer.Write(" tris=");
+                    writer.Write(e.Stats.Triangles);
+                    writer.Write(" verts=");
+                    writer.Write(e.Stats.Vertices);
+                    writer.Write(")");
+                }
+                writer.WriteLine();
+            }
+            writer.WriteLine();
+        }
+
         private float AddEvent(float x, int maxDepth, int index, ProfilerGPU.Event[] events, ContainerControl parent)
         {
             ref ProfilerGPU.Event e = ref events[index];

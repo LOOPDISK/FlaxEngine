@@ -229,6 +229,46 @@ namespace FlaxEditor.Windows.Profiler
             base.OnDestroy();
         }
 
+        /// <inheritdoc />
+        public override void DumpFrame(int frameIndex, System.IO.TextWriter writer)
+        {
+            if (_events == null || _events.Count == 0)
+                return;
+            var threads = _events.Get(frameIndex);
+            if (threads == null)
+                return;
+            writer.WriteLine("=== CPU ===");
+            for (int j = 0; j < threads.Length; j++)
+            {
+                var thread = threads[j];
+                if (thread.Events == null || thread.Events.Length == 0)
+                    continue;
+                writer.WriteLine($"[Thread] {thread.Name} ({thread.Events.Length} events)");
+                for (int i = 0; i < thread.Events.Length; i++)
+                {
+                    ref var e = ref thread.Events[i];
+                    double durMs = e.End - e.Start;
+                    if (durMs < MinEventTimeMs)
+                        durMs = 0.0;
+                    writer.Write(new string(' ', (e.Depth + 1) * 2));
+                    writer.Write(e.Name);
+                    writer.Write("  ");
+                    writer.Write(durMs.ToString("0.0000"));
+                    writer.Write(" ms");
+                    if (e.ManagedMemoryAllocation != 0 || e.NativeMemoryAllocation != 0)
+                    {
+                        writer.Write("  (alloc native=");
+                        writer.Write(e.NativeMemoryAllocation);
+                        writer.Write("B managed=");
+                        writer.Write(e.ManagedMemoryAllocation);
+                        writer.Write("B)");
+                    }
+                    writer.WriteLine();
+                }
+            }
+            writer.WriteLine();
+        }
+
         private struct ViewRange
         {
             public double Start;
