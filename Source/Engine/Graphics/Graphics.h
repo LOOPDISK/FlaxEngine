@@ -79,6 +79,27 @@ public:
     API_FIELD() static bool OcclusionCulling;
 
     /// <summary>
+    /// Per-frame HZB occlusion-cull stats snapshot.
+    /// </summary>
+    API_STRUCT() struct FLAXENGINE_API OcclusionStats
+    {
+        DECLARE_SCRIPTING_TYPE_MINIMAL(OcclusionStats);
+        /// <summary>Active HZB pyramids (main camera, sniper scope, etc.).</summary>
+        API_FIELD() int32 PyramidsActive = 0;
+        /// <summary>Total per-(pyramid,consumer) cull slots across all pyramids.</summary>
+        API_FIELD() int32 ConsumerSlots = 0;
+        /// <summary>Total bounds entries tested in the most recent dispatch across all slots.</summary>
+        API_FIELD() int32 BoundsTested = 0;
+        /// <summary>Total entries marked visible in the latest completed readback across all slots.</summary>
+        API_FIELD() int32 Visible = 0;
+    };
+
+    /// <summary>
+    /// Collects current HZB occlusion-cull statistics by walking all active pyramids and slots.
+    /// </summary>
+    API_FUNCTION() static OcclusionStats GetOcclusionStats();
+
+    /// <summary>
     /// The default Post Process settings. Can be overriden by PostFxVolume on a level locally, per camera or for a whole map.
     /// </summary>
     API_FIELD() static PostProcessSettings PostProcessSettings;

@@ -161,10 +161,33 @@ private:
     Float3 _mainViewPosition;
     float _shadowCullDistance2;
     float _shadowCullRadius;
-    HZBData* _hzb = nullptr;
-    bool _checkHZB = true;
-    int _lastHZBId = -1;
-    int _lastHZBFrame = -1;
+
+    // Per-FoliageType HZB cull state. Parallel arrays, sized to FoliageTypes.Count() and
+    // resynced at the top of each Draw call.
+    //  _hzbBoundsCpu:  world-space Float4(center, radius) CPU array for this type. Pyramid-side
+    //                  staging copies from this pointer in HZBCullSlot::Dispatch.
+    //  _hzbCount:      number of valid bound entries (== this type's instance count after the
+    //                  last rebuild). Drives the dispatch's thread count.
+    //  _hzbDirtyAll:   needs full rewalk over Instances to reassign HZBKey + repopulate bounds.
+    //  _hzbActiveSlot: borrowed verdict slot on the main pyramid for this frame; nullptr when
+    //                  HZB cull is not in play this frame (multi-frustum batch / disabled).
+    Array<Array<Float4>> _hzbBoundsCpu;
+    Array<int32>         _hzbCount;
+    Array<bool>          _hzbDirtyAll;
+    Array<HZBCullSlot*>  _hzbActiveSlot;
+
+    void MarkTypeDirty(int32 typeIdx);
+    void MarkAllTypesDirty();
+    void SyncHzbArrays(int32 typeCount);
+    void RebuildAndDispatchType(int32 typeIdx, HZBCullSlot* slot, HZBData* pyramid);
+    void ReleaseHzbResources();
+
+    // Wires _hzbActiveSlot[t] to a per-type pyramid consumer for this frame and schedules the
+    // per-type bounds upload + cull dispatch via AddDelayedDraw on mainContext.List. Caller
+    // guarantees this is the main-view single-frustum context (no shadow projections). When
+    // the view is HZB-ineligible (occlusion off / no pyramid), clears _hzbActiveSlot to nullptr
+    // so CheckVisibility fail-opens.
+    void SetupHzbForMainView(RenderContext& mainContext);
 
     bool CheckVisibility(FoliageCluster* cluster, const BoundingSphere& bounds) const;
     bool CheckVisibility(FoliageInstance& instance, const BoundingSphere& bounds) const;
@@ -242,4 +265,7 @@ protected:
     void OnEnable() override;
     void OnDisable() override;
     void OnTransformChanged() override;
+
+public:
+    ~Foliage();
 };

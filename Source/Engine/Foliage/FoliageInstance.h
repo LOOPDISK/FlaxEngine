@@ -51,6 +51,13 @@ API_STRUCT(NoPod) struct FLAXENGINE_API FoliageInstance
 
     int32 WasCulled : 1;
 
+    /// <summary>
+    /// Per-(foliage-type) dense index used by HZB cull verdict lookup. Assigned by Foliage
+    /// during the per-type bounds upload walk; -1 means "no layout yet" (HZBCullSlot::TestVisibility
+    /// fail-opens on out-of-range keys).
+    /// </summary>
+    int32 HZBKey = -1;
+
 public:
     bool operator==(const FoliageInstance& v) const
     {

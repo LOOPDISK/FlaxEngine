@@ -1,71 +1,38 @@
 #include "HierarchialZBufferPass.h"
 #include "Renderer.h"
-#include "ReflectionsPass.h"
 #include "Engine/Core/Config/GraphicsSettings.h"
-#include "Engine/Threading/ThreadPoolTask.h"
 #include "Engine/Content/Content.h"
 #include "Engine/Engine/EngineService.h"
-#include "Engine/Level/Actors/PointLight.h"
-#include "Engine/Level/Actors/EnvironmentProbe.h"
-#include "Engine/Level/Actors/SkyLight.h"
-#include "Engine/Level/SceneQuery.h"
-#include "Engine/Level/LargeWorlds.h"
-#include "Engine/ContentExporters/AssetExporters.h"
-#include "Engine/Serialization/FileWriteStream.h"
-#include "Engine/Engine/Time.h"
+#include "Engine/Engine/Engine.h"
+#include "Engine/Engine/Screen.h"
 #include "Engine/Content/Assets/Shader.h"
 #include "Engine/Content/AssetReference.h"
 #include "Engine/Graphics/Graphics.h"
+#include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Graphics/GPUContext.h"
+#include "Engine/Graphics/GPUBuffer.h"
 #include "Engine/Graphics/Textures/GPUTexture.h"
-#include "Engine/Graphics/Textures/TextureData.h"
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/RenderBuffers.h"
-#include "Engine/Engine/Engine.h"
-#include "Engine/Engine/Screen.h"
+#include "Engine/Graphics/Shaders/GPUShader.h"
 #include "Engine/Renderer/RenderList.h"
-#include "Engine/Scripting/Scripting.h"
-#include "Engine/Input/Input.h"
+#include "Engine/Engine/Engine.h"
+#include "Engine/Threading/Task.h"
+#include "Engine/Core/Utilities.h"
+#include "Engine/Profiler/Profiler.h"
 
 #define HZB_FORMAT PixelFormat::R32_Float
-#define HZB_BOUNDS_BIAS 10.0f // adds this many pixels to a query objects bounding box on the screen. Increase this to reduce pop-in, at the cost of more conservative occlusion.
+#define HZB_CULL_GROUP_SIZE 64
 
-namespace
-{
-    CriticalSection DownloadsLocker;
-}
-
-/// <summary>
-/// Custom task called after downloading HZB texture data to save it.
-/// </summary>
-class UploadHZBTask : public ThreadPoolTask
-{
-private:
-    int64 _index = 0;
-    HZBData* _info;
-
-public:
-    UploadHZBTask(HZBData* info, int64 i) : _info(info), _index(i) { }
-    bool Run() override
-    {
-        _info->CompleteDownload(_index);
-        return true;
-    }
-};
-
-String HierarchialZBufferPass::ToString()const
+String HierarchialZBufferPass::ToString() const
 {
     return TEXT("HierarchialZBufferPass");
 }
 
 bool HierarchialZBufferPass::Init()
 {
-    // Active only on MainRenderTask. To use on all render tasks, uncomment the corresponding line in Renderer.cpp and remove this.
     MainRenderTask::Instance->PreRender.Bind<HierarchialZBufferPass, &HierarchialZBufferPass::Render>(this);
-
-    // Check platform support
-    const auto device = GPUDevice::Instance;
-    _supported = device->GetFeatureLevel() >= FeatureLevel::ES2;
+    _supported = GPUDevice::Instance->GetFeatureLevel() >= FeatureLevel::ES2;
     return false;
 }
 
@@ -74,7 +41,6 @@ bool HierarchialZBufferPass::setupResources()
     if (!_supported)
         return true;
 
-    // Load shader
     if (_shader == nullptr)
     {
         _shader = Content::LoadAsyncInternal<Shader>(TEXT("Shaders/HZB"));
@@ -87,25 +53,42 @@ bool HierarchialZBufferPass::setupResources()
     if (!_shader->IsLoaded())
         return true;
 
+    if (_shaderCull == nullptr)
+    {
+        _shaderCull = Content::LoadAsyncInternal<Shader>(TEXT("Shaders/HZBCull"));
+        if (_shaderCull == nullptr)
+            return true;
+#if COMPILE_WITH_DEV_ENV
+        _shaderCull.Get()->OnReloading.Bind<HierarchialZBufferPass, &HierarchialZBufferPass::OnShaderReloading>(this);
+#endif
+    }
+    if (!_shaderCull->IsLoaded())
+        return true;
+
     const auto device = GPUDevice::Instance;
     const auto shader = _shader->GetShader();
+    const auto shaderCull = _shaderCull->GetShader();
 
     _cb = shader->GetCB(0);
     _cbDebug = shader->GetCB(1);
-    if (!_cb || !_cbDebug)
+    _cbCull = shaderCull->GetCB(0);
+    if (!_cb || !_cbDebug || !_cbCull)
         return true;
 
-    // Create pipeline stages
+    _csCull = shaderCull->GetCS("CS_HZBCull");
+    if (!_csCull)
+        return true;
+
     _psHZB = device->CreatePipelineState();
-    GPUPipelineState::Description psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
     {
+        GPUPipelineState::Description psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
         psDesc.PS = shader->GetPS("PS_HZB");
         if (_psHZB->Init(psDesc))
             return true;
     }
     _psDebug = device->CreatePipelineState();
-    psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
     {
+        GPUPipelineState::Description psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
         psDesc.PS = shader->GetPS("PS_DebugView");
         if (_psDebug->Init(psDesc))
             return true;
@@ -115,32 +98,31 @@ bool HierarchialZBufferPass::setupResources()
 }
 
 #if COMPILE_WITH_DEV_ENV
-
 void HierarchialZBufferPass::OnShaderReloading(Asset* obj)
 {
     SAFE_DELETE_GPU_RESOURCE(_psHZB);
     SAFE_DELETE_GPU_RESOURCE(_psDebug);
+    _csCull = nullptr;
     invalidateResources();
 }
-
 #endif
 
 void HierarchialZBufferPass::Dispose()
 {
     RendererPass::Dispose();
 
-    // Release data
     SAFE_DELETE_GPU_RESOURCE(_psHZB);
     SAFE_DELETE_GPU_RESOURCE(_psDebug);
+    _csCull = nullptr;
 
     for (int i = 0; i < _info.Count(); i++)
     {
-        auto info = _info[i];
-        info->Dispose();
-        Delete(info);
+        _info[i]->Dispose();
+        Delete(_info[i]);
     }
     _info.Clear();
     _shader = nullptr;
+    _shaderCull = nullptr;
 }
 
 HZBData* HierarchialZBufferPass::GetOrCreateInfo(RenderContext& renderContext)
@@ -148,26 +130,23 @@ HZBData* HierarchialZBufferPass::GetOrCreateInfo(RenderContext& renderContext)
     auto info = renderContext.Task->OcclusionInfo;
     if (info == nullptr)
     {
-        // create a new HZBData to be associated with this SceneRenderTask
         info = New<HZBData>();
-        info->Id = _info.Count();
         renderContext.Task->OcclusionInfo = info;
         _info.Add(info);
     }
     return info;
 }
 
-GPU_CB_STRUCT(HZBShaderData{
+GPU_CB_STRUCT(HZBShaderData {
     Float2 Dimensions;
     Float2 DepthDimensions;
     int Level;
     int Offset;
     int PrevOffset;
     float Dummy0;
-    }
-);
+});
 
-GPU_CB_STRUCT(HZBDebugData{
+GPU_CB_STRUCT(HZBDebugData {
     Float4 ViewInfo;
     Float3 ViewPos;
     float ViewFar;
@@ -176,183 +155,98 @@ GPU_CB_STRUCT(HZBDebugData{
     Float2 Size;
     Float2 Dummy1;
     Int4 TestRect;
-    }
-);
+});
 
-static bool FindTestRectangle(const Tag& tag, Actor* actor, HZBData* hzb, Int4& testRect)
-{
-    if (actor->HasTag(tag)) 
-    {
-        int startX, endX, startY, endY;
-        float targetDistance; 
-        TextureMipData* texData;
-        if (hzb->GetOcclusionBounds(actor->GetSphere(), startX, endX, startY, endY, targetDistance, texData))
-        {
-            testRect = Int4(startX, startY, endX, endY);
-            return true;
-        }
-    }
-
-    for (auto child : actor->Children)
-    {
-        if (FindTestRectangle(tag, child, hzb, testRect))
-        {
-            return true;
-        }
-    }
-    return false;
-}
+GPU_CB_STRUCT(HZBCullCBData {
+    Matrix ViewProjection;
+    Float3 ViewForward;
+    float ViewNear;
+    Float2 PyramidBase;
+    uint32 TotalBounds;
+    uint32 MaxLevel;
+    Float3 ViewOrigin;
+    uint32 NumSlots;
+    uint32 Pad0;
+    uint32 Pad1;
+    uint32 Pad2;
+    uint32 Pad3;
+});
 
 void HierarchialZBufferPass::RenderDebug(RenderContext& renderContext, GPUContext* context)
 {
-    if (!Graphics::OcclusionCulling) return;
-    // draws the HZB pyramid over the depth buffer
-
-    // auto info = GetOrCreateInfo(renderContext);
-    // get the first HZBInfo, the main render tasks, instead of the debug one.
+    if (!Graphics::OcclusionCulling)
+        return;
     if (_info.Count() == 0)
         return;
     auto info = _info[0];
-
     if (info->CheckSkip())
-    {
         return;
-    }
-
-    if (info->CurrentFrameIndex < 0)
+    if (!info->_hasValidPyramid)
         return;
 
-    Int4 testRect = Int4::Zero;
-    auto hzb = MainRenderTask::Instance->OcclusionInfo;
-    if (hzb)
-    {
-        // search for an actor with the special tag to draw in the debug view
-        Tag tag = Tags::Get(TEXT("Debug.HZB"));
-        if (tag)
-        {
-            bool found = false;
-            for (auto scene : Level::Scenes)
-            {
-                for (auto actor : scene->Children)
-                {
-                    if (FindTestRectangle(tag, actor, hzb, testRect))
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-                if (found) break;
-            }
-        }
-    }
-
-    // Set constants buffer
     HZBDebugData data;
     data.Size = info->_depthTexture->Size();
     data.ViewInfo = renderContext.View.ViewInfo;
     data.ViewPos = renderContext.View.Position;
     data.ViewFar = renderContext.View.Far;
-    data.TestRect = testRect;
+    data.TestRect = Int4::Zero;
     Matrix::Transpose(renderContext.View.IV, data.InvViewMatrix);
     Matrix::Transpose(renderContext.View.IP, data.InvProjectionMatrix);
 
     context->UpdateCB(_cbDebug, &data);
     context->BindCB(1, _cbDebug);
-
     context->BindSR(0, info->_depthTexture);
     context->BindUA(1, info->_hzbTexture->View());
     context->SetState(_psDebug);
-
     context->DrawFullscreenTriangle();
-
-    // Cleanup
     context->ClearState();
 }
 
 void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderContext)
 {
-    if (!Graphics::OcclusionCulling) return;
-    // Skip if not supported
+    if (!Graphics::OcclusionCulling)
+        return;
     if (checkIfSkipPass())
         return;
 
-    // Get and/or init
     auto info = GetOrCreateInfo(renderContext);
     if (info->CheckSkip())
-    {
-        return;
-    }
-
-    int64 currentIndex = info->_nextRenderFrameIndex;
-    HZBFrame* renderFrame = &info->_frames[currentIndex % HZB_FRAME_COUNT];
-    info->_nextRenderFrameIndex = info->_nextRenderFrameIndex + 1;
-
-    if (renderFrame->IsDownloading)
         return;
 
-    // save view settings
+    PROFILE_GPU_CPU("HZB Build");
+
     Viewport viewport = renderContext.Task->GetOutputViewport();
-
-    renderFrame->Viewport = viewport;
-    renderFrame->ViewPosition = renderContext.View.WorldPosition;
-    renderFrame->VP = renderContext.View.ViewProjection();
-    renderFrame->ViewDirection = renderContext.View.Direction;
-    renderFrame->ViewDirectionPerpendicular = Float3::Cross(renderContext.View.Direction, Float3::Up).GetNormalized();
-    if (renderFrame->ViewDirectionPerpendicular.LengthSquared() < 0.001f)
-    { // looking up, choose different direction
-        renderFrame->ViewDirectionPerpendicular = Float3::Cross(renderContext.View.Direction, Float3::Left).GetNormalized();
-    }
-
-    // Resize if screen resolution changed
     Float2 resolution = viewport.Size;
     int32 sizeX = Math::RoundToInt(resolution.X * 0.5f);
     int32 sizeY = Math::RoundToInt(resolution.Y * 0.5f);
-    sizeX += sizeX % 2; // round to nearest even number
-    sizeY += sizeY % 2; // round to nearest even number
+    sizeX += sizeX % 2;
+    sizeY += sizeY % 2;
     int32 depth = Math::Max(2, (int)Math::Log2(resolution.MaxValue()));
+
     if (resolution != info->_resolution)
     {
         if (info->_depthTexture->Resize(sizeX, sizeY, GPU_DEPTH_BUFFER_PIXEL_FORMAT))
-        {
             LOG(Error, "Failed to resize HZB depth");
-        }
-
-        if (info->_hzbTexture->Resize(sizeX, sizeY, PixelFormat::R32_Float))
-        {
+        if (info->_hzbTexture->Resize(sizeX, sizeY, HZB_FORMAT))
             LOG(Error, "Failed to resize HZB");
-        }
-
-        for (int i = 0; i < HZB_FRAME_COUNT; i++)
-        {
-            if (info->_frames[i].StagingTexture->Resize(sizeX, sizeY, PixelFormat::R32_Float))
-            {
-                LOG(Error, "Failed to resize HZB staging");
-            }
-        }
+        info->_hasValidPyramid = false;
     }
     info->_resolution = resolution;
 
-    // custom depth drawing instead of using existing depth
-    //// Draw depth
-    //PROFILE_GPU("HZB depth");
-    //StaticFlags oldMask = renderContext.View.StaticFlagsMask;
-    //StaticFlags oldCompare = renderContext.View.StaticFlagsCompare;
-    //renderContext.Task->View.StaticFlagsMask = StaticFlags::Occluder;
-    //renderContext.Task->View.StaticFlagsCompare = StaticFlags::Occluder;
-    //context->ClearDepth(info->_depthTexture->View());
-    //Renderer::DrawSceneDepth(context, renderContext.Task, info->_depthTexture, _emptyArray);
-    //context->ClearState();
-    //renderContext.Task->View.StaticFlagsMask = oldMask;
-    //renderContext.Task->View.StaticFlagsCompare = oldCompare;
+    // Capture camera state for subsequent cull dispatches this frame.
+    info->_vp = renderContext.View.ViewProjection();
+    info->_viewForward = renderContext.View.Direction;
+    info->_viewNear = renderContext.View.Near;
+    info->_pyramidBase = Float2((float)(sizeX / 2), (float)(sizeY / 2));
+    info->_maxLevel = (uint32)depth;
+    info->_viewOrigin = renderContext.View.Origin;
 
-    // Render hierarchy
     Float2 depthDimensions = renderContext.Buffers->DepthBuffer->Size();
-    int prevHeight = renderContext.Buffers->DepthBuffer->Height();
     int currWidth = sizeX / 2;
     int currHeight = sizeY / 2;
     int offset = 0;
     int prevOffset = 0;
-    context->Clear(info->_hzbTexture->View(), Color::White);
+    context->ClearUA(info->_hzbTexture, Float4::One);
     context->SetRenderTarget(info->_depthTexture->View(), (GPUTextureView*)nullptr);
     for (int i = 0; i < depth; i++)
     {
@@ -364,10 +258,9 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
         data.Level = i;
         data.Offset = offset;
         data.PrevOffset = prevOffset;
-
         context->UpdateCB(_cb, &data);
         context->BindCB(0, _cb);
-        context->BindSR(0, renderContext.Buffers->DepthBuffer);//info->_depthTexture);
+        context->BindSR(0, renderContext.Buffers->DepthBuffer);
         context->BindUA(1, info->_hzbTexture->View());
         context->SetState(_psHZB);
         context->DrawFullscreenTriangle();
@@ -378,24 +271,208 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
         currHeight = Math::Max(1, currHeight / 2);
     }
     context->ClearState();
-
-    // Reset to the original viewport
     context->SetViewport(renderContext.Task->GetOutputViewport());
 
-    // Create async job to gather hzb data from the GPU
-    context->CopyTexture(renderFrame->StagingTexture, 0, 0, 0, 0, info->_hzbTexture, 0);
-    renderFrame->IsDownloading = true;
-    Task* uploadTask = New<UploadHZBTask>(info, currentIndex);
-    Task* downloadTask = renderFrame->StagingTexture->DownloadDataAsync(renderFrame->TextureData);
-
-    if (downloadTask == nullptr)
-    {
-        LOG(Fatal, "Failed to create async task to download HZB texture data from the GPU.");
-    }
-    downloadTask->ContinueWith(uploadTask);
-    downloadTask->Start();
+    info->_hasValidPyramid = true;
 }
 
+// Round up to a power-of-two not smaller than v, with a floor of 64.
+static FORCE_INLINE int32 RoundUpPOT(int32 v, int32 floor = 64)
+{
+    int32 cap = Math::Max(floor, 1);
+    while (cap < v)
+        cap *= 2;
+    return cap;
+}
+
+void HierarchialZBufferPass::FlushPendingCulls(GPUContext* context)
+{
+    if (!_supported || !_csCull)
+        return;
+
+    for (HZBData* pyramid : _info)
+    {
+        if (!pyramid)
+            continue;
+
+        const int32 numEntries = pyramid->_pendingDispatches.Count();
+        if (numEntries == 0 || !pyramid->IsReady())
+        {
+            pyramid->_pendingDispatches.Clear();
+            pyramid->_boundsStaging.Clear();
+            pyramid->_pendingTotalWords = 0;
+            continue;
+        }
+
+        // One async readback per pyramid in flight. While the previous chain is still filling
+        // _batchBytes, skip this frame entirely - slots keep their last verdict.
+        if (pyramid->_batchReadback && !pyramid->_batchReadback->IsChainEnded())
+        {
+            pyramid->_pendingDispatches.Clear();
+            pyramid->_boundsStaging.Clear();
+            pyramid->_pendingTotalWords = 0;
+            continue;
+        }
+
+        // Build slot table CPU-side. Walk pending entries, compute cumulativeThreadStart.
+        // Scrubbed slots (Slot == nullptr) get count=0 so they consume zero threads in the CS.
+        pyramid->_slotTableStaging.Resize(numEntries);
+        HZBData::SlotTableEntry* slotRows = pyramid->_slotTableStaging.Get();
+        uint32 cumThread = 0;
+        for (int32 i = 0; i < numEntries; i++)
+        {
+            const HZBData::BatchEntry& e = pyramid->_pendingDispatches[i];
+            const uint32 count = (e.Slot != nullptr) ? e.BoundsCount : 0u;
+            HZBData::SlotTableEntry& row = slotRows[i];
+            row.BoundsOffset = e.BoundsStagingOffset;
+            row.Count = count;
+            row.WriteOffsetWords = e.WriteOffsetWords;
+            row.CumThread = cumThread;
+            cumThread += count;
+        }
+
+        const uint32 totalBounds = cumThread;
+        const int32 stagedBounds = pyramid->_boundsStaging.Count();
+        if (totalBounds == 0 || stagedBounds == 0)
+        {
+            pyramid->_pendingDispatches.Clear();
+            pyramid->_boundsStaging.Clear();
+            pyramid->_pendingTotalWords = 0;
+            continue;
+        }
+
+        PROFILE_GPU_CPU("HZB Cull Batch");
+
+        // (Re)size the shared visibility buffer to fit all slots' bit ranges concatenated.
+        const int32 needBytes = (int32)pyramid->_pendingTotalWords * 4;
+        if (!pyramid->_batchVisBuffer || pyramid->_batchVisBuffer->GetSize() < needBytes)
+        {
+            SAFE_DELETE_GPU_RESOURCE(pyramid->_batchVisBuffer);
+            pyramid->_batchVisBuffer = GPUDevice::Instance->CreateBuffer(TEXT("HZBCull.BatchVis"));
+            if (pyramid->_batchVisBuffer->Init(GPUBufferDescription::Raw(needBytes, GPUBufferFlags::UnorderedAccess | GPUBufferFlags::ShaderResource)))
+            {
+                SAFE_DELETE_GPU_RESOURCE(pyramid->_batchVisBuffer);
+                pyramid->_pendingDispatches.Clear();
+                pyramid->_boundsStaging.Clear();
+                pyramid->_pendingTotalWords = 0;
+                continue;
+            }
+        }
+
+        // (Re)size the shared bounds buffer - Dynamic, mapped via WRITE_DISCARD once per frame.
+        if (!pyramid->_sharedBoundsBuffer || pyramid->_sharedBoundsCapacity < stagedBounds)
+        {
+            const int32 newCap = RoundUpPOT(stagedBounds, 256);
+            SAFE_DELETE_GPU_RESOURCE(pyramid->_sharedBoundsBuffer);
+            pyramid->_sharedBoundsBuffer = GPUDevice::Instance->CreateBuffer(TEXT("HZBCull.SharedBounds"));
+            if (pyramid->_sharedBoundsBuffer->Init(GPUBufferDescription::Buffer((uint32)newCap * (uint32)sizeof(Float4), GPUBufferFlags::Structured | GPUBufferFlags::ShaderResource, PixelFormat::Unknown, nullptr, (uint32)sizeof(Float4), GPUResourceUsage::Dynamic)))
+            {
+                SAFE_DELETE_GPU_RESOURCE(pyramid->_sharedBoundsBuffer);
+                pyramid->_sharedBoundsCapacity = 0;
+                pyramid->_pendingDispatches.Clear();
+                pyramid->_boundsStaging.Clear();
+                pyramid->_pendingTotalWords = 0;
+                continue;
+            }
+            pyramid->_sharedBoundsCapacity = newCap;
+        }
+
+        // (Re)size the slot table buffer.
+        if (!pyramid->_slotTableBuffer || pyramid->_slotTableCapacity < numEntries)
+        {
+            const int32 newCap = RoundUpPOT(numEntries, 64);
+            SAFE_DELETE_GPU_RESOURCE(pyramid->_slotTableBuffer);
+            pyramid->_slotTableBuffer = GPUDevice::Instance->CreateBuffer(TEXT("HZBCull.SlotTable"));
+            if (pyramid->_slotTableBuffer->Init(GPUBufferDescription::Buffer((uint32)newCap * (uint32)sizeof(HZBData::SlotTableEntry), GPUBufferFlags::Structured | GPUBufferFlags::ShaderResource, PixelFormat::Unknown, nullptr, (uint32)sizeof(HZBData::SlotTableEntry), GPUResourceUsage::Dynamic)))
+            {
+                SAFE_DELETE_GPU_RESOURCE(pyramid->_slotTableBuffer);
+                pyramid->_slotTableCapacity = 0;
+                pyramid->_pendingDispatches.Clear();
+                pyramid->_boundsStaging.Clear();
+                pyramid->_pendingTotalWords = 0;
+                continue;
+            }
+            pyramid->_slotTableCapacity = newCap;
+        }
+
+        // Upload bounds: one Map(WRITE_DISCARD) per pyramid.
+        {
+            void* mapped = pyramid->_sharedBoundsBuffer->Map(GPUResourceMapMode::Write);
+            if (mapped)
+            {
+                Platform::MemoryCopy(mapped, pyramid->_boundsStaging.Get(), (uint64)stagedBounds * sizeof(Float4));
+                pyramid->_sharedBoundsBuffer->Unmap();
+            }
+        }
+        // Upload slot table.
+        {
+            void* mapped = pyramid->_slotTableBuffer->Map(GPUResourceMapMode::Write);
+            if (mapped)
+            {
+                Platform::MemoryCopy(mapped, pyramid->_slotTableStaging.Get(), (uint64)numEntries * sizeof(HZBData::SlotTableEntry));
+                pyramid->_slotTableBuffer->Unmap();
+            }
+        }
+
+        // Single clear for the whole frame's verdict bits.
+        const uint32 zeros[4] = { 0, 0, 0, 0 };
+        context->ClearUA(pyramid->_batchVisBuffer, zeros);
+
+        HZBCullCBData cb;
+        Matrix::Transpose(pyramid->_vp, cb.ViewProjection);
+        cb.ViewForward = pyramid->_viewForward;
+        cb.ViewNear = pyramid->_viewNear;
+        cb.PyramidBase = pyramid->_pyramidBase;
+        cb.TotalBounds = totalBounds;
+        cb.MaxLevel = pyramid->_maxLevel;
+        cb.ViewOrigin = pyramid->_viewOrigin;
+        cb.NumSlots = (uint32)numEntries;
+        cb.Pad0 = 0;
+        cb.Pad1 = 0;
+        cb.Pad2 = 0;
+        cb.Pad3 = 0;
+        context->UpdateCB(_cbCull, &cb);
+
+        context->BindCB(0, _cbCull);
+        context->BindSR(0, pyramid->_sharedBoundsBuffer->View());
+        context->BindSR(1, pyramid->_slotTableBuffer->View());
+        context->BindSR(2, pyramid->_hzbTexture->View());
+        context->BindUA(0, pyramid->_batchVisBuffer->View());
+
+        const uint32 groups = (totalBounds + HZB_CULL_GROUP_SIZE - 1u) / HZB_CULL_GROUP_SIZE;
+        context->Dispatch(_csCull, groups, 1, 1);
+
+        context->ResetSR();
+        context->ResetUA();
+
+        // Stamp slot slices ONLY when we actually kick a new readback - slot promotion compares
+        // _batchFrame to pyramid->_batchReadbackFrame to detect "is this slice in the buffer the
+        // readback is filling".
+        const uint64 frame = Engine::FrameCount;
+        for (int32 i = 0; i < numEntries; i++)
+        {
+            const HZBData::BatchEntry& e = pyramid->_pendingDispatches[i];
+            if (!e.Slot)
+                continue;
+            e.Slot->_batchOffsetWords = e.WriteOffsetWords;
+            e.Slot->_batchCount = (int32)e.BoundsCount;
+            e.Slot->_batchFrame = frame;
+        }
+        pyramid->_batchReadbackFrame = frame;
+
+        // Kick the single async readback for this pyramid.
+        Task* dl = pyramid->_batchVisBuffer->DownloadDataAsync(pyramid->_batchBytes);
+        if (dl)
+        {
+            pyramid->_batchReadback = dl;
+            dl->Start();
+        }
+
+        pyramid->_pendingDispatches.Clear();
+        pyramid->_boundsStaging.Clear();
+        pyramid->_pendingTotalWords = 0;
+    }
+}
 
 bool HZBData::Init()
 {
@@ -403,31 +480,20 @@ bool HZBData::Init()
         return false;
     const auto device = GPUDevice::Instance;
 
-    // Init depth texture
     _depthTexture = device->CreateTexture(TEXT("HZB.Depth"));
     Float2 resolution = Screen::GetSize();
     int32 sizeX = Math::RoundToInt(resolution.X * 0.5f);
     int32 sizeY = Math::RoundToInt(resolution.Y * 0.5f);
-    sizeX += sizeX % 2; // round to nearest even number
-    sizeY += sizeY % 2; // round to nearest even number
+    sizeX += sizeX % 2;
+    sizeY += sizeY % 2;
     if (_depthTexture->Init(GPUTextureDescription::New2D(sizeX, sizeY, GPU_DEPTH_BUFFER_PIXEL_FORMAT, GPUTextureFlags::ShaderResource | GPUTextureFlags::DepthStencil)))
         return true;
 
-    // Init hzb
     _hzbTexture = device->CreateTexture(TEXT("HZB.Pyramid"));
     auto desc = GPUTextureDescription::New2D(sizeX, sizeY, HZB_FORMAT, GPUTextureFlags::ShaderResource | GPUTextureFlags::UnorderedAccess);
     if (_hzbTexture->Init(desc))
         return true;
 
-    // Init staging textures
-    for (int i = 0; i < HZB_FRAME_COUNT; i++)
-    {
-        _frames[i].Index = i;
-        _frames[i].StagingTexture = device->CreateTexture(TEXT("HZB.Staging"));
-        desc = desc.ToStagingReadback();
-        if (_frames[i].StagingTexture->Init(desc))
-            return true;
-    }
     _isReady = true;
     return false;
 }
@@ -436,38 +502,47 @@ void HZBData::Dispose()
 {
     _isReady = false;
     _isValid = false;
+    _hasValidPyramid = false;
 
-    // Release GPU data
     if (_depthTexture)
         _depthTexture->ReleaseGPU();
     if (_hzbTexture)
         _hzbTexture->ReleaseGPU();
 
-    // Release data
     SAFE_DELETE_GPU_RESOURCE(_depthTexture);
     SAFE_DELETE_GPU_RESOURCE(_hzbTexture);
     _depthTexture = nullptr;
     _hzbTexture = nullptr;
 
-    for (int i = 0; i < HZB_FRAME_COUNT; i++)
+    if (_batchReadback)
     {
-        auto stagingTexture = _frames[i].StagingTexture;
-        if (stagingTexture)
+        // Cancel + wait chain so the continuation can't still be writing to _batchBytes when we
+        // release. Same shutdown caveat as the old per-slot readback: Engine::IsRequestingExit
+        // means the deferred-delete queue may have already freed the task - skip touching it.
+        if (!Engine::IsRequestingExit)
         {
-            stagingTexture->ReleaseGPU();
-            SAFE_DELETE_GPU_RESOURCE(stagingTexture);
-            _frames[i].StagingTexture = nullptr;
+            _batchReadback->Cancel();
+            _batchReadback->WaitChain();
         }
+        _batchReadback = nullptr;
     }
+    SAFE_DELETE_GPU_RESOURCE(_batchVisBuffer);
+    SAFE_DELETE_GPU_RESOURCE(_sharedBoundsBuffer);
+    SAFE_DELETE_GPU_RESOURCE(_slotTableBuffer);
+    _sharedBoundsCapacity = 0;
+    _slotTableCapacity = 0;
+    _batchBytes.Release();
+    _pendingDispatches.Clear();
+    _boundsStaging.Clear();
+    _slotTableStaging.Clear();
+    _pendingTotalWords = 0;
 }
 
 bool HZBData::CheckSkip()
 {
-    if (_isValid == false)
-    {
+    if (!_isValid)
         return true;
-    }
-    if (_isReady == false)
+    if (!_isReady)
     {
         if (Init())
         {
@@ -475,129 +550,150 @@ bool HZBData::CheckSkip()
             return true;
         }
     }
-
-    if (_nextRenderFrameIndex >= CurrentFrameIndex + HZB_FRAME_COUNT)
-    { // already far ahead, skip to let downloads catch up
-        return true;
-    }
     return false;
 }
 
-void HZBData::CompleteDownload(int64 index)
+HZBData::~HZBData()
 {
-    DownloadsLocker.Lock();
-    CurrentFrameIndex = Math::Max(CurrentFrameIndex, index);
-    _frames[index % HZB_FRAME_COUNT].IsDownloading = false;
-    DownloadsLocker.Unlock();
-}
-
- bool HZBData::GetOcclusionBounds(const BoundingSphere& bounds, int& startX, int& endX, int& startY, int& endY, float& targetDistance, TextureMipData*& data)
-{
-     if (!Graphics::OcclusionCulling) return false;
-     if (!_isReady) return false;
-     if (CurrentFrameIndex < 0) return false;
-
-     HZBFrame* activeFrame = &_frames[CurrentFrameIndex % HZB_FRAME_COUNT];
-     
-     if (Vector3::Dot(bounds.Center - activeFrame->ViewPosition, activeFrame->ViewDirection) <= 0.5f)
-     { // camera is facing opposite of the frame
-         return false;
-     }
-     // no data yet
-     if (activeFrame->TextureData.GetArraySize() == 0)
-         return false;
-
-     data = activeFrame->TextureData.GetData(0, 0);
-     if (data->Data.Length() == 0)
-     {
-         return false;
-     }
-
-    // get sphere center and radius in screen space
-    Vector3 centerProj, radiusProj, closestProj;
-    activeFrame->Viewport.Project(bounds.Center, activeFrame->VP, centerProj);
-    activeFrame->Viewport.Project(bounds.Center + activeFrame->ViewDirectionPerpendicular * bounds.Radius, activeFrame->VP, radiusProj);
-    activeFrame->Viewport.Project(bounds.Center - activeFrame->ViewDirection * bounds.Radius, activeFrame->VP, closestProj);
-
-    // increase this to reduce pop in, at the expense of less occlusion
-    float radiusLength = HZB_BOUNDS_BIAS + Float2::Distance(Float2(centerProj.X, centerProj.Y), Float2(radiusProj.X, radiusProj.Y));
-
-    // all the halving is because the buffer is already 50% of the full screen, and level 0 is half of that. The other levels are stacked horizontally to the right of it
-    centerProj *= 0.5f;
-    radiusLength *= 0.5f;
-    if (closestProj.Z > 1.0f || closestProj.Z < 0)
-    { // early exit if object is too close or far.
-        return false;
-    }
-    targetDistance = closestProj.Z;
-
-    int offset = 0; // horizontal offset for finding the other levels
-    int width = (int)(activeFrame->TextureData.Width * 0.5f);
-    int height = (int)(activeFrame->TextureData.Height * 0.5f);
-    centerProj *= 0.5f;
-    radiusLength *= 0.5f;
-
-    int level = Math::Max(0.0f, Math::Log2(radiusLength * 2.0f) - 1.0f - 2);
-
-    // set calculations to appropriate level, which are stacked horizontally on the top right
-    for (int i = 0; i < level; i++)
+    // Defensive: HierarchialZBufferPass::Dispose calls our Dispose() before Delete; but if anything
+    // ever destroys an HZBData without going through Dispose, _batchReadback would dangle.
+    if (_batchReadback)
     {
-        offset += width;
-        width = Math::Max(1, width / 2);
-        height = Math::Max(1, height / 2);
-        radiusLength *= 0.5f;
-        centerProj *= 0.5f;
-        if (width <= 2 || height <= 2)
-        { // break early if next iteration will be too small
-            level = i;
-            break;
-        }
-    }
-    startX = Math::FloorToInt(centerProj.X - radiusLength);
-    endX = Math::CeilToInt(centerProj.X + radiusLength);
-    startY = Math::FloorToInt(centerProj.Y - radiusLength);
-    endY = Math::CeilToInt(centerProj.Y + radiusLength);
-    if ((startX > width - 1 || endX < 0) || (startY > height - 1 || endY < 0))
-    { // bounds were outside the view
-        return false;
-    }
-    startX = Math::Clamp(startX, 0, width - 1);
-    endX = Math::Clamp(endX, 0, width - 1);
-    startX += offset;
-    endX += offset;
-    startY = Math::Clamp(startY, 0, height - 1);
-    endY = Math::Clamp(endY, 0, height - 1);
-    return true;
-}
-
-static bool QueryHZB(int& startX, int& endX, int& startY, int& endY, float& targetDistance, TextureMipData* data)
-{
-    // check each pixel (roughly 2x2) for occlusion
-    for (int x = startX; x <= endX; x++)
-    {
-        for (int y = startY; y <= endY; y++)
+        if (!Engine::IsRequestingExit)
         {
-            float value = data->Get<float>(x, y);
-            if (targetDistance < value)
-            { // the object is closer than this pixel, so don't occlude it
-                return false;
-            }
+            _batchReadback->Cancel();
+            _batchReadback->WaitChain();
+        }
+        _batchReadback = nullptr;
+    }
+    SAFE_DELETE_GPU_RESOURCE(_batchVisBuffer);
+    SAFE_DELETE_GPU_RESOURCE(_sharedBoundsBuffer);
+    SAFE_DELETE_GPU_RESOURCE(_slotTableBuffer);
+
+    ScopeLock lock(_consumersLock);
+    for (auto& kv : _consumers)
+        Delete(kv.Value);
+    _consumers.Clear();
+}
+
+HZBCullSlot* HZBData::GetOrCreateConsumer(void* owner, int32 subId)
+{
+    const uint64 key = PackConsumerKey(owner, subId);
+    ScopeLock lock(_consumersLock);
+    HZBCullSlot** existing = _consumers.TryGet(key);
+    if (existing)
+        return *existing;
+    HZBCullSlot* slot = New<HZBCullSlot>();
+    slot->_owner = owner;
+    _consumers.Add(key, slot);
+    return slot;
+}
+
+void HZBData::ReleaseConsumersOf(void* owner)
+{
+    ScopeLock lock(_consumersLock);
+    Array<uint64, InlinedAllocation<8>> toRemove;
+    for (auto& kv : _consumers)
+    {
+        if (kv.Value->_owner == owner)
+        {
+            // Scrub pending batch entries that reference the slot we're about to delete; otherwise
+            // FlushPendingCulls would touch freed memory when stamping slot fields.
+            for (auto& entry : _pendingDispatches)
+                if (entry.Slot == kv.Value)
+                    entry.Slot = nullptr;
+            Delete(kv.Value);
+            toRemove.Add(kv.Key);
         }
     }
-    // occlusion detected
-    return true;
+    for (uint64 k : toRemove)
+        _consumers.Remove(k);
 }
 
-bool HZBData::CheckOcclusion(const BoundingSphere& bounds)
+int32 HZBCullSlot::CountVisible() const
 {
-    int startX, endX, startY, endY;
-    float targetDistance;
-    TextureMipData* texData;
-    if (GetOcclusionBounds(bounds, startX, endX, startY, endY, targetDistance, texData))
+    if (VisBitsCount <= 0)
+        return 0;
+    const uint32* bits = (const uint32*)VisBits.Get();
+    if (!bits)
+        return 0;
+    const int32 fullWords = VisBitsCount >> 5;
+    const int32 tailBits = VisBitsCount & 31;
+    int32 total = 0;
+    for (int32 i = 0; i < fullWords; i++)
+        total += Utilities::CountBits(bits[i]);
+    if (tailBits)
     {
-        return QueryHZB(startX, endX, startY, endY, targetDistance, texData);
+        const uint32 mask = (1u << (uint32)tailBits) - 1u;
+        total += Utilities::CountBits(bits[fullWords] & mask);
     }
-    return false;
+    return total;
 }
 
+void HierarchialZBufferPass::CollectStats(int32& pyramidsActive, int32& consumerSlots, int32& boundsTested, int32& visible)
+{
+    pyramidsActive = _info.Count();
+    consumerSlots = 0;
+    boundsTested = 0;
+    visible = 0;
+    for (HZBData* pyramid : _info)
+    {
+        if (!pyramid)
+            continue;
+        ScopeLock lock(pyramid->_consumersLock);
+        for (auto& kv : pyramid->_consumers)
+        {
+            HZBCullSlot* slot = kv.Value;
+            if (!slot)
+                continue;
+            consumerSlots++;
+            boundsTested += slot->GetBoundsTested();
+            visible += slot->CountVisible();
+        }
+    }
+}
 
+HZBCullSlot::~HZBCullSlot()
+{
+    VisBits.Release();
+}
+
+void HZBCullSlot::Dispatch(HZBData* pyramid, const Float4* worldBoundsCpu, uint32 boundsCount)
+{
+    if (!pyramid)
+        return;
+
+    // (1) Promote: if the pyramid's last-kicked readback included this slot AND has now drained,
+    // copy our slice out of pyramid->_batchBytes into our own VisBits. _batchFrame is stamped by
+    // FlushPendingCulls only when it actually kicked, so a stale _batchFrame survives skip frames.
+    if (pyramid->_batchReadback && pyramid->_batchReadback->IsChainEnded() &&
+        _batchFrame != 0 && _batchFrame == pyramid->_batchReadbackFrame && _batchCount > 0)
+    {
+        const int32 wordsSlot = (_batchCount + 31) / 32;
+        const int32 byteOffset = (int32)_batchOffsetWords * 4;
+        const int32 byteLen = wordsSlot * 4;
+        if (pyramid->_batchBytes.Length() >= byteOffset + byteLen)
+        {
+            VisBits.Allocate(byteLen);
+            Platform::MemoryCopy(VisBits.Get(), pyramid->_batchBytes.Get() + byteOffset, byteLen);
+            VisBitsCount = _batchCount;
+        }
+    }
+
+    if (!pyramid->IsReady() || boundsCount == 0 || !worldBoundsCpu)
+        return;
+
+    // (2) Copy bounds into the pyramid's per-frame staging, reserve a verdict slice, and queue
+    // the entry. FlushPendingCulls walks _pendingDispatches once after DrainDelayedDraws to run
+    // a single CS for the whole frame. Single-threaded - DrainDelayedDraws is render-thread only.
+    const uint32 words = (boundsCount + 31u) / 32u;
+    const int32 stagingOffset = pyramid->_boundsStaging.Count();
+    pyramid->_boundsStaging.Add(worldBoundsCpu, (int32)boundsCount);
+    HZBData::BatchEntry e;
+    e.BoundsStagingOffset = (uint32)stagingOffset;
+    e.BoundsCount = boundsCount;
+    e.WriteOffsetWords = pyramid->_pendingTotalWords;
+    e.Slot = this;
+    pyramid->_pendingDispatches.Add(e);
+    pyramid->_pendingTotalWords += words;
+}

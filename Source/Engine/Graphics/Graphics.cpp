@@ -10,6 +10,7 @@
 #include "Engine/Engine/EngineService.h"
 #include "Engine/Profiler/ProfilerGPU.h"
 #include "Engine/Profiler/ProfilerMemory.h"
+#include "Engine/Renderer/HierarchialZBufferPass.h"
 #if !USE_EDITOR
 #include "Engine/Render2D/Font.h"
 #endif
@@ -37,6 +38,15 @@ float Graphics::Shadows::MinObjectPixelSize = 2.0f;
 float Graphics::Shadows::CullingSize = 500;
 float Graphics::Shadows::CullingDistance = 2000;
 bool Graphics::PostProcessing::ColorGradingVolumeLUT = true;
+
+Graphics::OcclusionStats Graphics::GetOcclusionStats()
+{
+    OcclusionStats s;
+    HierarchialZBufferPass* pass = HierarchialZBufferPass::Instance();
+    if (pass)
+        pass->CollectStats(s.PyramidsActive, s.ConsumerSlots, s.BoundsTested, s.Visible);
+    return s;
+}
 
 #if GRAPHICS_API_NULL
 extern GPUDevice* CreateGPUDeviceNull();

@@ -4,15 +4,19 @@
 
 #include "Engine/Core/Delegate.h"
 #include "Engine/Core/Collections/Array.h"
+#include "Engine/Core/Collections/Dictionary.h"
 #include "Engine/Core/Math/BoundingSphere.h"
 #include "Engine/Core/Math/BoundingFrustum.h"
 #include "Engine/Level/Actor.h"
 #include "Engine/Platform/CriticalSection.h"
-#include "Engine/Renderer/HierarchialZBufferPass.h"
 
 class SceneRenderTask;
 class SceneRendering;
 class IPhysicsDebug;
+class HZBData;
+class HZBCullSlot;
+class GPUBuffer;
+class GPUContext;
 struct PostProcessSettings;
 struct RenderContext;
 struct RenderContextBatch;
@@ -193,6 +197,10 @@ public:
     }
 #endif
 
+public:
+    SceneRendering() = default;
+    ~SceneRendering();
+
 private:
     Array<BoundingFrustum> _drawFrustumsData;
     DrawActor* _drawListData;
@@ -203,13 +211,28 @@ private:
     float _shadowCullRadius;
     RenderContextBatch* _drawBatch;
     DrawCategory _drawCategory;
-    HZBData* _hzb = nullptr;
-    bool _checkHZB = true;
-    int _lastHZBId = -1;
-    int _lastHZBFrame = -1;
+
+    // The HZBCullSlot for the currently-active main context this Draw() pass. Borrowed pointer -
+    // owned by the pyramid (HZBData::_consumers). Set when occlusion is enabled, the main task has
+    // a pyramid, and the batch has only the main frustum (shadow contexts skip HZB to avoid culling
+    // shadow casters from the main-view pyramid). Cleared back to nullptr at Draw() entry.
+    HZBCullSlot* _drawCull = nullptr;
 
     void DrawActorsJob(int32 i);
 
-    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum);
-    bool CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums);
+    bool CheckVisibility(Actor* actor, int32 index, const BoundingSphere& bounds, const BoundingFrustum& frustum);
+    bool CheckVisibility(Actor* actor, int32 index, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums);
+
+    // Persistent world-space bounds CPU mirror per draw category. Sized to Actors[cat].Count();
+    // populated by RefreshDirtyBoundsCpu before each HZB dispatch. Pyramid-side staging in
+    // HZBCullSlot::Dispatch memcpys from this array - keeping the mirror around amortizes the
+    // per-actor walk to dirty slots only.
+    Array<Float4> _boundsCpu[MAX];
+
+    // Per-slot dirty bit; set on AddActor/UpdateActor(Bounds)/RemoveActor. Scanned at refresh.
+    // Flax GlobalSurfaceAtlas idiom (per-object Dirty bool flush).
+    Array<bool> _slotDirty[MAX];
+
+    void MarkBoundsDirty(int32 category, int32 key);
+    void RefreshDirtyBoundsCpu(int32 category);
 };

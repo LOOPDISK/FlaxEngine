@@ -24,6 +24,7 @@ class Camera;
 class Actor;
 class Scene;
 class HZBData;
+class HZBCullSlot;
 
 /// <summary>
 /// Allows to perform custom rendering using graphics pipeline.
@@ -482,6 +483,16 @@ API_STRUCT(NoDefault) struct FLAXENGINE_API RenderContext
     /// The render view.
     /// </summary>
     API_FIELD() RenderView View;
+
+    /// <summary>
+    /// Optional GPU occlusion cull verdict-slot for this view. When set, scene/foliage draw collection
+    /// consults TestVisibility(key) for the prior-frame verdict. Borrowed pointer - owned by the
+    /// pyramid (HZBData::_consumers); never deleted by RenderContext. Callers test visibility via
+    /// `Cull && Cull->TestVisibility(key)` (no inline helper here to avoid include-order pinning of
+    /// HZBCullSlot - RenderContext is referenced from HZBPass.h, so we can't depend on the slot
+    /// being complete at the point this struct is declared).
+    /// </summary>
+    HZBCullSlot* Cull = nullptr;
 
     /// <summary>
     /// The GPU access locking critical section to protect data access when performing multi-threaded rendering.

@@ -10,6 +10,9 @@
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/RenderTools.h"
 #include "Engine/Graphics/GPUDevice.h"
+#include "Engine/Graphics/GPUBuffer.h"
+#include "Engine/Graphics/GPUContext.h"
+#include "Engine/Core/Math/Vector4.h"
 #include "Engine/Content/Deprecated.h"
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE
 #include "Engine/Threading/JobSystem.h"
@@ -182,46 +185,21 @@ void Foliage::DrawInstance(DrawContext& context, FoliageInstance& instance, Mode
 }
 bool Foliage::CheckVisibility(FoliageCluster* cluster, const BoundingSphere& bounds) const
 {
-    if (_hzb)
-    {
-        if (!_checkHZB)
-        { // return the last HZB occlusion result
-            return !cluster->WasCulled;
-        }
-        if (_hzb->CheckOcclusion(bounds))
-        {
-            cluster->WasCulled = true;
-            return false;
-        }
-        else
-        {
-            cluster->WasCulled = false;
-            return true;
-        }
-    }
+    // No cluster-level HZB - the per-instance loop inside DrawCluster does it. Cluster-bounds
+    // HZB cull would have false negatives (a cluster's whole BB occluded yet a tall instance
+    // sticks out behind the occluder).
     return true;
 }
 
 bool Foliage::CheckVisibility(FoliageInstance& instance, const BoundingSphere& bounds) const
 {
-    if (_hzb)
-    {
-        if (!_checkHZB)
-        { // return the last HZB occlusion result
-            return !instance.WasCulled;
-        }
-        if (_hzb->CheckOcclusion(bounds))
-        {
-            instance.WasCulled = true;
-            return false;
-        }
-        else
-        {
-            instance.WasCulled = false;
-            return true;
-        }
-    }
-    return true;
+    const int32 t = instance.Type;
+    if (t < 0 || t >= _hzbActiveSlot.Count())
+        return true;
+    HZBCullSlot* slot = _hzbActiveSlot.Get()[t];
+    if (!slot)
+        return true;
+    return slot->TestVisibility(instance.HZBKey);
 }
 
 void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, bool isMainContext) const
@@ -302,8 +280,12 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
                     if (sphere.Radius < _shadowCullRadius && Float3::DistanceSquared(_mainViewPosition, sphere.Center) > _shadowCullDistance2)
                         continue;
                 }
-                else if (!CheckVisibility(instance, sphere))
+                else if (EnumHasAnyFlags(context.RenderContext.View.Pass, DrawPass::GBuffer) && !CheckVisibility(instance, sphere))
                 {
+                    // HZB cull only against the main camera GBuffer pass. Static-shadow clipmap and
+                    // other depth-only collections build single-context batches that look "main",
+                    // but _hzbActiveSlot was populated against the camera pyramid earlier this frame -
+                    // consulting it here would HZB-cull casters into the sun's static shadow cache.
                 //     DebugDraw::DrawSphere(instance.Bounds, Color(1, 0, 0, 0.2f), 0, false); // can't do this in a job
                     continue;
                 }
@@ -612,6 +594,17 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Me
 {
     if (!type.Root || !FOLIAGE_CAN_DRAW(renderContext, type))
         return;
+    // Honor the render context's StaticFlagsMask/StaticFlagsCompare. Cascade shadow
+    // contexts set (Mask=Shadow, Compare=None) - "draw only non-Shadow-static" - when
+    // the clipmap is handling static casters; without this check the foliage's batched
+    // insert path bypasses the filter and every Shadow-static foliage clump gets drawn
+    // into BOTH the clipmap AND every cascade. RenderList::AddDrawCall(RCB&) applies
+    // the same predicate; this matches it for the batched path.
+    {
+        const auto& view = renderContext.View;
+        if ((GetStaticFlags() & view.StaticFlagsMask) != view.StaticFlagsCompare)
+            return;
+    }
     const DrawPass typeDrawModes = FOLIAGE_GET_DRAW_MODES(renderContext, type);
     PROFILE_CPU_ASSET(type.Model);
     DrawContext context
@@ -801,6 +794,8 @@ void Foliage::AddFoliageType(Model* model)
     item.Foliage = this;
     item.Index = FoliageTypes.Count() - 1;
     item.Model = model;
+
+    MarkTypeDirty(item.Index);
 }
 
 void Foliage::RemoveFoliageType(int32 index)
@@ -891,11 +886,15 @@ void Foliage::AddInstance(const FoliageInstance& instance)
         BoundingSphere::Merge(data->Bounds, meshBounds, data->Bounds);
     }
     data->Bounds.Radius += ZeroTolerance;
+
+    MarkTypeDirty(instance.Type);
 }
 
 void Foliage::RemoveInstance(ChunkedArray<FoliageInstance, FOLIAGE_INSTANCE_CHUNKS_SIZE>::Iterator i)
 {
+    const int32 t = i->Type;
     Instances.Remove(i);
+    MarkTypeDirty(t);
 }
 
 void Foliage::SetInstanceTransform(int32 index, const Transform& value)
@@ -928,6 +927,8 @@ void Foliage::SetInstanceTransform(int32 index, const Transform& value)
         BoundingSphere::Merge(instance.Bounds, meshBounds, instance.Bounds);
     }
     instance.Bounds.Radius += ZeroTolerance;
+
+    MarkTypeDirty(instance.Type);
 }
 
 void Foliage::OnFoliageTypeModelLoaded(int32 index)
@@ -1029,6 +1030,8 @@ void Foliage::OnFoliageTypeModelLoaded(int32 index)
         type.Root->UpdateTotalBoundsAndCullDistance();
     }
 #endif
+
+    MarkTypeDirty(index);
 }
 
 void Foliage::RebuildClusters()
@@ -1056,6 +1059,7 @@ void Foliage::RebuildClusters()
         _sphere = BoundingSphere(_transform.Translation, 0.0f);
         if (_sceneRenderingKey != -1)
             GetSceneRendering()->UpdateActor(this, _sceneRenderingKey);
+        MarkAllTypesDirty();
         return;
     }
 
@@ -1185,6 +1189,8 @@ void Foliage::RebuildClusters()
         }
     }
 #endif
+
+    MarkAllTypesDirty();
 }
 
 void Foliage::UpdateCullDistance()
@@ -1427,6 +1433,19 @@ void Foliage::Draw(RenderContext& renderContext)
 #else
     DrawCallsList draw[MODEL_MAX_LODS];
 #endif
+
+    // HZB setup for the single-context fast path (SceneRendering dispatches Draw(RenderContext&)
+    // when there's only the main frustum + no origin shift). The batch overload handles the
+    // other paths.
+    if (EnumHasAnyFlags(view.Pass, DrawPass::GBuffer))
+    {
+        // Setup culling info needed by per-instance/cluster shadow-distance fast path.
+        _shadowCullDistance2 = Graphics::Shadows::CullingDistance * Graphics::Shadows::CullingDistance;
+        _shadowCullRadius = 0.5f * Graphics::Shadows::CullingSize;
+        _mainViewPosition = view.Position;
+        SetupHzbForMainView(renderContext);
+    }
+
 #if FOLIAGE_USE_SINGLE_QUAD_TREE
     if (Root)
         DrawCluster(renderContext, Root, draw);
@@ -1463,31 +1482,11 @@ void Foliage::Draw(RenderContextBatch& renderContextBatch)
         _shadowCullRadius = 0.5f * Graphics::Shadows::CullingSize;
         _mainViewPosition = view.Position;
 
-        _hzb = Graphics::OcclusionCulling ? renderContextBatch.GetMainContext().Task->OcclusionInfo : nullptr;
-
-        if (_hzb != nullptr)
-        {
-            _checkHZB = true;
-            // only do occlusion on main render task's main draw
-            if (_drawCategory == SceneRendering::SceneDrawAsync && (int32)view.Pass & (int32)DrawPass::GBuffer)
-            {
-                // don't do the hzb occlusion check if it already did it with the same data last time
-                if ((_hzb->Id == _lastHZBId && _hzb->CurrentFrameIndex == _lastHZBFrame))
-                {
-                    _checkHZB = false;
-                }
-                else
-                {
-                    _checkHZB = true;
-                    _lastHZBId = _hzb->Id;
-                    _lastHZBFrame = _hzb->CurrentFrameIndex;
-                }
-            }
-        }
-        else
-        {
-            _checkHZB = false;
-        }
+        // HZB cull setup: per-FoliageType verdict slot on the main pyramid. Multi-frustum
+        // batches are fine - DrawCluster only calls CheckVisibility(instance) when
+        // isMainContext=true (the c==0 main view), so shadow contexts can't be culled by
+        // the main pyramid even if _hzbActiveSlot is set.
+        SetupHzbForMainView(mainContext);
 
 
         //for (int i = 0; i < FoliageTypes.Count(); i++)
@@ -1605,6 +1604,7 @@ void Foliage::Deserialize(DeserializeStream& stream, ISerializeModifier* modifie
     PROFILE_MEM(LevelFoliage);
 
     // Clear
+    ReleaseHzbResources();
 #if FOLIAGE_USE_SINGLE_QUAD_TREE
     Root = nullptr;
     Clusters.Release();
@@ -1738,6 +1738,7 @@ void Foliage::OnEnable()
 void Foliage::OnDisable()
 {
     GetSceneRendering()->RemoveActor(this, _sceneRenderingKey);
+    ReleaseHzbResources();
 
     // Base
     Actor::OnDisable();
@@ -1780,5 +1781,136 @@ void Foliage::OnTransformChanged()
         }
     }
 
+    MarkAllTypesDirty();
     RebuildClusters();
+}
+
+Foliage::~Foliage()
+{
+    ReleaseHzbResources();
+}
+
+void Foliage::MarkTypeDirty(int32 typeIdx)
+{
+    if (typeIdx < 0)
+        return;
+    if (typeIdx >= _hzbDirtyAll.Count())
+        _hzbDirtyAll.Resize(typeIdx + 1);
+    _hzbDirtyAll.Get()[typeIdx] = true;
+}
+
+void Foliage::MarkAllTypesDirty()
+{
+    if (_hzbDirtyAll.Count() < FoliageTypes.Count())
+        _hzbDirtyAll.Resize(FoliageTypes.Count());
+    bool* d = _hzbDirtyAll.Get();
+    const int32 n = _hzbDirtyAll.Count();
+    for (int32 i = 0; i < n; i++)
+        d[i] = true;
+}
+
+void Foliage::SyncHzbArrays(int32 typeCount)
+{
+    const int32 oldCount = _hzbBoundsCpu.Count();
+    if (oldCount == typeCount)
+        return;
+
+    _hzbBoundsCpu.Resize(typeCount);
+    _hzbCount.Resize(typeCount);
+    _hzbDirtyAll.Resize(typeCount);
+    _hzbActiveSlot.Resize(typeCount);
+
+    // Memory::ConstructItems on trivial types is uninitialized - zero new entries explicitly.
+    if (typeCount > oldCount)
+    {
+        for (int32 i = oldCount; i < typeCount; i++)
+        {
+            _hzbCount.Get()[i] = 0;
+            _hzbDirtyAll.Get()[i] = true;
+            _hzbActiveSlot.Get()[i] = nullptr;
+        }
+    }
+
+    // RemoveFoliageType shifts every higher type index down - the parallel-array contents
+    // no longer correspond to their types. Mark all dirty so the next rebuild reseats HZBKey.
+    bool* dAll = _hzbDirtyAll.Get();
+    for (int32 i = 0; i < typeCount; i++)
+        dAll[i] = true;
+}
+
+void Foliage::RebuildAndDispatchType(int32 typeIdx, HZBCullSlot* slot, HZBData* pyramid)
+{
+    if (typeIdx < 0 || typeIdx >= _hzbDirtyAll.Count() || !slot || !pyramid)
+        return;
+
+    bool* dirtyArr = _hzbDirtyAll.Get();
+    int32* countArr = _hzbCount.Get();
+    Array<Float4>& boundsCpu = _hzbBoundsCpu.Get()[typeIdx];
+
+    if (dirtyArr[typeIdx])
+    {
+        // Rewalk Instances filtered by type; assign dense HZBKey 0..n-1 and gather world-space
+        // (center, radius) into the persistent CPU array. Pyramid staging copies from this on
+        // every Dispatch - keeping the CPU array around avoids re-walking Instances when nothing
+        // changed.
+        boundsCpu.Clear();
+        boundsCpu.EnsureCapacity(countArr[typeIdx] > 0 ? countArr[typeIdx] : 64);
+        int32 n = 0;
+        for (auto i = Instances.Begin(); i.IsNotEnd(); ++i)
+        {
+            FoliageInstance& inst = *i;
+            if (inst.Type != typeIdx)
+                continue;
+            inst.HZBKey = n++;
+            const BoundingSphere& s = inst.Bounds;
+            boundsCpu.Add(Float4((float)s.Center.X, (float)s.Center.Y, (float)s.Center.Z, (float)s.Radius));
+        }
+        countArr[typeIdx] = n;
+        dirtyArr[typeIdx] = false;
+    }
+
+    const int32 count = countArr[typeIdx];
+    if (count > 0)
+        slot->Dispatch(pyramid, boundsCpu.Get(), (uint32)count);
+}
+
+void Foliage::ReleaseHzbResources()
+{
+    _hzbBoundsCpu.Clear();
+    _hzbCount.Clear();
+    _hzbDirtyAll.Clear();
+    _hzbActiveSlot.Clear();
+}
+
+void Foliage::SetupHzbForMainView(RenderContext& mainContext)
+{
+    const int32 typeCount = FoliageTypes.Count();
+    SyncHzbArrays(typeCount);
+
+    const bool hzbEligible =
+        Graphics::OcclusionCulling &&
+        mainContext.Task &&
+        mainContext.Task->OcclusionInfo &&
+        mainContext.List;
+    HZBCullSlot** activeSlots = _hzbActiveSlot.Get();
+    if (!hzbEligible)
+    {
+        for (int32 t = 0; t < typeCount; t++)
+            activeSlots[t] = nullptr;
+        return;
+    }
+
+    HZBData* pyramid = mainContext.Task->OcclusionInfo;
+    Foliage* self = this;
+    for (int32 t = 0; t < typeCount; t++)
+    {
+        HZBCullSlot* slot = pyramid->GetOrCreateConsumer(this, t);
+        activeSlots[t] = slot;
+        const int32 typeIdx = t;
+        mainContext.List->AddDelayedDraw(
+            [self, typeIdx, slot, pyramid](GPUContext* ctx, RenderContextBatch&, int32)
+            {
+                self->RebuildAndDispatchType(typeIdx, slot, pyramid);
+            });
+    }
 }

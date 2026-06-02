@@ -5,6 +5,9 @@
 #include "SceneRendering.h"
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/RenderView.h"
+#include "Engine/Graphics/GPUDevice.h"
+#include "Engine/Graphics/GPUContext.h"
+#include "Engine/Graphics/GPUBuffer.h"
 #include "Engine/Renderer/RenderList.h"
 #include "Engine/Threading/JobSystem.h"
 #include "Engine/Physics/Actors/IPhysicsDebug.h"
@@ -75,73 +78,43 @@ FORCE_INLINE bool NonMainFrustumsListCull(const BoundingSphere& bounds, const Ar
     return false;
 }
 
-FORCE_INLINE  bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums)
+FORCE_INLINE  bool SceneRendering::CheckVisibility(Actor* actor, int32 index, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums)
 {
     if (NonMainFrustumsListCull(bounds, frustums, _mainViewPosition, _shadowCullRadius, _shadowCullDistance2))
-    { // is in other frustums, like for shadows
-        if (_hzb)
-        {
+    {
+        // Visible through a shadow frustum: keep drawing (shadow casters can't be HZB-culled by the main pyramid).
+        if (_drawCull)
             actor->_cullType = 0;
-        }
         return true;
     }
     if (MainFrustumCull(bounds, frustums))
     {
-        if (_hzb)
-        {
-            if (!_checkHZB)
-            { // return the last HZB occlusion result
-                return actor->_cullType != 2;
-            }
-            if (_hzb->CheckOcclusion(bounds))
-            {
-            //    DebugDraw::DrawSphere(bounds, Color(0, 0, 1, 0.2f), 0, false); // can't do this in a job
-                actor->_cullType = 2;
-                return false;
-            }
-            else
-            {
-                actor->_cullType = 0;
-                return true;
-            }
-        }
         actor->_cullType = 0;
+        if (_drawCull && !_drawCull->TestVisibility(index))
+        {
+            actor->_cullType = 2;
+            return false;
+        }
         return true;
     }
-    if (_hzb)
-    { // only mark as culled if HZBData was valid, meaning it was the main render task
+    if (_drawCull)
         actor->_cullType = 1;
-    }
     return false;
 }
-FORCE_INLINE  bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum)
+FORCE_INLINE  bool SceneRendering::CheckVisibility(Actor* actor, int32 index, const BoundingSphere& bounds, const BoundingFrustum& frustum)
 {
     if (frustum.Intersects(bounds))
     {
-        if (_hzb)
+        actor->_cullType = 0;
+        if (_drawCull && !_drawCull->TestVisibility(index))
         {
-            if (!_checkHZB)
-            { // return the last HZB occlusion result
-                return actor->_cullType != 2;
-            }
-            if (_hzb->CheckOcclusion(bounds))
-            {
-                actor->_cullType = 2;
-                return false;
-            }
-            else
-            {
-                actor->_cullType = 0;
-                return true;
-            }
+            actor->_cullType = 2;
+            return false;
         }
-       actor->_cullType = 0;
         return true;
     }
-    if (_hzb)
-    { // only mark as culled if HZBData was valid, meaning it was the main render task
-       actor->_cullType = 1;
-    }
+    if (_drawCull)
+        actor->_cullType = 1;
     return false;
 }
 
@@ -184,30 +157,38 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
     _shadowCullRadius = 0.5f * Graphics::Shadows::CullingSize;
     _mainViewPosition = view.Position;
 
-    _hzb = Graphics::OcclusionCulling ? renderContextBatch.GetMainContext().Task->OcclusionInfo : nullptr;
-    
-    if (_hzb != nullptr)
+    // HZB cull eligibility: occlusion enabled, single frustum (no shadow contexts), main task has a pyramid,
+    // AND this is the actual camera GBuffer pass - not a depth-only collection (shadow CSM, static-shadow
+    // clipmap, weapon depth). The static-shadow clipmap creates its own single-context batch using the
+    // sun's view, which slips the frustumsCount gate; applying HZB to it would cull casters by the main
+    // camera's pyramid (camera-occluded geometry erroneously vanishes from the cached sun depth, and the
+    // per-frame HZB churn dirties the clipmap on every camera move).
+    _drawCull = nullptr;
+    if (Graphics::OcclusionCulling && frustumsCount == 1 && EnumHasAnyFlags(view.Pass, DrawPass::GBuffer))
     {
-        _checkHZB = true;
-        // only do occlusion on main render task's main draw
-        if (_drawCategory == SceneDrawAsync && (int32)view.Pass & (int32)DrawPass::GBuffer)
+        SceneRenderTask* mainTask = renderContextBatch.GetMainContext().Task;
+        HZBData* pyramid = mainTask ? mainTask->OcclusionInfo : nullptr;
+        if (pyramid)
         {
-            // don't do the hzb occlusion check if it already did it with the same data last time
-            if ((_hzb->Id == _lastHZBId && _hzb->CurrentFrameIndex == _lastHZBFrame))
-            {
-                _checkHZB = false;
-            }
-            else
-            {
-                _checkHZB = true;
-                _lastHZBId = _hzb->Id;
-                _lastHZBFrame = _hzb->CurrentFrameIndex;
-            }
+            const int32 cat = (int32)category;
+            HZBCullSlot* slot = pyramid->GetOrCreateConsumer(this, cat);
+            _drawCull = slot;
+            renderContextBatch.GetMainContext().Cull = slot;
+
+            // Schedule bounds CPU refresh + cull dispatch to fire after the draw-collection job
+            // sync, inside DrainDelayedDraws (Renderer.cpp). Lambda captures lifetime-safe pointers:
+            // - this (SceneRendering): lives > frame
+            // - slot: lives > frame (pyramid owns it)
+            // - pyramid: lives > frame (task owns it)
+            const uint32 count = (uint32)_drawListSize;
+            SceneRendering* self = this;
+            renderContextBatch.GetMainContext().List->AddDelayedDraw(
+                [self, cat, slot, pyramid, count](GPUContext*, RenderContextBatch&, int32)
+                {
+                    self->RefreshDirtyBoundsCpu(cat);
+                    slot->Dispatch(pyramid, self->_boundsCpu[cat].Get(), count);
+                });
         }
-    }
-    else
-    {
-        _checkHZB = false;
     }
 
     // Draw all visual components
@@ -311,6 +292,7 @@ void SceneRendering::AddActor(Actor* a, int32& key)
     e.LayerMask = a->GetLayerMask();
     e.Bounds = a->GetSphere();
     e.NoCulling = a->_drawNoCulling;
+    MarkBoundsDirty(category, key);
     for (auto* listener : _listeners)
         listener->OnSceneRenderingAddActor(a);
 }
@@ -332,7 +314,10 @@ void SceneRendering::UpdateActor(Actor* a, int32& key, ISceneRenderingListener::
             if (flags & ISceneRenderingListener::Layer)
                 e.LayerMask = a->GetLayerMask();
             if (flags & ISceneRenderingListener::Bounds)
+            {
                 e.Bounds = a->GetSphere();
+                MarkBoundsDirty(category, key);
+            }
         }
     }
     if (lock)
@@ -354,6 +339,8 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
                 listener->OnSceneRenderingRemoveActor(a);
             e.Actor = nullptr;
             e.LayerMask = 0;
+            e.Bounds = BoundingSphere(Vector3::Zero, 0.0f);
+            MarkBoundsDirty(category, key);
             FreeActors[category].Add(key);
         }
     }
@@ -361,8 +348,8 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
 }
 
 #define FOR_EACH_BATCH_ACTOR  for (int index = i; index < _drawListSize; index += _drawJobCount) { auto e = _drawListData[index];
-#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData)))
-#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum)))
+#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, index, e.Bounds, _drawFrustumsData)))
+#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, index, e.Bounds, view.CullingFrustum)))
 #if SCENE_RENDERING_USE_PROFILER_PER_ACTOR
 #define DRAW_ACTOR(mode) PROFILE_CPU_ACTOR(e.Actor); e.Actor->Draw(mode)
 #else
@@ -424,3 +411,58 @@ void SceneRendering::DrawActorsJob(int32 i)
 #undef FOR_EACH_BATCH_ACTOR
 #undef CHECK_ACTOR
 #undef DRAW_ACTOR
+
+SceneRendering::~SceneRendering()
+{
+}
+
+void SceneRendering::MarkBoundsDirty(int32 category, int32 key)
+{
+    if (key < 0)
+        return;
+    Array<bool>& dirty = _slotDirty[category];
+    if (key >= dirty.Count())
+        dirty.Resize(key + 1);
+    dirty.Get()[key] = true;
+}
+
+void SceneRendering::RefreshDirtyBoundsCpu(int32 category)
+{
+    Array<Float4>& cpu = _boundsCpu[category];
+    const DrawActor* actors = Actors[category].Get();
+    const int32 actorCount = Actors[category].Count();
+
+    // Grow CPU mirror to actor count; new tail entries must be re-uploaded so mark them dirty.
+    if (cpu.Count() < actorCount)
+    {
+        Array<bool>& dirty = _slotDirty[category];
+        const int32 prev = cpu.Count();
+        cpu.Resize(actorCount);
+        if (dirty.Count() < actorCount)
+            dirty.Resize(actorCount);
+        bool* d = dirty.Get();
+        for (int32 i = prev; i < actorCount; i++)
+            d[i] = true;
+    }
+
+    Array<bool>& dirty = _slotDirty[category];
+    const int32 scanCount = Math::Min(dirty.Count(), actorCount);
+    bool* d = dirty.Get();
+    Float4* dst = cpu.Get();
+    for (int32 i = 0; i < scanCount; i++)
+    {
+        if (!d[i])
+            continue;
+        if (actors[i].Actor == nullptr)
+        {
+            // Vacated slot: zero. CS treats radius<=0 as visible.
+            dst[i] = Float4::Zero;
+        }
+        else
+        {
+            const BoundingSphere& s = actors[i].Bounds;
+            dst[i] = Float4((float)s.Center.X, (float)s.Center.Y, (float)s.Center.Z, (float)s.Radius);
+        }
+        d[i] = false;
+    }
+}
