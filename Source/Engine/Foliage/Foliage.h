@@ -162,19 +162,21 @@ private:
     float _shadowCullDistance2;
     float _shadowCullRadius;
 
-    // Per-FoliageType HZB cull state. Parallel arrays, sized to FoliageTypes.Count() and
-    // resynced at the top of each Draw call.
-    //  _hzbBoundsCpu:  world-space Float4(center, radius) CPU array for this type. Pyramid-side
-    //                  staging copies from this pointer in HZBCullSlot::Dispatch.
-    //  _hzbCount:      number of valid bound entries (== this type's instance count after the
-    //                  last rebuild). Drives the dispatch's thread count.
-    //  _hzbDirtyAll:   needs full cluster-tree rewalk to restamp per-cluster HZBBase + repopulate bounds.
-    //  _hzbActiveSlot: borrowed verdict slot on the main pyramid for this frame; nullptr when
-    //                  HZB cull is not in play this frame (multi-frustum batch / disabled).
-    Array<Array<Float4>> _hzbBoundsCpu;
-    Array<int32>         _hzbCount;
-    Array<bool>          _hzbDirtyAll;
-    Array<HZBCullSlot*>  _hzbActiveSlot;
+    // Per-FoliageType HZB cull state. One entry per FoliageType, resynced at the top of each Draw.
+    struct TypeHzbState
+    {
+        // World-space Float4(center, radius) CPU bounds for this type, in (cluster, local-index)
+        // order. HZBCullSlot::Dispatch stages from this pointer; array position == verdict key.
+        Array<Float4> BoundsCpu;
+        // Valid bound entries (== this type's instance count after the last rebuild). Thread count.
+        int32 Count = 0;
+        // Needs a full cluster-tree rewalk to restamp per-cluster HZBBase + repopulate BoundsCpu.
+        bool DirtyAll = true;
+        // Borrowed verdict slot on the main pyramid this frame; nullptr when HZB cull is not in
+        // play (multi-frustum batch / occlusion disabled), in which case CheckVisibility fail-opens.
+        HZBCullSlot* ActiveSlot = nullptr;
+    };
+    Array<TypeHzbState> _hzbState;
 
     void MarkTypeDirty(int32 typeIdx);
     void MarkAllTypesDirty();
@@ -182,10 +184,10 @@ private:
     void RebuildAndDispatchType(int32 typeIdx, HZBCullSlot* slot, HZBData* pyramid);
     void ReleaseHzbResources();
 
-    // Wires _hzbActiveSlot[t] to a per-type pyramid consumer for this frame and schedules the
+    // Wires _hzbState[t].ActiveSlot to a per-type pyramid consumer for this frame and schedules the
     // per-type bounds upload + cull dispatch via AddDelayedDraw on mainContext.List. Caller
     // guarantees this is the main-view single-frustum context (no shadow projections). When
-    // the view is HZB-ineligible (occlusion off / no pyramid), clears _hzbActiveSlot to nullptr
+    // the view is HZB-ineligible (occlusion off / no pyramid), clears ActiveSlot to nullptr
     // so CheckVisibility fail-opens.
     void SetupHzbForMainView(RenderContext& mainContext);
 

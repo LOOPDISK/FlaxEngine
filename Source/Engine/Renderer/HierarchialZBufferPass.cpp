@@ -298,9 +298,7 @@ void HierarchialZBufferPass::FlushPendingCulls(GPUContext* context)
         const int32 numEntries = pyramid->_pendingDispatches.Count();
         if (numEntries == 0 || !pyramid->IsReady())
         {
-            pyramid->_pendingDispatches.Clear();
-            pyramid->_boundsStaging.Clear();
-            pyramid->_pendingTotalWords = 0;
+            pyramid->ClearPending();
             continue;
         }
 
@@ -308,9 +306,7 @@ void HierarchialZBufferPass::FlushPendingCulls(GPUContext* context)
         // _batchBytes, skip this frame entirely - slots keep their last verdict.
         if (pyramid->_batchReadback && !pyramid->_batchReadback->IsChainEnded())
         {
-            pyramid->_pendingDispatches.Clear();
-            pyramid->_boundsStaging.Clear();
-            pyramid->_pendingTotalWords = 0;
+            pyramid->ClearPending();
             continue;
         }
 
@@ -335,9 +331,7 @@ void HierarchialZBufferPass::FlushPendingCulls(GPUContext* context)
         const int32 stagedBounds = pyramid->_boundsStaging.Count();
         if (totalBounds == 0 || stagedBounds == 0)
         {
-            pyramid->_pendingDispatches.Clear();
-            pyramid->_boundsStaging.Clear();
-            pyramid->_pendingTotalWords = 0;
+            pyramid->ClearPending();
             continue;
         }
 
@@ -352,9 +346,7 @@ void HierarchialZBufferPass::FlushPendingCulls(GPUContext* context)
             if (pyramid->_batchVisBuffer->Init(GPUBufferDescription::Raw(needBytes, GPUBufferFlags::UnorderedAccess | GPUBufferFlags::ShaderResource)))
             {
                 SAFE_DELETE_GPU_RESOURCE(pyramid->_batchVisBuffer);
-                pyramid->_pendingDispatches.Clear();
-                pyramid->_boundsStaging.Clear();
-                pyramid->_pendingTotalWords = 0;
+                pyramid->ClearPending();
                 continue;
             }
         }
@@ -369,9 +361,7 @@ void HierarchialZBufferPass::FlushPendingCulls(GPUContext* context)
             {
                 SAFE_DELETE_GPU_RESOURCE(pyramid->_sharedBoundsBuffer);
                 pyramid->_sharedBoundsCapacity = 0;
-                pyramid->_pendingDispatches.Clear();
-                pyramid->_boundsStaging.Clear();
-                pyramid->_pendingTotalWords = 0;
+                pyramid->ClearPending();
                 continue;
             }
             pyramid->_sharedBoundsCapacity = newCap;
@@ -387,9 +377,7 @@ void HierarchialZBufferPass::FlushPendingCulls(GPUContext* context)
             {
                 SAFE_DELETE_GPU_RESOURCE(pyramid->_slotTableBuffer);
                 pyramid->_slotTableCapacity = 0;
-                pyramid->_pendingDispatches.Clear();
-                pyramid->_boundsStaging.Clear();
-                pyramid->_pendingTotalWords = 0;
+                pyramid->ClearPending();
                 continue;
             }
             pyramid->_slotTableCapacity = newCap;
@@ -468,9 +456,27 @@ void HierarchialZBufferPass::FlushPendingCulls(GPUContext* context)
             dl->Start();
         }
 
-        pyramid->_pendingDispatches.Clear();
-        pyramid->_boundsStaging.Clear();
-        pyramid->_pendingTotalWords = 0;
+        pyramid->ClearPending();
+    }
+}
+
+void HZBData::ClearPending()
+{
+    _pendingDispatches.Clear();
+    _boundsStaging.Clear();
+    _pendingTotalWords = 0;
+}
+
+void HZBData::CancelReadback()
+{
+    if (_batchReadback)
+    {
+        if (!Engine::IsRequestingExit)
+        {
+            _batchReadback->Cancel();
+            _batchReadback->WaitChain();
+        }
+        _batchReadback = nullptr;
     }
 }
 
@@ -514,28 +520,15 @@ void HZBData::Dispose()
     _depthTexture = nullptr;
     _hzbTexture = nullptr;
 
-    if (_batchReadback)
-    {
-        // Cancel + wait chain so the continuation can't still be writing to _batchBytes when we
-        // release. Same shutdown caveat as the old per-slot readback: Engine::IsRequestingExit
-        // means the deferred-delete queue may have already freed the task - skip touching it.
-        if (!Engine::IsRequestingExit)
-        {
-            _batchReadback->Cancel();
-            _batchReadback->WaitChain();
-        }
-        _batchReadback = nullptr;
-    }
+    CancelReadback();
     SAFE_DELETE_GPU_RESOURCE(_batchVisBuffer);
     SAFE_DELETE_GPU_RESOURCE(_sharedBoundsBuffer);
     SAFE_DELETE_GPU_RESOURCE(_slotTableBuffer);
     _sharedBoundsCapacity = 0;
     _slotTableCapacity = 0;
     _batchBytes.Release();
-    _pendingDispatches.Clear();
-    _boundsStaging.Clear();
+    ClearPending();
     _slotTableStaging.Clear();
-    _pendingTotalWords = 0;
 }
 
 bool HZBData::CheckSkip()
@@ -557,15 +550,7 @@ HZBData::~HZBData()
 {
     // Defensive: HierarchialZBufferPass::Dispose calls our Dispose() before Delete; but if anything
     // ever destroys an HZBData without going through Dispose, _batchReadback would dangle.
-    if (_batchReadback)
-    {
-        if (!Engine::IsRequestingExit)
-        {
-            _batchReadback->Cancel();
-            _batchReadback->WaitChain();
-        }
-        _batchReadback = nullptr;
-    }
+    CancelReadback();
     SAFE_DELETE_GPU_RESOURCE(_batchVisBuffer);
     SAFE_DELETE_GPU_RESOURCE(_sharedBoundsBuffer);
     SAFE_DELETE_GPU_RESOURCE(_slotTableBuffer);
