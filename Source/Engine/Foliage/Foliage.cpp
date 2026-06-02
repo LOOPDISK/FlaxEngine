@@ -191,15 +191,16 @@ bool Foliage::CheckVisibility(FoliageCluster* cluster, const BoundingSphere& bou
     return true;
 }
 
-bool Foliage::CheckVisibility(FoliageInstance& instance, const BoundingSphere& bounds) const
+bool Foliage::CheckVisibility(const FoliageInstance& instance, const FoliageCluster* cluster, int32 localIndex) const
 {
     const int32 t = instance.Type;
     if (t < 0 || t >= _hzbActiveSlot.Count())
         return true;
     HZBCullSlot* slot = _hzbActiveSlot.Get()[t];
-    if (!slot)
+    if (!slot || cluster->HZBBase == HZB_BASE_NONE)
         return true;
-    return slot->TestVisibility(instance.HZBKey);
+    // Instance at cluster-local index i -> verdict key (HZBBase + i). No per-instance key stored.
+    return slot->TestVisibility((int32)(cluster->HZBBase + (uint32)localIndex));
 }
 
 void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, bool isMainContext) const
@@ -280,7 +281,7 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
                     if (sphere.Radius < _shadowCullRadius && Float3::DistanceSquared(_mainViewPosition, sphere.Center) > _shadowCullDistance2)
                         continue;
                 }
-                else if (!cullingDisabled && EnumHasAnyFlags(context.RenderContext.View.Pass, DrawPass::GBuffer) && !CheckVisibility(instance, sphere))
+                else if (!cullingDisabled && EnumHasAnyFlags(context.RenderContext.View.Pass, DrawPass::GBuffer) && !CheckVisibility(instance, cluster, i))
                 {
                     // IsCullingDisabled means the caller explicitly listed actors - don't HZB-gate them.
                     // HZB cull only against the main camera GBuffer pass. Static-shadow clipmap and
@@ -1821,15 +1822,37 @@ void Foliage::SyncHzbArrays(int32 typeCount)
     }
 
     // RemoveFoliageType shifts every higher type index down - the parallel-array contents
-    // no longer correspond to their types. Mark all dirty so the next rebuild reseats HZBKey.
+    // no longer correspond to their types. Mark all dirty so the next rebuild restamps HZBBase.
     bool* dAll = _hzbDirtyAll.Get();
     for (int32 i = 0; i < typeCount; i++)
         dAll[i] = true;
 }
 
+// Walk a type's cluster tree, stamping each cluster's HZBBase and appending its instances' world
+// bounds in (cluster, local-index) order. Returns the running bound count. The draw recovers an
+// instance's verdict key as (cluster->HZBBase + local index), so no per-FoliageInstance key exists.
+static uint32 GatherClusterBoundsHzb(FoliageCluster* cluster, Array<Float4>& boundsCpu, uint32 base)
+{
+    cluster->HZBBase = base;
+    const int32 instCount = cluster->Instances.Count();
+    for (int32 i = 0; i < instCount; i++)
+    {
+        const BoundingSphere& s = cluster->Instances.Get()[i]->Bounds;
+        boundsCpu.Add(Float4((float)s.Center.X, (float)s.Center.Y, (float)s.Center.Z, (float)s.Radius));
+    }
+    base += (uint32)instCount;
+    // "If any element is valid then all are created" - so Children[0] gates the whole octet.
+    if (cluster->Children[0])
+    {
+        for (int32 c = 0; c < 8; c++)
+            base = GatherClusterBoundsHzb(cluster->Children[c], boundsCpu, base);
+    }
+    return base;
+}
+
 void Foliage::RebuildAndDispatchType(int32 typeIdx, HZBCullSlot* slot, HZBData* pyramid)
 {
-    if (typeIdx < 0 || typeIdx >= _hzbDirtyAll.Count() || !slot || !pyramid)
+    if (typeIdx < 0 || typeIdx >= _hzbDirtyAll.Count() || typeIdx >= FoliageTypes.Count() || !slot || !pyramid)
         return;
 
     bool* dirtyArr = _hzbDirtyAll.Get();
@@ -1838,23 +1861,15 @@ void Foliage::RebuildAndDispatchType(int32 typeIdx, HZBCullSlot* slot, HZBData* 
 
     if (dirtyArr[typeIdx])
     {
-        // Rewalk Instances filtered by type; assign dense HZBKey 0..n-1 and gather world-space
-        // (center, radius) into the persistent CPU array. Pyramid staging copies from this on
-        // every Dispatch - keeping the CPU array around avoids re-walking Instances when nothing
-        // changed.
+        // Walk this type's cluster tree, stamping per-cluster HZBBase and gathering world-space
+        // (center, radius) in (cluster, local-index) order. Bound array position == verdict key;
+        // the draw recovers a key from its cluster's HZBBase + local index. Keeping the CPU array
+        // around avoids re-walking the tree on frames where nothing changed.
         boundsCpu.Clear();
         boundsCpu.EnsureCapacity(countArr[typeIdx] > 0 ? countArr[typeIdx] : 64);
-        int32 n = 0;
-        for (auto i = Instances.Begin(); i.IsNotEnd(); ++i)
-        {
-            FoliageInstance& inst = *i;
-            if (inst.Type != typeIdx)
-                continue;
-            inst.HZBKey = n++;
-            const BoundingSphere& s = inst.Bounds;
-            boundsCpu.Add(Float4((float)s.Center.X, (float)s.Center.Y, (float)s.Center.Z, (float)s.Radius));
-        }
-        countArr[typeIdx] = n;
+        FoliageCluster* root = FoliageTypes.Get()[typeIdx].Root;
+        const uint32 total = root ? GatherClusterBoundsHzb(root, boundsCpu, 0u) : 0u;
+        countArr[typeIdx] = (int32)total;
         dirtyArr[typeIdx] = false;
     }
 

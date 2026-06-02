@@ -7,6 +7,10 @@
 #include "Engine/Core/Math/BoundingBox.h"
 #include "Engine/Core/Math/BoundingSphere.h"
 
+// Sentinel HZBBase: cluster has no HZB cull layout this frame (freshly built, not yet gathered).
+// TestVisibility fail-opens, so its instances draw unculled until the next gather stamps a base.
+constexpr uint32 HZB_BASE_NONE = 0xFFFFFFFF;
+
 /// <summary>
 /// Represents a single foliage cluster that contains a sub clusters organized in oct-tree or if it's a leaf node it contains a set of foliage instances.
 /// </summary>
@@ -37,7 +41,14 @@ public:
     /// Flag used by clusters that are not typical oct-tree nodes but have no volume (eg. lots of instances placed on top of each other).
     /// </summary>
     int32 IsMinor : 1;
-    int32 WasCulled : 1;
+
+    /// <summary>
+    /// Base verdict-bit index for this cluster's instances in its type's HZB cull dispatch: the
+    /// instance at local index i maps to verdict key (HZBBase + i). HZB_BASE_NONE = no layout this
+    /// frame (TestVisibility fail-opens). Stamped by Foliage during the per-type bounds gather,
+    /// which is why no per-FoliageInstance key is stored.
+    /// </summary>
+    uint32 HZBBase;
 
     /// <summary>
     /// The child clusters. If any element is valid then all are created.
