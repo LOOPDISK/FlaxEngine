@@ -194,9 +194,9 @@ bool Foliage::CheckVisibility(FoliageCluster* cluster, const BoundingSphere& bou
 bool Foliage::CheckVisibility(const FoliageInstance& instance, const FoliageCluster* cluster, int32 localIndex) const
 {
     const int32 t = instance.Type;
-    if (t < 0 || t >= _hzbActiveSlot.Count())
+    if (t < 0 || t >= _hzbState.Count())
         return true;
-    HZBCullSlot* slot = _hzbActiveSlot.Get()[t];
+    HZBCullSlot* slot = _hzbState.Get()[t].ActiveSlot;
     if (!slot || cluster->HZBBase == HZB_BASE_NONE)
         return true;
     // Instance at cluster-local index i -> verdict key (HZBBase + i). No per-instance key stored.
@@ -286,7 +286,7 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
                     // IsCullingDisabled means the caller explicitly listed actors - don't HZB-gate them.
                     // HZB cull only against the main camera GBuffer pass. Static-shadow clipmap and
                     // other depth-only collections build single-context batches that look "main",
-                    // but _hzbActiveSlot was populated against the camera pyramid earlier this frame -
+                    // but ActiveSlot was populated against the camera pyramid earlier this frame -
                     // consulting it here would HZB-cull casters into the sun's static shadow cache.
                 //     DebugDraw::DrawSphere(instance.Bounds, Color(1, 0, 0, 0.2f), 0, false); // can't do this in a job
                     continue;
@@ -1475,7 +1475,7 @@ void Foliage::Draw(RenderContextBatch& renderContextBatch)
         // HZB cull setup: per-FoliageType verdict slot on the main pyramid. Multi-frustum
         // batches are fine - DrawCluster only calls CheckVisibility(instance) when
         // isMainContext=true (the c==0 main view), so shadow contexts can't be culled by
-        // the main pyramid even if _hzbActiveSlot is set.
+        // the main pyramid even if ActiveSlot is set.
         SetupHzbForMainView(mainContext);
 
 
@@ -1784,48 +1784,36 @@ void Foliage::MarkTypeDirty(int32 typeIdx)
 {
     if (typeIdx < 0)
         return;
-    if (typeIdx >= _hzbDirtyAll.Count())
-        _hzbDirtyAll.Resize(typeIdx + 1);
-    _hzbDirtyAll.Get()[typeIdx] = true;
+    if (typeIdx >= _hzbState.Count())
+        _hzbState.Resize(typeIdx + 1);
+    _hzbState.Get()[typeIdx].DirtyAll = true;
 }
 
 void Foliage::MarkAllTypesDirty()
 {
-    if (_hzbDirtyAll.Count() < FoliageTypes.Count())
-        _hzbDirtyAll.Resize(FoliageTypes.Count());
-    bool* d = _hzbDirtyAll.Get();
-    const int32 n = _hzbDirtyAll.Count();
+    if (_hzbState.Count() < FoliageTypes.Count())
+        _hzbState.Resize(FoliageTypes.Count());
+    TypeHzbState* s = _hzbState.Get();
+    const int32 n = _hzbState.Count();
     for (int32 i = 0; i < n; i++)
-        d[i] = true;
+        s[i].DirtyAll = true;
 }
 
 void Foliage::SyncHzbArrays(int32 typeCount)
 {
-    const int32 oldCount = _hzbBoundsCpu.Count();
+    const int32 oldCount = _hzbState.Count();
     if (oldCount == typeCount)
         return;
 
-    _hzbBoundsCpu.Resize(typeCount);
-    _hzbCount.Resize(typeCount);
-    _hzbDirtyAll.Resize(typeCount);
-    _hzbActiveSlot.Resize(typeCount);
+    // Non-POD (BoundsCpu Array member) - Resize default-constructs new entries via the in-class
+    // initializers, so no explicit zeroing needed here.
+    _hzbState.Resize(typeCount);
 
-    // Memory::ConstructItems on trivial types is uninitialized - zero new entries explicitly.
-    if (typeCount > oldCount)
-    {
-        for (int32 i = oldCount; i < typeCount; i++)
-        {
-            _hzbCount.Get()[i] = 0;
-            _hzbDirtyAll.Get()[i] = true;
-            _hzbActiveSlot.Get()[i] = nullptr;
-        }
-    }
-
-    // RemoveFoliageType shifts every higher type index down - the parallel-array contents
-    // no longer correspond to their types. Mark all dirty so the next rebuild restamps HZBBase.
-    bool* dAll = _hzbDirtyAll.Get();
+    // RemoveFoliageType shifts every higher type index down - the per-type contents no longer
+    // correspond to their types. Mark all dirty so the next rebuild restamps HZBBase.
+    TypeHzbState* s = _hzbState.Get();
     for (int32 i = 0; i < typeCount; i++)
-        dAll[i] = true;
+        s[i].DirtyAll = true;
 }
 
 // Walk a type's cluster tree, stamping each cluster's HZBBase and appending its instances' world
@@ -1852,38 +1840,32 @@ static uint32 GatherClusterBoundsHzb(FoliageCluster* cluster, Array<Float4>& bou
 
 void Foliage::RebuildAndDispatchType(int32 typeIdx, HZBCullSlot* slot, HZBData* pyramid)
 {
-    if (typeIdx < 0 || typeIdx >= _hzbDirtyAll.Count() || typeIdx >= FoliageTypes.Count() || !slot || !pyramid)
+    if (typeIdx < 0 || typeIdx >= _hzbState.Count() || typeIdx >= FoliageTypes.Count() || !slot || !pyramid)
         return;
 
-    bool* dirtyArr = _hzbDirtyAll.Get();
-    int32* countArr = _hzbCount.Get();
-    Array<Float4>& boundsCpu = _hzbBoundsCpu.Get()[typeIdx];
+    TypeHzbState& state = _hzbState.Get()[typeIdx];
 
-    if (dirtyArr[typeIdx])
+    if (state.DirtyAll)
     {
         // Walk this type's cluster tree, stamping per-cluster HZBBase and gathering world-space
         // (center, radius) in (cluster, local-index) order. Bound array position == verdict key;
         // the draw recovers a key from its cluster's HZBBase + local index. Keeping the CPU array
         // around avoids re-walking the tree on frames where nothing changed.
-        boundsCpu.Clear();
-        boundsCpu.EnsureCapacity(countArr[typeIdx] > 0 ? countArr[typeIdx] : 64);
+        state.BoundsCpu.Clear();
+        state.BoundsCpu.EnsureCapacity(state.Count > 0 ? state.Count : 64);
         FoliageCluster* root = FoliageTypes.Get()[typeIdx].Root;
-        const uint32 total = root ? GatherClusterBoundsHzb(root, boundsCpu, 0u) : 0u;
-        countArr[typeIdx] = (int32)total;
-        dirtyArr[typeIdx] = false;
+        const uint32 total = root ? GatherClusterBoundsHzb(root, state.BoundsCpu, 0u) : 0u;
+        state.Count = (int32)total;
+        state.DirtyAll = false;
     }
 
-    const int32 count = countArr[typeIdx];
-    if (count > 0)
-        slot->Dispatch(pyramid, boundsCpu.Get(), (uint32)count);
+    if (state.Count > 0)
+        slot->Dispatch(pyramid, state.BoundsCpu.Get(), (uint32)state.Count);
 }
 
 void Foliage::ReleaseHzbResources()
 {
-    _hzbBoundsCpu.Clear();
-    _hzbCount.Clear();
-    _hzbDirtyAll.Clear();
-    _hzbActiveSlot.Clear();
+    _hzbState.Clear();
 }
 
 void Foliage::SetupHzbForMainView(RenderContext& mainContext)
@@ -1896,11 +1878,11 @@ void Foliage::SetupHzbForMainView(RenderContext& mainContext)
         mainContext.Task &&
         mainContext.Task->OcclusionInfo &&
         mainContext.List;
-    HZBCullSlot** activeSlots = _hzbActiveSlot.Get();
+    TypeHzbState* states = _hzbState.Get();
     if (!hzbEligible)
     {
         for (int32 t = 0; t < typeCount; t++)
-            activeSlots[t] = nullptr;
+            states[t].ActiveSlot = nullptr;
         return;
     }
 
@@ -1909,7 +1891,7 @@ void Foliage::SetupHzbForMainView(RenderContext& mainContext)
     for (int32 t = 0; t < typeCount; t++)
     {
         HZBCullSlot* slot = pyramid->GetOrCreateConsumer(this, t);
-        activeSlots[t] = slot;
+        states[t].ActiveSlot = slot;
         const int32 typeIdx = t;
         mainContext.List->AddDelayedDraw(
             [self, typeIdx, slot, pyramid](GPUContext* ctx, RenderContextBatch&, int32)

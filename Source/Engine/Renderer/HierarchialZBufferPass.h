@@ -187,6 +187,14 @@ private:
     BytesContainer _batchBytes;
     uint64 _batchReadbackFrame = 0;
 
+    // Resets the per-frame batch accumulation (pending entries + staged bounds + word cursor).
+    void ClearPending();
+
+    // Cancels the in-flight async readback and waits for its chain, so no continuation can still be
+    // writing into _batchBytes when buffers are released. No-op during engine exit (the deferred-
+    // delete queue may have already freed the task).
+    void CancelReadback();
+
     // (owner-pointer, sub-id) packed into a single uint64 - Dictionary already has GetHash(uint64).
     // Collisions only matter within one pyramid's directory (handful of entries); the multiplicative
     // combine below is plenty.
