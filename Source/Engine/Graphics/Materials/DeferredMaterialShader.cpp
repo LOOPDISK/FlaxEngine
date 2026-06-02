@@ -86,8 +86,12 @@ void DeferredMaterialShader::Bind(BindParameters& params)
 
     // Select pipeline state based on current pass and render mode
     const bool wireframe = (_info.FeaturesFlags & MaterialFeaturesFlags::Wireframe) != MaterialFeaturesFlags::None || view.Mode == ViewMode::Wireframe;
-    const bool isDepthPass = view.Pass == DrawPass::Depth || view.Pass == DrawPass::WeaponDepth;
-    CullMode cullMode = isDepthPass ? CullMode::TwoSided : _info.CullMode;
+    // Shadow + weapon depth pass: respect material's authored CullMode rather than
+    // forcing TwoSided. Forcing TwoSided here doubles shadow raster load for every
+    // closed opaque caster; only materials authored as TwoSided actually need both
+    // sides (banners, foliage cards). WorldDeterminant flip below still handles
+    // negative-scale (mirrored) objects.
+    CullMode cullMode = _info.CullMode;
 #if USE_EDITOR
     if (IsRunningRadiancePass)
         cullMode = CullMode::TwoSided;

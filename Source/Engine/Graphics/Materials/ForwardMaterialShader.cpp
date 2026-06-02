@@ -75,8 +75,8 @@ void ForwardMaterialShader::Bind(BindParameters& params)
 
     // Select pipeline state based on current pass and render mode
     const bool wireframe = (_info.FeaturesFlags & MaterialFeaturesFlags::Wireframe) != MaterialFeaturesFlags::None || view.Mode == ViewMode::Wireframe;
-    const bool isDepthPass = view.Pass == DrawPass::Depth || view.Pass == DrawPass::WeaponDepth;
-    CullMode cullMode = isDepthPass ? CullMode::TwoSided : _info.CullMode;
+    // Respect material CullMode in depth pass too - see DeferredMaterialShader for rationale.
+    CullMode cullMode = _info.CullMode;
 #if USE_EDITOR
     if (IsRunningRadiancePass)
         cullMode = CullMode::TwoSided;
