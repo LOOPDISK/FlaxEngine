@@ -280,8 +280,9 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
                     if (sphere.Radius < _shadowCullRadius && Float3::DistanceSquared(_mainViewPosition, sphere.Center) > _shadowCullDistance2)
                         continue;
                 }
-                else if (EnumHasAnyFlags(context.RenderContext.View.Pass, DrawPass::GBuffer) && !CheckVisibility(instance, sphere))
+                else if (!cullingDisabled && EnumHasAnyFlags(context.RenderContext.View.Pass, DrawPass::GBuffer) && !CheckVisibility(instance, sphere))
                 {
+                    // IsCullingDisabled means the caller explicitly listed actors - don't HZB-gate them.
                     // HZB cull only against the main camera GBuffer pass. Static-shadow clipmap and
                     // other depth-only collections build single-context batches that look "main",
                     // but _hzbActiveSlot was populated against the camera pyramid earlier this frame -
@@ -1316,18 +1317,6 @@ void Foliage::Draw(RenderContext& renderContext)
         return;
     PROFILE_CPU();
     const RenderView& view = renderContext.View;
-
-    // Honor RenderView::IsCullingDisabled - caller explicitly listed actors so HZB
-    // occlusion from the main view must not gate them.
-    struct HzbDisableScope
-    {
-        Foliage* Self;
-        HZBData* Saved;
-        bool Disabled;
-        ~HzbDisableScope() { if (Disabled) Self->_hzb = Saved; }
-    } hzbScope{ this, _hzb, view.IsCullingDisabled };
-    if (view.IsCullingDisabled)
-        _hzb = nullptr;
 
     // Cache data per foliage instance type
     for (auto& type : FoliageTypes)
