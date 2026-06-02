@@ -19,6 +19,9 @@
 #include "./Flax/Common.hlsl"
 #include "./Flax/Math.hlsl"
 #include "./Flax/LightingCommon.hlsl"
+// Light scattering runs as a compute shader - no pixel derivatives, so disable the receiver-plane
+// depth bias (ddx/ddy) in shadow sampling to avoid X4532 on cs_5_0.
+#define SHADOWS_USE_RECEIVER_PLANE_BIAS 0
 #include "./Flax/ShadowsSampling.hlsl"
 #include "./Flax/GBuffer.hlsl"
 #include "./Flax/VolumetricFog.hlsl"

@@ -9,6 +9,13 @@
 #ifndef SHADOWS_CSM_DITHERING
 #define SHADOWS_CSM_DITHERING 0
 #endif
+// Receiver plane depth bias needs screen-space derivatives (ddx/ddy) -> pixel-shader only.
+// Compute shaders that sample shadows (e.g. volumetric fog) must define this 0 before including,
+// else ddx/ddy fail to map to the compute instruction set (X4532). With it off, the slope-scaled
+// constant bias still applies; only the per-tap receiver-plane refinement is dropped.
+#ifndef SHADOWS_USE_RECEIVER_PLANE_BIAS
+#define SHADOWS_USE_RECEIVER_PLANE_BIAS 1
+#endif
 
 #include "./Flax/ShadowsCommon.hlsl"
 #include "./Flax/GBufferCommon.hlsl"
@@ -88,11 +95,16 @@ float2 GetLightShadowAtlasUVWithReceiverBias(ShadowData shadow, ShadowTileData s
     // Receiver plane depth bias from shadow-space gradient. The formula is approximate
     // (uses raw ddx/ddy(z) instead of the full inverse-Jacobian) and only contributes a
     // small adjustment to PCF taps; the tight clamp here is what keeps glancing-angle edge
-    // pixels from poisoning the kernel.
+    // pixels from poisoning the kernel. Derivatives are pixel-shader only - compute callers
+    // (SHADOWS_USE_RECEIVER_PLANE_BIAS 0) get zero bias and rely on the slope-scaled term below.
+#if SHADOWS_USE_RECEIVER_PLANE_BIAS
     float3 shadowPosDDX = ddx(shadowPosition.xyz);
     float3 shadowPosDDY = ddy(shadowPosition.xyz);
     receiverPlaneDepthBias = float2(shadowPosDDX.z, shadowPosDDY.z);
     receiverPlaneDepthBias = clamp(receiverPlaneDepthBias, -0.05, 0.05);
+#else
+    receiverPlaneDepthBias = float2(0.0, 0.0);
+#endif
 
     // Constant slope-scaled depth bias for the comparison reference.
     shadowPosition.z -= ComputeSlopeScaledBias(shadow.Bias, NoL);
