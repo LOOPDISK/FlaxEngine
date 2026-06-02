@@ -151,6 +151,44 @@ public:
     }
 
     /// <summary>
+    /// Checks if this task and every continuation in the chain have ended (via cancel, fail or finish).
+    /// Use this when results are produced by a continuation: IsFinished/IsEnded on the head task
+    /// only describes the head's state, not whether the continuation has finished writing its outputs.
+    /// </summary>
+    bool IsChainEnded() const
+    {
+        if (!IsEnded())
+            return false;
+        const Task* c = _continueWith;
+        while (c)
+        {
+            if (!c->IsEnded())
+                return false;
+            c = c->_continueWith;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Waits for this task and every continuation in the chain to end. Pair with Cancel() before
+    /// releasing any buffer that a continuation writes into - Cancel only flags the head task and
+    /// does not guarantee a queued continuation has finished writing its outputs.
+    /// </summary>
+    /// <param name="timeoutMilliseconds">Per-link timeout. <= 0 waits indefinitely.</param>
+    /// <returns>True if any link failed, canceled, or timed out; false on clean chain finish.</returns>
+    bool WaitChain(double timeoutMilliseconds = -1) const
+    {
+        bool any = Wait(timeoutMilliseconds);
+        const Task* c = _continueWith;
+        while (c)
+        {
+            any |= c->Wait(timeoutMilliseconds);
+            c = c->_continueWith;
+        }
+        return any;
+    }
+
+    /// <summary>
     /// Returns true if task has been requested to cancel it's operation.
     /// </summary>
     FORCE_INLINE bool IsCancelRequested()

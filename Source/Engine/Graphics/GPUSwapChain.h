@@ -123,7 +123,13 @@ public:
     /// Creates GPU async task that will gather render target data from the GPU.
     /// </summary>
     /// <param name="result">Result data</param>
-    /// <returns>Download data task (not started yet)</returns>
+    /// <returns>
+    /// Download data task (not started yet). The returned task is the swap-chain copy;
+    /// the staging->TextureData fill runs as a continuation. Callers that poll completion
+    /// must use Task::Wait() or Task::IsChainEnded() before reading <paramref name="result"/>
+    /// — IsFinished()/IsEnded() on the returned task can be true while the continuation
+    /// is still writing into the TextureData.
+    /// </returns>
     virtual Task* DownloadDataAsync(TextureData& result);
 
 public:

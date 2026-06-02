@@ -576,6 +576,9 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         // Perform custom post-scene drawing (eg. GPU dispatches used by VFX)
         for (int32 i = 0; i < renderContextBatch.Contexts.Count(); i++)
             renderContextBatch.Contexts[i].List->DrainDelayedDraws(context, renderContextBatch, i);
+        // Drain all HZB cull dispatches queued by the delayed draws into per-pyramid batched passes:
+        // one ClearUA + one async readback per pyramid instead of N per-slot pairs.
+        HierarchialZBufferPass::Instance()->FlushPendingCulls(context);
         renderContext.List->PostDraw(context, renderContextBatch);
 
 #if USE_EDITOR

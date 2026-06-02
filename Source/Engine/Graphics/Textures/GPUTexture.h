@@ -541,7 +541,15 @@ public:
     /// Creates GPU async task that will gather texture data from the GPU.
     /// </summary>
     /// <param name="result">The result data.</param>
-    /// <returns>Download data task (not started yet).</returns>
+    /// <returns>
+    /// Download data task (not started yet). For non-staging textures the returned
+    /// task is the GPU->staging copy and the staging->TextureData fill runs as a
+    /// continuation that starts after this task transitions to Finished. Callers
+    /// that poll completion must use Task::Wait() or Task::IsChainEnded() before
+    /// reading <paramref name="result"/> — IsFinished()/IsEnded() on the returned
+    /// task only describes the GPU copy and can be true while the continuation is
+    /// still writing into the TextureData.
+    /// </returns>
     Task* DownloadDataAsync(TextureData& result);
 
     /// <summary>

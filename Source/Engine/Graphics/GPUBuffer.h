@@ -171,7 +171,14 @@ public:
     /// Creates GPU async task that will gather buffer data from the GPU.
     /// </summary>
     /// <param name="result">The result data.</param>
-    /// <returns>Download data task (not started yet).</returns>
+    /// <returns>
+    /// Download data task (not started yet). The returned task is the GPU->staging
+    /// copy; the staging->BytesContainer fill runs as a continuation that starts
+    /// after this task transitions to Finished. Callers that poll completion must
+    /// use Task::Wait() or Task::IsChainEnded() before reading <paramref name="result"/>
+    /// — IsFinished()/IsEnded() on the returned task only describes the GPU copy and
+    /// can be true while the continuation is still writing into the BytesContainer.
+    /// </returns>
     Task* DownloadDataAsync(BytesContainer& result);
 
     /// <summary>

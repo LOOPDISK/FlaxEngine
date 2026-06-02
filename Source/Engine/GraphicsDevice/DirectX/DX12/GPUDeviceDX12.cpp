@@ -1054,11 +1054,8 @@ bool GPUDeviceDX12::Init()
         ComPtr<ID3DBlob> error;
         VALIDATE_DIRECTX_CALL(D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
 
-        //// Create
-        //VALIDATE_DIRECTX_CALL(_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&_rootSignature)));
-        //RootSignatureDX12 signature;
-        //ComPtr<ID3DBlob> signatureBlob = signature.Serialize();
-        //VALIDATE_DIRECTX_CALL(_device->CreateRootSignature(0, signatureBlob->GetBufferPointer(), signatureBlob->GetBufferSize(), IID_PPV_ARGS(&_rootSignature)));
+        // Create
+        VALIDATE_DIRECTX_CALL(_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&_rootSignature)));
     }
 
     // Cached command signatures

@@ -454,6 +454,7 @@ bool DeployDataStep::Perform(CookingData& data)
     data.AddRootEngineAsset(TEXT("Shaders/SDF"));
     data.AddRootEngineAsset(TEXT("Shaders/CAS"));
     data.AddRootEngineAsset(TEXT("Shaders/HZB"));
+    data.AddRootEngineAsset(TEXT("Shaders/HZBCull"));
     data.AddRootEngineAsset(TEXT("Shaders/SkinningCS"));
     data.AddRootEngineAsset(TEXT("Shaders/VolumetricFog"));
     data.AddRootEngineAsset(TEXT("Shaders/StylizedCloud"));
