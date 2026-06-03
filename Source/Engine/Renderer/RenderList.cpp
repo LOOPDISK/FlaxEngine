@@ -13,6 +13,7 @@
 #include "Engine/Graphics/Graphics.h"
 #include "Engine/Graphics/PostProcessEffect.h"
 #include "Engine/Profiler/Profiler.h"
+#include "Engine/Profiler/ProfilingTools.h"
 #include "Engine/Content/Assets/CubeTexture.h"
 #include "Engine/Core/Log.h"
 #include "Engine/Core/Math/Half.h"
@@ -1013,6 +1014,27 @@ void RenderList::ExecuteDrawCalls(const RenderContext& renderContext, DrawCallsL
     const auto* drawCallsData = drawCallsList->DrawCalls.Get();
     const auto* listData = list.Indices.Get();
     const auto* batchesData = list.Batches.Get();
+#if COMPILE_WITH_PROFILER
+    // Per-model shadow caster tally (only while ShadowsPass brackets its submits). Skips indirect
+    // draws - their index count is union-aliased with the indirect args buffer.
+    if (ProfilingTools::ShadowTallyActive)
+    {
+        for (int32 i = 0; i < list.Batches.Count(); i++)
+        {
+            const DrawBatch& batch = batchesData[i];
+            const DrawCall& dc = drawCallsData[listData[batch.StartIndex]];
+            if (dc.InstanceCount != 0 && dc.Geometry.IndexBuffer)
+                ProfilingTools::TallyShadowCaster(dc.Geometry.IndexBuffer, dc.Draw.IndicesCount / 3, (int32)batch.InstanceCount);
+        }
+        for (int32 i = 0; i < list.PreBatchedDrawCalls.Count(); i++)
+        {
+            const BatchedDrawCall& batch = BatchedDrawCalls.Get()[list.PreBatchedDrawCalls.Get()[i]];
+            const DrawCall& dc = batch.DrawCall;
+            if (dc.InstanceCount != 0 && dc.Geometry.IndexBuffer)
+                ProfilingTools::TallyShadowCaster(dc.Geometry.IndexBuffer, dc.Draw.IndicesCount / 3, batch.Instances.Count());
+        }
+    }
+#endif
     const auto context = GPUDevice::Instance->GetMainContext();
     bool useInstancing = list.CanUseInstancing && CanUseInstancing(renderContext.View.Pass) && GPUDevice::Instance->Limits.HasInstancing;
     TaaJitterRemoveContext taaJitterRemove(renderContext.View);

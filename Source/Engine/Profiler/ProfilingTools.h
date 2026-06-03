@@ -9,6 +9,8 @@
 #include "Engine/Scripting/ScriptingType.h"
 #include "Engine/Profiler/Profiler.h"
 
+class GPUBuffer;
+
 /// <summary>
 /// Profiler tools for development. Allows to gather profiling data and events from the engine.
 /// </summary>
@@ -153,6 +155,70 @@ public:
     /// The networking profiler events.
     /// </summary>
     API_FIELD(ReadOnly) static Array<NetworkEventStat> EventsNetwork;
+
+    // CPU-event recording ring. Records per-frame CPU thread events into a native ring buffer
+    // so a long capture does not marshal EventsCPU to managed each frame (~400KB/frame) - that
+    // churn was causing GC stalls that perturbed the captured frames. Stats are small POD and
+    // GPU events carry transient name pointers, so callers keep those per-frame themselves;
+    // only the heavy CPU events live here. Marshal recorded frames at dump time. 0 = oldest.
+
+    /// <summary>Begins recording up to maxFrames of CPU events into a native ring (alloc-free per frame).</summary>
+    API_FUNCTION() static void BeginRecording(int32 maxFrames);
+
+    /// <summary>Stops recording. Buffered frames stay readable until the next BeginRecording.</summary>
+    API_FUNCTION() static void EndRecording();
+
+    /// <summary>True while a recording is active.</summary>
+    API_PROPERTY() static bool IsRecording();
+
+    /// <summary>Count of frames buffered in the recording ring (0..maxFrames).</summary>
+    API_PROPERTY() static int32 GetRecordedFrameCount();
+
+    /// <summary>CPU thread events for buffered frame i (0 = oldest); marshaled on access.</summary>
+    API_FUNCTION() static Array<ThreadStats> GetRecordedEventsCPU(int32 i);
+
+    // Shadow caster profiling. Off by default (zero cost). When enabled, RenderShadowMaps
+    // brackets its draws and RenderList tallies per-model triangles/draws submitted to the
+    // shadow depth passes (CSM cascades, clipmap, atlas, weapon). The model name comes from
+    // the index buffer debug name; needs GPU resource naming (non-release). Indirect/GPU-driven
+    // draws are skipped - their triangle count is not CPU-visible. Flattened into ShadowCasters
+    // each frame; read at dump time to point artists at the heaviest shadow geometry.
+
+    /// <summary>Per-model shadow caster cost for one frame.</summary>
+    API_STRUCT(NoDefault) struct ShadowCasterStat
+    {
+        DECLARE_SCRIPTING_TYPE_MINIMAL(ShadowCasterStat);
+
+        /// <summary>Model asset path (from the index buffer name), or empty when unnamed.</summary>
+        API_FIELD() String Name;
+
+        /// <summary>Total triangles submitted to shadow depth passes this frame.</summary>
+        API_FIELD() uint64 Triangles;
+
+        /// <summary>Draw submissions (batches) this frame.</summary>
+        API_FIELD() int32 DrawCalls;
+
+        /// <summary>Total instances drawn this frame.</summary>
+        API_FIELD() int32 Instances;
+    };
+
+    /// <summary>Enables per-model shadow caster profiling (small per-frame cost while on).</summary>
+    API_PROPERTY() static bool GetShadowCasterProfiling();
+    API_PROPERTY() static void SetShadowCasterProfiling(bool enabled);
+
+    /// <summary>Per-model shadow caster costs, triangles desc. Valid while profiling is enabled.</summary>
+    API_FIELD(ReadOnly) static Array<ShadowCasterStat> ShadowCasters;
+
+    // Native renderer hooks (not for scripting). ShadowTallyActive gates the per-draw tally.
+    static bool ShadowTallyActive;
+    static void TallyShadowCaster(GPUBuffer* indexBuffer, int32 triangles, int32 instances);
+
+    // RAII bracket: ShadowsPass wraps its submit scope so only shadow draws are tallied.
+    struct ShadowTallyScope
+    {
+        ShadowTallyScope();
+        ~ShadowTallyScope();
+    };
 };
 
 #endif

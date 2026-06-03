@@ -26,6 +26,8 @@ Array<RenderTask*> RenderTask::Tasks;
 CriticalSection RenderTask::TasksLocker;
 int32 RenderTask::TasksDoneLastFrame;
 Array<PostProcessEffect*> SceneRenderTask::GlobalCustomPostFx;
+bool SceneRenderTask::PostFxPrewarmEnabled = true;
+int32 SceneRenderTask::PostFxPrewarmPerFrame = 4;
 MainRenderTask* MainRenderTask::Instance;
 CriticalSection RenderContext::GPULocker;
 
@@ -180,6 +182,8 @@ void SceneRenderTask::ClearCustomActors()
 void SceneRenderTask::AddCustomPostFx(PostProcessEffect* fx)
 {
     CustomPostFx.AddUnique(fx);
+    if (fx && fx->PrewarmOnRegister)
+        fx->PrewarmPending = true;
 }
 
 void SceneRenderTask::RemoveCustomPostFx(PostProcessEffect* fx)
@@ -190,6 +194,8 @@ void SceneRenderTask::RemoveCustomPostFx(PostProcessEffect* fx)
 void SceneRenderTask::AddGlobalCustomPostFx(PostProcessEffect* fx)
 {
     GlobalCustomPostFx.AddUnique(fx);
+    if (fx && fx->PrewarmOnRegister)
+        fx->PrewarmPending = true;
 }
 
 void SceneRenderTask::RemoveGlobalCustomPostFx(PostProcessEffect* fx)
@@ -320,6 +326,30 @@ void SceneRenderTask::OnCollectDrawCalls(RenderContextBatch& renderContextBatch,
 
 void SceneRenderTask::OnPreRender(GPUContext* context, RenderContext& renderContext)
 {
+    // Prewarm registered postfx: compile their pipeline states ahead of first use, on the render
+    // thread, spread over frames. Runs over the full registered set (not the CanRender-filtered
+    // render list) so an effect warms before it first becomes visible. Skips effects whose Prewarm
+    // reports not-ready (e.g. shader still loading) - retried next frame.
+    if (PostFxPrewarmEnabled)
+    {
+        int32 budget = PostFxPrewarmPerFrame;
+        const auto warm = [&](PostProcessEffect* fx)
+        {
+            if (budget > 0 && fx && fx->PrewarmPending && fx->Prewarm(context))
+            {
+                fx->PrewarmPending = false;
+                budget--;
+            }
+        };
+        if (AllowGlobalCustomPostFx)
+        {
+            for (PostProcessEffect* fx : GlobalCustomPostFx)
+                warm(fx);
+        }
+        for (PostProcessEffect* fx : CustomPostFx)
+            warm(fx);
+    }
+
     PreRender(context, renderContext);
 
     // Collect initial draw calls

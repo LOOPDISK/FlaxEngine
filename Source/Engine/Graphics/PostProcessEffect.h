@@ -36,6 +36,14 @@ public:
     /// </summary>
     API_FIELD(Attributes="EditorDisplay(\"Post Process Effect\")") int32 Order = 0;
 
+    /// <summary>
+    /// If true, Prewarm is called shortly after the effect is registered for rendering, so its pipeline states compile ahead of first use instead of stalling on first render. Turn off for debug-only effects.
+    /// </summary>
+    API_FIELD(Attributes="EditorDisplay(\"Post Process Effect\")") bool PrewarmOnRegister = true;
+
+    // Set when registered (if PrewarmOnRegister); consumed by SceneRenderTask warm drain. Not serialized.
+    bool PrewarmPending = false;
+
 public:
     /// <summary>
     /// Gets a value indicating whether this effect can be rendered.
@@ -70,5 +78,15 @@ public:
     /// <param name="output">The output texture.</param>
     API_FUNCTION() virtual void Render(GPUContext* context, API_PARAM(Ref) RenderContext& renderContext, GPUTexture* input, GPUTexture* output)
     {
+    }
+
+    /// <summary>
+    /// Prewarms GPU resources (pipeline states, shader permutations) so the first Render does not stall. Called on the render thread with a valid context, before first use. Return false if not ready yet (e.g. shader still loading) to retry next frame. Must only create GPU resources - never read game/per-frame state.
+    /// </summary>
+    /// <param name="context">The GPU commands context.</param>
+    /// <returns>True when prewarming is complete (or nothing to do), false to retry next frame.</returns>
+    API_FUNCTION() virtual bool Prewarm(GPUContext* context)
+    {
+        return true;
     }
 };

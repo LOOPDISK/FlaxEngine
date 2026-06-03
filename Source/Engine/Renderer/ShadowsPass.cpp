@@ -11,10 +11,13 @@
 #include "Engine/Graphics/Textures/TextureData.h"
 #include "Engine/Content/Content.h"
 #include "Engine/Engine/Engine.h"
+#include "Engine/Profiler/ProfilingTools.h"
 #include "Engine/Engine/Globals.h"
 #include "Engine/Engine/Units.h"
 #include "Engine/Graphics/RenderTools.h"
 #include "Engine/Level/Scene/SceneRendering.h"
+#include "Engine/Level/Actors/AnimatedModel.h"
+#include "Engine/Particles/ParticleEffect.h"
 #include "Engine/Platform/FileSystem.h"
 #include "Engine/Scripting/Enums.h"
 #include "Engine/Serialization/FileWriteStream.h"
@@ -61,7 +64,7 @@
 // g_ClipmapDebugDraw: when true, ShadowsPass::DrawClipmapDebugOverlay paints clipmap level depth
 // textures as grayscale thumbnails down the right edge of the output (called from Renderer.cpp).
 static bool g_ClipmapIsolateStatic = false;
-static bool g_ClipmapDebugDraw = false;
+static bool g_ClipmapDebugDraw = true;
 
 // Light-space basis used by the toroidal shadow clipmap. Every site that constructs a
 // (LightRight, LightUp) pair from a sun direction MUST go through this helper - otherwise
@@ -882,11 +885,23 @@ public:
     {
         if (!a->HasStaticFlag(StaticFlags::Shadow))
             return false;
+        // An animated model deforms every frame it plays - its depth can never be cached as
+        // static, so Shadow-static on it is an oxymoron. Treat as dynamic regardless of flags.
+        if (a->Is<AnimatedModel>())
+            return false;
+        // A particle effect spawns/moves/dies every frame - same oxymoron, treat as dynamic.
+        if (a->Is<ParticleEffect>())
+            return false;
         Actor* parent = a->GetParent();
         int32 depth = 0;
         while (parent && depth < 16)
         {
             if (!parent->HasStaticFlag(StaticFlags::Transform))
+                return false;
+            // An animated ancestor (skinned mesh, bone-socket rig) moves this actor every frame
+            // even when the actor's own flags say static - so it can't be cached. Catches static
+            // props/weapons parented under a droid or any AnimatedModel.
+            if (parent->Is<AnimatedModel>())
                 return false;
             parent = parent->GetParent();
             depth++;
@@ -894,9 +909,35 @@ public:
         return true;
     }
 
+    // Full scene path (ancestor names joined). The bare actor Name is usually a generic type
+    // label ("AnimatedModel"), useless for locating the offending instance - walk to the root.
+    static String BuildActorChain(Actor* a)
+    {
+        String chain = a->GetName();
+        Actor* parent = a->GetParent();
+        int32 depth = 0;
+        while (parent && depth < 8)
+        {
+            chain = parent->GetName() + TEXT("/") + chain;
+            parent = parent->GetParent();
+            depth++;
+        }
+        return chain;
+    }
+
     // [ISceneRenderingListener]
     void OnSceneRenderingAddActor(Actor* a) override
     {
+        // Surface the mis-flagged asset so it can be fixed at the source (the flag is ignored above).
+        // Log the scene path + the backing model asset - the actor Name alone is just the type label.
+        if (a->HasStaticFlag(StaticFlags::Shadow) && a->Is<AnimatedModel>())
+        {
+            auto* am = (AnimatedModel*)a;
+            LOG(Warning, "[ClipmapStatic] AnimatedModel Shadow-static (ignored): path='{0}' model='{1}'. Clear the Shadow flag on this asset.",
+                BuildActorChain(a), am->SkinnedModel ? am->SkinnedModel->GetPath() : String(TEXT("<none>")));
+        }
+        if (a->HasStaticFlag(StaticFlags::Shadow) && a->Is<ParticleEffect>())
+            LOG(Warning, "[ClipmapStatic] ParticleEffect Shadow-static (ignored): path='{0}'. Clear the Shadow flag on this asset.", BuildActorChain(a));
         if (IsEffectivelyShadowStatic(a))
             DirtyStaticBounds(a->GetSphere());
     }
@@ -909,17 +950,13 @@ public:
             const BoundingSphere curBounds = a->GetSphere();
             if (Clipmap.Enabled)
             {
-                String chain = a->GetName();
-                Actor* parent = a->GetParent();
-                int32 depth = 0;
-                while (parent && depth < 8)
-                {
-                    chain = parent->GetName() + TEXT("/") + chain;
-                    parent = parent->GetParent();
-                    depth++;
-                }
-                LOG(Info, "[ClipmapDirty] path='{0}' type='{1}' flags={2} prev=({3},{4},{5})r={6} cur=({7},{8},{9})r={10}",
-                    chain, String(a->GetType().GetName()), (int32)flags,
+                String chain = BuildActorChain(a);
+                // moved = world-space center travel this update; recurring nonzero values are the
+                // real offenders (a Shadow-static asset being moved every frame). A near-zero moved
+                // with a flag/material flags is a one-off and harmless.
+                const float moved = (float)Float3::Distance((Float3)curBounds.Center, (Float3)prevBounds.Center);
+                LOG(Info, "[ClipmapDirty] moved={0} path='{1}' type='{2}' flags={3} prev=({4},{5},{6})r={7} cur=({8},{9},{10})r={11}",
+                    moved, chain, String(a->GetType().GetName()), (int32)flags,
                     prevBounds.Center.X, prevBounds.Center.Y, prevBounds.Center.Z, prevBounds.Radius,
                     curBounds.Center.X, curBounds.Center.Y, curBounds.Center.Z, curBounds.Radius);
             }
@@ -2570,6 +2607,10 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
     if (shadowsPtr == nullptr || shadowsPtr->Lights.IsEmpty() || shadowsPtr->LastFrameUsed != Engine::FrameCount)
         return;
     PROFILE_GPU_CPU("Shadow Maps");
+#if COMPILE_WITH_PROFILER
+    // Tally per-model shadow caster triangles across all submits below (CSM, clipmap, atlas, weapon).
+    ProfilingTools::ShadowTallyScope shadowTallyScope;
+#endif
     const ShadowsCustomBuffer& shadows = *shadowsPtr;
     GPUContext* context = GPUDevice::Instance->GetMainContext();
     context->ResetSR();
@@ -2716,6 +2757,11 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
 
                 const int32 dx = level.DirtyStrip.X;
                 const int32 dy = level.DirtyStrip.Y;
+                // Strip path is otherwise silent - log delta so a moving capture can be told apart
+                // from a full-redraw spam (invalidation) and fat-strip costs surface.
+                if (g_ClipmapDebugDraw)
+                    LOG(Info, "[ClipmapStrip] L{0} dx={1} dy={2} R={3} scroll=({4},{5})",
+                        levelIdx, dx, dy, R, newScroll.X, newScroll.Y);
                 const int32 absDx = Math::Abs(dx);
                 const int32 absDy = Math::Abs(dy);
 

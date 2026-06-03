@@ -349,6 +349,16 @@ public:
     /// <param name="fx">The postfx script.</param>
     API_FUNCTION() static void RemoveGlobalCustomPostFx(PostProcessEffect* fx);
 
+    /// <summary>
+    /// Global kill-switch for prewarming registered custom postfx (compiling pipeline states ahead of first use). Use to A/B the stalls or disable load-time warming.
+    /// </summary>
+    API_FIELD() static bool PostFxPrewarmEnabled;
+
+    /// <summary>
+    /// Max custom postfx prewarmed per rendered frame. Spreads first-use PSO compiles over a few frames instead of one stall.
+    /// </summary>
+    API_FIELD() static int32 PostFxPrewarmPerFrame;
+
 public:
     /// <summary>
     /// The action called on view rendering to collect draw calls. It allows to extend rendering pipeline and draw custom geometry non-existing in the scene or custom actors set.
