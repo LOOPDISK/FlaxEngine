@@ -205,6 +205,9 @@ namespace FlaxEditor.CustomEditors.Dedicated
                 if (Values != null && (Actor)Values[0] && prefab && !prefab.WaitForLoaded())
                 {
                     var actor = (Actor)Values[0];
+                    // Instance can be destroyed+rebuilt during apply (eg nested prefab instance) - skip, layout rebuilds anyway
+                    if (!actor)
+                        return;
                     var prefabObjectId = actor.PrefabObjectID;
                     var prefabInstance = prefab.GetDefaultInstance(ref prefabObjectId);
                     if (prefabInstance != null)

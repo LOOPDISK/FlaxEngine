@@ -408,9 +408,7 @@ void Serialization::Deserialize(ISerializable::DeserializeStream& stream, Varian
 
 bool Serialization::ShouldSerialize(const Guid& v, const void* otherObj)
 {
-    // Compare against default rather than just checking IsValid(), so that an
-    // Empty Guid override on a prefab instance is correctly serialized as a diff.
-    // Without this, clearing a Guid field on an instance silently reverts on reload.
+    // Compare against default (not just IsValid) so an Empty Guid override on an instance serializes as a diff (else clearing a ref reverts on reload).
     if (!otherObj)
         return true;
     return v != *(Guid*)otherObj;
@@ -820,6 +818,12 @@ bool Serialization::ShouldSerializeRef(const SceneObject* v, const SceneObject* 
         // Special case when saving reference to prefab object and the objects are different but the point to the same prefab object
         // In that case, skip saving reference as it's defined in prefab (will be populated via IdsMapping during deserialization)
         result = v->GetPrefabObjectID() != other->GetPrefabObjectID();
+    }
+    else if (result && !v && other && other->HasPrefabLink())
+    {
+        // Special case when the reference is null but the prefab defines a reference to a prefab object
+        // In that case, skip saving the null override as it's defined in prefab (might have just failed to resolve via IdsMapping in nested/duplicated prefab instances)
+        result = false;
     }
     return result;
 }

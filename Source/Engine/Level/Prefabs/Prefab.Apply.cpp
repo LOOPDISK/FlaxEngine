@@ -1042,26 +1042,22 @@ bool Prefab::ApplyAllInternal(Actor* targetActor, bool linkTargetActorObjectToPr
             obj->RegisterObject();
         }
 
-        // Generate nested prefab instances to properly handle Ids Mapping within each nested prefab
-        rapidjson_flax::Document targetDataDocument;
+        // Setup nested prefab instances for Ids Mapping. Use prefab data (what sceneObjects were spawned from)
+        // so SceneObjects[i] and Data[i] stay aligned (instance data differs after add/delete and mismaps ids).
         if (NestedPrefabs.HasItems())
         {
-            targetDataDocument.Parse(dataBuffer.GetString(), dataBuffer.GetSize());
-            SceneObjectsFactory::PrefabSyncData prefabSyncData(*sceneObjects.Value, targetDataDocument, modifier.Value);
+            SceneObjectsFactory::PrefabSyncData prefabSyncData(*sceneObjects.Value, data, modifier.Value);
             SceneObjectsFactory::SetupPrefabInstances(context, prefabSyncData);
 
             if (context.Instances.HasItems())
             {
-                // Only main prefab instance is allowed (in case nested prefab was added to this prefab)
-                for (auto i = context.ObjectToInstance.Begin(); i.IsNotEnd(); ++i)
+                // Trash only the main instance's ids mapping (it would remap this prefab's own objects); keep
+                // every nested instance. Discarding the rest collapsed repeated nested prefabs onto one (eg. doors).
+                for (auto& instance : context.Instances)
                 {
-                    if (i->Value != 0)
-                        context.ObjectToInstance.Remove(i);
+                    if (instance.RootIndex == 0)
+                        instance.IdsMapping.Clear();
                 }
-                context.Instances.Resize(1);
-
-                // Trash object mapping to prevent messing up prefab structure when applying hierarchy changes (only nested instances are used)
-                context.Instances[0].IdsMapping.Clear();
             }
         }
 
