@@ -191,6 +191,13 @@ public:
     // Set by ShadowsPass; read by RenderList::AddDrawCall for cascade best-fit.
     int8 CascadeIndex = -1;
 
+    // True for the toroidal static-shadow clipmap collection. The cache includes casters by
+    // world-extent containment, not apparent size: foliage's per-level screen-pixel cull is
+    // evaluated in each level's ortho, so a far (coarse) level drops sub-texel casters that the
+    // near level keeps - making static shadows vanish in all but the nearest cascade. Cache cost
+    // is paid on redraw/strip only, so skipping the size cull here is cheap. Set by RenderClipmapStrip.
+    bool IsStaticShadowCache = false;
+
 public:
     /// <summary>
     /// The view information vector with packed components to reconstruct linear depth and view position from the hardware depth buffer. Cached before rendering.

@@ -620,6 +620,8 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Me
     };
     if (context.RenderContext.View.Pass != DrawPass::Depth)
         context.MinObjectPixelSizeSq = 0.0f; // Don't use it in main view
+    else if (context.RenderContext.View.IsStaticShadowCache)
+        context.MinObjectPixelSizeSq = 0.0f; // Cache: per-level size cull drops far-cascade foliage
 #if FOLIAGE_USE_DRAW_CALLS_BATCHING
     // Initialize draw calls for foliage type all LODs meshes
     for (int32 lod = 0; lod < type.Model->LODs.Count(); lod++)

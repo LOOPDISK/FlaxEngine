@@ -64,7 +64,7 @@
 // g_ClipmapDebugDraw: when true, ShadowsPass::DrawClipmapDebugOverlay paints clipmap level depth
 // textures as grayscale thumbnails down the right edge of the output (called from Renderer.cpp).
 static bool g_ClipmapIsolateStatic = false;
-static bool g_ClipmapDebugDraw = true;
+static bool g_ClipmapDebugDraw = false;
 
 // Light-space basis used by the toroidal shadow clipmap. Every site that constructs a
 // (LightRight, LightUp) pair from a sun direction MUST go through this helper - otherwise
@@ -1545,17 +1545,25 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
 
         // Create projection matrix
         Matrix::OrthoOffCenter(minExtents.X, maxExtents.X, minExtents.Y, maxExtents.Y, 0.0f, cascadeExtents.Z, shadowProjection);
-        Matrix::Multiply(shadowView, shadowProjection, shadowVP);
 
-        // Round the projection matrix by projecting the world-space origin and calculating the fractional offset in texel space of the shadow map
-        Float4 shadowOrigin = Float4(0.0f, 0.0f, 0.0f, 1.0f);
-        shadowOrigin = Float4::Transform(shadowOrigin, shadowVP);
-        shadowOrigin = shadowOrigin * (shadowMapsSize / 2.0f);
-        Float4 roundedOrigin = Float4::Round(shadowOrigin);
-        Float4 roundOffset = roundedOrigin - shadowOrigin;
-        roundOffset = roundOffset * (2.0f / shadowMapsSize);
-        roundOffset.Z = 0.0f;
-        roundOffset.W = 0.0f;
+        // Snap the projection so the world origin lands exactly on a shadow texel (kills the sub-texel
+        // edge crawl seen when the camera moves/rotates slowly). Folded into the ortho's row 4 and
+        // computed in DOUBLE precision. The world origin's shadow-clip position carries camera-distance
+        // magnitude, so the previous form (project (0,0,0) through shadowVP, Round in single precision)
+        // lost ~0.1 texel once the camera was a few hundred metres from world origin (Flax world units
+        // are cm) - reintroducing the exact shimmer the double-precision cascade-centre snap (I12) exists
+        // to remove, and sliding the dynamic cascade off the clipmap composite (which anchors static
+        // content to the same double-snapped centre). Recompute the origin's texel-space position
+        // directly from frustumCenter in double - algebraically identical to the old origin projection
+        // (ortho is symmetric, so origin texelX = -(frustumCenter.lightRight) * tpu), minus the
+        // precision loss - so dynamic and static shadows share one world-anchored texel grid.
+        // See: D:\code\notes\shadow_clipmap_assumptions.md (invariant I12).
+        const double snapTpu = (double)shadowMapsSize / ((double)frustumRadius * 2.0);
+        const double snapTexelX = ((double)frustumCenter.X * lightRight.X + (double)frustumCenter.Y * lightRight.Y + (double)frustumCenter.Z * lightRight.Z) * snapTpu;
+        const double snapTexelY = ((double)frustumCenter.X * lightUp.X + (double)frustumCenter.Y * lightUp.Y + (double)frustumCenter.Z * lightUp.Z) * snapTpu;
+        const double snapFracX = snapTexelX - Math::Round(snapTexelX);
+        const double snapFracY = snapTexelY - Math::Round(snapTexelY);
+        const Float4 roundOffset((float)(snapFracX * 2.0 / (double)shadowMapsSize), (float)(snapFracY * 2.0 / (double)shadowMapsSize), 0.0f, 0.0f);
         shadowProjection.SetRow4(shadowProjection.GetRow4() + roundOffset);
 
         // Calculate view*projection matrix
@@ -2244,6 +2252,7 @@ static void RenderClipmapStrip(
     armCtx.View.Flags = mainRenderContext.View.Flags;
     armCtx.View.StaticFlagsMask = StaticFlags::Shadow;
     armCtx.View.StaticFlagsCompare = StaticFlags::Shadow; // Static only
+    armCtx.View.IsStaticShadowCache = true; // include all casters by extent; skip per-level apparent-size cull
     armCtx.View.RenderLayersMask = mainRenderContext.View.RenderLayersMask;
     armCtx.View.Origin = mainRenderContext.View.Origin;
     armCtx.View.CullingFrustum.SetMatrix(armVP);

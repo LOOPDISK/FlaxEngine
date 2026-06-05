@@ -62,6 +62,7 @@ public class Editor : EditorModule
         options.PrivateDependencies.Add("TextureTool");
         options.PrivateDependencies.Add("Particles");
         options.PrivateDependencies.Add("Terrain");
+        options.PrivateDependencies.Add("meshoptimizer");
 
         var platformToolsRoot = Path.Combine(FolderPath, "Cooker", "Platform");
         var platformToolsRootExternal = Path.Combine(Globals.EngineRoot, "Source", "Platforms");
