@@ -7,6 +7,7 @@
 #include "GPUVertexLayoutDX11.h"
 #include "Engine/Serialization/MemoryReadStream.h"
 #include "../RenderToolsDX.h"
+#include "RenderStallProbeDX11.h"
 
 GPUShaderProgramVSDX11::~GPUShaderProgramVSDX11()
 {
@@ -32,7 +33,9 @@ ID3D11InputLayout* GPUShaderProgramVSDX11::GetInputLayout(GPUVertexLayoutDX11* v
             int32 missingSlotOverride = GPU_MAX_VB_BINDED; // Use additional slot with empty VB
             if (InputLayout)
                 mergedVertexLayout = (GPUVertexLayoutDX11*)GPUVertexLayout::Merge(mergedVertexLayout, InputLayout, false, true, missingSlotOverride);
+            const double _t0 = Platform::GetTimeSeconds();
             LOG_DIRECTX_RESULT(vertexLayout->GetDevice()->GetDevice()->CreateInputLayout(mergedVertexLayout->InputElements, mergedVertexLayout->InputElementsCount, Bytecode.Get(), Bytecode.Length(), &inputLayout));
+            RenderStallProbeDX11::Report("inputlayout", GetName(), _t0);
         }
         _cache.Add(vertexLayout, inputLayout);
     }
@@ -43,6 +46,7 @@ GPUShaderProgram* GPUShaderDX11::CreateGPUShaderProgram(ShaderStage type, const 
 {
     GPUShaderProgram* shader = nullptr;
     HRESULT result;
+    const double _t0 = Platform::GetTimeSeconds();
     switch (type)
     {
     case ShaderStage::Vertex:
@@ -109,6 +113,7 @@ GPUShaderProgram* GPUShaderDX11::CreateGPUShaderProgram(ShaderStage type, const 
         break;
     }
     }
+    RenderStallProbeDX11::Report("shadercreate", initializer.Name, _t0);
     return shader;
 }
 

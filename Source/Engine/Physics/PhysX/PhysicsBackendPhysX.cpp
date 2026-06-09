@@ -23,6 +23,7 @@
 #include "Engine/Physics/Colliders/Collider.h"
 #include "Engine/Platform/CPUInfo.h"
 #include "Engine/Platform/CriticalSection.h"
+#include "Engine/Platform/Platform.h"
 #include "Engine/Profiler/ProfilerCPU.h"
 #include "Engine/Profiler/ProfilerMemory.h"
 #include "Engine/Serialization/WriteStream.h"
@@ -147,16 +148,76 @@ public:
     }
 };
 
+// [PhysXProf] DIAGNOSTIC 2026-06-09 - PhysX internal zones (broadphase, SQ pruner build/refit,
+// solver, narrowphase) were discarded. Time MAIN-THREAD zones only (sim-worker zones skipped -
+// worker-thread profiler hazard) into a per-name accumulator; summary logged ~1/sec. The 16x
+// spike-frame query/CC.Move blowup should show here as a hot pruner/broadphase zone. No-op in
+// release. NOTE: fires only if PhysX libs are profile/checked config; [PhysXStats] is the fallback.
 class ProfilerPhysX : public PxProfilerCallback
 {
+#if !BUILD_RELEASE
+    static_assert(sizeof(void*) >= sizeof(double), "[PhysXProf] token packs a double into void*");
+    struct Zone { const char* Name; double Sum; int32 Count; };
+    Zone _zones[64] = {};
+    int32 _zoneCount = 0;
+    double _lastFlush = 0.0;
+
+    void Accumulate(const char* name, double seconds)
+    {
+        for (int32 i = 0; i < _zoneCount; i++)
+        {
+            if (_zones[i].Name == name)
+            {
+                _zones[i].Sum += seconds;
+                _zones[i].Count++;
+                return;
+            }
+        }
+        if (_zoneCount < 64)
+            _zones[_zoneCount++] = { name, seconds, 1 };
+    }
+
+    void Flush()
+    {
+        const double now = Platform::GetTimeSeconds();
+        if (now - _lastFlush < 1.0)
+            return;
+        _lastFlush = now;
+        for (int32 i = 0; i < _zoneCount; i++)
+        {
+            if (_zones[i].Sum > 0.0002) // >0.2ms/sec total
+                LOG(Info, "[PhysXProf] {0} sum={1}ms n={2}", String(_zones[i].Name), _zones[i].Sum * 1000.0, _zones[i].Count);
+            _zones[i].Sum = 0.0;
+            _zones[i].Count = 0;
+        }
+    }
+#endif
+
 public:
     void* zoneStart(const char* eventName, bool detached, uint64_t contextId) override
     {
+#if !BUILD_RELEASE
+        if (!IsInMainThread())
+            return nullptr;
+        const double t0 = Platform::GetTimeSeconds();
+        void* token = nullptr;
+        Platform::MemoryCopy(&token, &t0, sizeof(double));
+        return token;
+#else
         return nullptr;
+#endif
     }
 
     void zoneEnd(void* profilerData, const char* eventName, bool detached, uint64_t contextId) override
     {
+#if !BUILD_RELEASE
+        if (profilerData == nullptr)
+            return;
+        double t0 = 0.0;
+        Platform::MemoryCopy(&t0, &profilerData, sizeof(double));
+        Accumulate(eventName, Platform::GetTimeSeconds() - t0);
+        Flush();
+#endif
     }
 };
 
@@ -622,8 +683,8 @@ namespace
     ErrorPhysX ErrorCallback;
 #if WITH_CLOTH
     AssertPhysX AssertCallback;
-    ProfilerPhysX ProfilerCallback;
 #endif
+    ProfilerPhysX ProfilerCallback; // [PhysXProf] needed by core-SDK registration, not just cloth
     PxTolerancesScale ToleranceScale;
     QueryFilterPhysX QueryFilter;
     CharacterQueryFilterPhysX CharacterQueryFilter;
@@ -1702,6 +1763,9 @@ bool PhysicsBackend::Init()
     LOG(Info, "Setup NVIDIA PhysX {0}.{1}.{2}", PX_PHYSICS_VERSION_MAJOR, PX_PHYSICS_VERSION_MINOR, PX_PHYSICS_VERSION_BUGFIX);
     Foundation = PxCreateFoundation(PX_PHYSICS_VERSION, AllocatorCallback, ErrorCallback);
     CHECK_INIT(Foundation, "PxCreateFoundation failed!");
+#if !BUILD_RELEASE
+    PxSetProfilerCallback(&ProfilerCallback); // [PhysXProf] route SDK-internal zones to main-thread accumulator
+#endif
 
     // Init debugger
     PxPvd* pvd = nullptr;
@@ -2036,6 +2100,25 @@ void PhysicsBackend::EndSimulateScene(void* scene)
         // Gather results (with waiting for the end)
         scenePhysX->Stepper.wait(scenePhysX->Scene);
     }
+
+#if !BUILD_RELEASE
+    // [PhysXStats] DIAGNOSTIC 2026-06-09 - broadphase/sim counts per ~sec. Tells density
+    // (newPairs/touches climb when crowded) from pure SQ-pruner refit (counts flat, queries
+    // still 16x). Works regardless of PhysX lib profile config (unlike [PhysXProf]).
+    {
+        static double lastStatsLog = 0.0;
+        const double now = Platform::GetTimeSeconds();
+        if (now - lastStatsLog >= 1.0)
+        {
+            lastStatsLog = now;
+            PxSimulationStatistics st;
+            scenePhysX->Scene->getSimulationStatistics(st);
+            LOG(Info, "[PhysXStats] dyn={0} kin={1} static={2} newPairs={3} lostPairs={4} newTouch={5} lostTouch={6}",
+                st.nbActiveDynamicBodies, st.nbActiveKinematicBodies, st.nbStaticBodies,
+                st.nbNewPairs, st.nbLostPairs, st.nbNewTouches, st.nbLostTouches);
+        }
+    }
+#endif
 
     // Jerk fix 2026-06-08: pawn grounding/look casts blew up traversing a degraded dynamic SQ
     // tree (18+ moving pawns refit between PhysX's 100-frame rebuilds -> fat AABBs -> many more
@@ -3577,7 +3660,30 @@ int32 PhysicsBackend::MoveController(void* controller, void* shape, const Vector
     // Reset the contact harvest; move() fires the hit-report callback synchronously below,
     // populating it. CharacterController reads it back via GetLastControllerContacts.
     ControllerHarvest.Reset();
-    return (byte)controllerPhysX->move(C2P(displacement), minMoveDistance, deltaTime, filters);
+
+    // [MOVE PROFILE - jerk hunt 2026-06-09] Time the collide-and-slide sweep and, on a slow one,
+    // log which body, its displacement magnitude, and how many contacts it generated. Discriminates
+    // "big displacement so cost is expected" from "near-zero move yet ~1ms = trimesh-contact pathology".
+    // Rate-limited; remove once the static-body move cost is understood.
+    const double _mvT0 = Platform::GetTimeSeconds();
+    const int32 result = (byte)controllerPhysX->move(C2P(displacement), minMoveDistance, deltaTime, filters);
+    const double _mvUs = (Platform::GetTimeSeconds() - _mvT0) * 1e6;
+    if (_mvUs > 150.0)
+    {
+        static double _mvLastLog = 0.0;
+        const double _now = Platform::GetTimeSeconds();
+        if (_now - _mvLastLog > 0.1) // <= 10 lines/sec across all controllers
+        {
+            _mvLastLog = _now;
+            const int32 hits = ControllerHarvest.FloorCount + ControllerHarvest.WallCount + ControllerHarvest.CeilingCount;
+            auto collider = shapePhysX ? (PhysicsColliderActor*)shapePhysX->userData : nullptr;
+            LOG(Info, "[MoveProf] {0} us={1} disp={2} hits={3} (f{4} w{5} c{6})",
+                collider ? collider->GetName() : String::Empty,
+                (int32)_mvUs, (float)displacement.Length(), hits,
+                ControllerHarvest.FloorCount, ControllerHarvest.WallCount, ControllerHarvest.CeilingCount);
+        }
+    }
+    return result;
 }
 
 void PhysicsBackend::GetLastControllerContacts(ControllerHit& result)

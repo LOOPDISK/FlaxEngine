@@ -42,6 +42,11 @@
 #define CHECK_EXECUTE_IN_EDITOR
 #endif
 
+// [XformProbe] diagnostic per-frame counters (main-thread); read+reset by ProfilingTools each frame.
+int64 ActorOnTransformChangedCount = 0;
+int64 ActorBeginPlayCount = 0;
+int64 ActorEndPlayCount = 0;
+
 // Start loop over actor children/scripts from the beginning to account for any newly added or removed actors.
 #define ACTOR_LOOP_START_MODIFIED_HIERARCHY() _isHierarchyDirty = false
 #define ACTOR_LOOP_CHECK_MODIFIED_HIERARCHY() if (_isHierarchyDirty) { _isHierarchyDirty = false; i = -1; }
@@ -1076,6 +1081,9 @@ void Actor::BeginPlay(SceneBeginData* data)
 
     // Set flag
     Flags |= ObjectFlags::IsDuringPlay;
+#if !BUILD_RELEASE
+    ActorBeginPlayCount++; // [XformProbe] streaming/spawn integration this frame
+#endif
 
 #if NESTED_PHYSICS_BODIES
     // set up initial depth values for nested bodies
@@ -1117,6 +1125,9 @@ void Actor::BeginPlay(SceneBeginData* data)
 void Actor::EndPlay()
 {
     CHECK_DEBUG(IsDuringPlay());
+#if !BUILD_RELEASE
+    ActorEndPlayCount++; // [XformProbe] streaming/despawn this frame
+#endif
 
     // Fire event for scripting
     if (IsActiveInHierarchy() && GetScene())
@@ -1426,6 +1437,9 @@ void Actor::OnParentChanged()
 void Actor::OnTransformChanged()
 {
     ASSERT_LOW_LAYER(!_localTransform.IsNanOrInfinity());
+#if !BUILD_RELEASE
+    ActorOnTransformChangedCount++; // [XformProbe]
+#endif
 
     if (_parent)
     {

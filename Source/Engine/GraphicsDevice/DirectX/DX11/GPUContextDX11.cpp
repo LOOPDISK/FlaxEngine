@@ -15,6 +15,7 @@
 #include "Engine/Core/Math/Viewport.h"
 #include "Engine/Core/Math/Rectangle.h"
 #include "Engine/Profiler/RenderStats.h"
+#include "RenderStallProbeDX11.h"
 #if COMPILE_WITH_NVAPI
 #include <ThirdParty/nvapi/nvapi.h>
 extern bool EnableNvapi;
@@ -533,15 +534,19 @@ void GPUContextDX11::ResolveMultisample(GPUTexture* sourceMultisampleTexture, GP
 
 void GPUContextDX11::DrawInstanced(uint32 verticesCount, uint32 instanceCount, int32 startInstance, int32 startVertex)
 {
+    const double _t0 = Platform::GetTimeSeconds();
     onDrawCall();
     _context->DrawInstanced(verticesCount, instanceCount, startVertex, startInstance);
+    RenderStallProbeDX11::Report("draw", CurrentVS ? CurrentVS->GetName() : StringAnsi::Empty, _t0);
     RENDER_STAT_DRAW_CALL(verticesCount * instanceCount, verticesCount * instanceCount / 3);
 }
 
 void GPUContextDX11::DrawIndexedInstanced(uint32 indicesCount, uint32 instanceCount, int32 startInstance, int32 startVertex, int32 startIndex)
 {
+    const double _t0 = Platform::GetTimeSeconds();
     onDrawCall();
     _context->DrawIndexedInstanced(indicesCount, instanceCount, startIndex, startVertex, startInstance);
+    RenderStallProbeDX11::Report("draw", CurrentVS ? CurrentVS->GetName() : StringAnsi::Empty, _t0);
     RENDER_STAT_DRAW_CALL(indicesCount * instanceCount, indicesCount / 3 * instanceCount);
 }
 

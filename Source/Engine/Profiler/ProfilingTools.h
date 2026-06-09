@@ -87,6 +87,38 @@ public:
         /// The last rendered frame stats.
         /// </summary>
         API_FIELD() RenderStatsData DrawStats;
+
+        /// <summary>
+        /// [XformProbe] Actor::OnTransformChanged calls this frame (transform-graph churn).
+        /// </summary>
+        API_FIELD() int32 OnTransformChangedCount;
+
+        /// <summary>
+        /// [XformProbe] Actors that entered play this frame (streaming/spawn integration).
+        /// </summary>
+        API_FIELD() int32 ActorBeginPlayCount;
+
+        /// <summary>
+        /// [XformProbe] Actors that left play this frame (streaming/despawn).
+        /// </summary>
+        API_FIELD() int32 ActorEndPlayCount;
+
+        /// <summary>
+        /// [PresentProbe] Swapchain Present() block this frame in ms (vsync/DWM compositor wait). Subtracted from DrawCPUTimeMs.
+        /// </summary>
+        API_FIELD() float PresentTimeMs;
+
+        /// <summary>
+        /// [CoreProbe] Fixed synthetic main-thread integer-loop time (us). Constant op count, so any
+        /// change is pure CPU per-instruction speed - dilates when the main thread's core/clock slows.
+        /// </summary>
+        API_FIELD() float SyntheticLoopUs;
+
+        /// <summary>
+        /// [CoreProbe] Logical CPU core the main thread ran on this frame (-1 if unavailable). On hybrid
+        /// CPUs low indices are usually P-cores, high indices E/LP-E cores - catches P->E migration.
+        /// </summary>
+        API_FIELD() int32 MainThreadCpuCore;
     };
 
     /// <summary>

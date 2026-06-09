@@ -786,21 +786,33 @@ void GPUDevice::Draw()
     auto context = GetMainContext();
 
     // Begin frame
-    context->FrameBegin();
+    {
+        PROFILE_CPU_NAMED("Draw.FrameBegin"); // [DrawSplit] DX11 back-buffer acquire (GPU back-pressure stalls here)
+        context->FrameBegin();
+    }
     RenderBegin();
     _res->TasksManager.FrameBegin();
     Render2D::BeginFrame();
 
     // Perform actual drawing
-    Engine::Draw();
-    EngineService::OnDraw();
-    RenderTask::DrawAll();
+    {
+        PROFILE_CPU_NAMED("Draw.Engine"); // [DrawSplit] managed OnDraw (the "Draw Tick" zone)
+        Engine::Draw();
+        EngineService::OnDraw();
+    }
+    {
+        PROFILE_CPU_NAMED("Draw.RenderTasks"); // [DrawSplit] native render execution + DX11 immediate-context submit
+        RenderTask::DrawAll();
+    }
 
     // End frame
     Render2D::EndFrame();
     _res->TasksManager.FrameEnd();
     RenderEnd();
-    context->FrameEnd();
+    {
+        PROFILE_CPU_NAMED("Draw.FrameEnd"); // [DrawSplit] DX11 context flush/fence
+        context->FrameEnd();
+    }
 
     DrawEnd();
 }

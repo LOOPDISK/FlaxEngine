@@ -19,6 +19,12 @@ Array<ProfilingTools::NetworkEventStat> ProfilingTools::EventsNetwork;
 Array<ProfilingTools::ShadowCasterStat> ProfilingTools::ShadowCasters;
 bool ProfilingTools::ShadowTallyActive = false;
 
+// [CoreProbe] keeps the synthetic main-thread loop from being optimized out (sink is written, never read meaningfully).
+static volatile uint64 CoreProbeSink = 0;
+#if PLATFORM_WINDOWS
+extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentProcessorNumber(void);
+#endif
+
 namespace
 {
     // One captured frame's CPU events, deep-copied into native memory (no managed heap).
@@ -137,7 +143,38 @@ void ProfilingToolsService::Update()
 
         float presentTime;
         ProfilerGPU::GetLastFrameData(stats.DrawGPUTimeMs, presentTime, stats.DrawStats);
+        stats.PresentTimeMs = presentTime; // [PresentProbe] swapchain Present() block (vsync/DWM wait)
         stats.DrawCPUTimeMs = Math::Max(stats.DrawCPUTimeMs - presentTime, 0.0f); // Remove swapchain present wait time to exclude from drawing on CPU
+
+        // [XformProbe] read+reset per-frame transform/streaming churn counters (Actor.cpp globals)
+        extern int64 ActorOnTransformChangedCount;
+        extern int64 ActorBeginPlayCount;
+        extern int64 ActorEndPlayCount;
+        stats.OnTransformChangedCount = (int32)ActorOnTransformChangedCount;
+        stats.ActorBeginPlayCount = (int32)ActorBeginPlayCount;
+        stats.ActorEndPlayCount = (int32)ActorEndPlayCount;
+        ActorOnTransformChangedCount = 0;
+        ActorBeginPlayCount = 0;
+        ActorEndPlayCount = 0;
+
+        // [CoreProbe] fixed synthetic main-thread workload: a fully-dependent LCG chain (no DCE, no
+        // SIMD, no memory access) timed each frame. Op count is constant, so its wall-time is a pure
+        // gauge of main-thread per-instruction speed. If it dilates on stutter frames, the core/clock
+        // slowed (hardware), not the workload grew. Paired with the core index to catch P->E migration.
+        {
+            const double sbStart = Platform::GetTimeSeconds();
+            uint64 acc = (uint64)Engine::FrameCount * 2654435761ULL + 1; // per-frame seed
+            for (int32 si = 0; si < 30000; si++)
+                acc = acc * 6364136223846793005ULL + 1442695040888963407ULL;
+            const double sbEnd = Platform::GetTimeSeconds();
+            CoreProbeSink = acc;
+            stats.SyntheticLoopUs = (float)((sbEnd - sbStart) * 1000000.0);
+#if PLATFORM_WINDOWS
+            stats.MainThreadCpuCore = (int32)GetCurrentProcessorNumber();
+#else
+            stats.MainThreadCpuCore = -1;
+#endif
+        }
     }
 
     // Extract CPU profiler events
