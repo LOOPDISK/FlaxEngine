@@ -67,6 +67,20 @@ public:
     /// </summary>
     static void RequestDump();
 
+    /// <summary>
+    /// Requests a full rebuild of the static-shadow clipmap cache, amortized over amortizeFrames frames
+    /// (banded). Call when the cached static shadows must change: level settled after load, sun moved, or
+    /// a warp/teleport. amortizeFrames=1 rebuilds in one frame (spikes); use ~10-20 under warp cover.
+    /// Exposed to C# via Renderer.InvalidateStaticShadows().
+    /// </summary>
+    static void RequestStaticShadowRedraw(int32 amortizeFrames = 1);
+
+    /// <summary>
+    /// True while a RequestStaticShadowRedraw is still draining (amortized rebuild in progress). The
+    /// warp/fade system holds visual cover until this returns false. Via Renderer.AreStaticShadowsRedrawing().
+    /// </summary>
+    static bool AreStaticShadowsRedrawing();
+
 private:
     static void SetupRenderContext(RenderContext& renderContext, RenderContext& shadowContext, struct ShadowAtlasLight* atlasLight = nullptr, RenderContext* dynamicContext = nullptr);
     static void SetupLight(class ShadowsCustomBuffer& shadows, RenderContext& renderContext, RenderContextBatch& renderContextBatch, RenderLightData& light, ShadowAtlasLight& atlasLight);

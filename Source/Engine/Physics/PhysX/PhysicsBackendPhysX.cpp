@@ -1815,6 +1815,12 @@ void* PhysicsBackend::CreateScene(const PhysicsSettings& settings)
     sceneDesc.simulationEventCallback = &scenePhysX->EventsCallback;
     sceneDesc.filterShader = FilterShader;
     sceneDesc.bounceThresholdVelocity = settings.BounceThresholdVelocity;
+    // SQ tuning 2026-06-08: streamed-in static colliders sit in the secondary pruner; default
+    // eINCREMENTAL there is slow to query -> grounding-cast tail during streaming. eBVH builds a
+    // proper BVH (better query). Rate hint 100->20 migrates secondary->primary ~5x sooner,
+    // shrinking the degraded-query window (work only runs while a tree is dirty = on streaming).
+    sceneDesc.dynamicTreeSecondaryPruner = PxDynamicTreeSecondaryPruner::eBVH;
+    sceneDesc.dynamicTreeRebuildRateHint = 20;
     if (settings.EnableEnhancedDeterminism)
         sceneDesc.flags |= PxSceneFlag::eENABLE_ENHANCED_DETERMINISM;
     switch (settings.SolverType)
@@ -1986,6 +1992,18 @@ void PhysicsBackend::EndSimulateScene(void* scene)
 
         // Gather results (with waiting for the end)
         scenePhysX->Stepper.wait(scenePhysX->Scene);
+    }
+
+    // Jerk fix 2026-06-08: pawn grounding/look casts blew up traversing a degraded dynamic SQ
+    // tree (18+ moving pawns refit between PhysX's 100-frame rebuilds -> fat AABBs -> many more
+    // prefilter candidates). Rebuild the dynamic pruner each step: cheap (~0.5ms) and keeps the
+    // tree balanced. NOT the static pruner - it holds the whole world and full-rebuilds cost
+    // 8-17ms; static geo only changes on streaming so leave it on PhysX's own schedule.
+    static bool ForceSQRebuild = true;
+    if (ForceSQRebuild)
+    {
+        PROFILE_CPU_NAMED("Physics.ForceSQRebuild");
+        scenePhysX->Scene->forceDynamicTreeRebuild(false, true);
     }
 
     {

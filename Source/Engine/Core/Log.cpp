@@ -157,7 +157,7 @@ void Log::Logger::Write(const StringView& msg, LogType type)
 
 #if LOG_ENABLE_FILE
     // Write message to log file
-    constexpr int32 LogMaxWriteSize = 1 * 1024 * 1024; // 1GB
+    constexpr int32 LogMaxWriteSize = 256 * 1024 * 1024; // cap in UTF-16 chars (~512MB file); was 1M chars (~2MB) - WorldGen spam exhausted it pre-gameplay
     if (LogAfterInit && LogTotalWriteSize < LogMaxWriteSize)
     {
         LogTotalWriteSize += length;

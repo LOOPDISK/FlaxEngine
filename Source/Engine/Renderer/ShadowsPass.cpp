@@ -65,6 +65,25 @@
 // textures as grayscale thumbnails down the right edge of the output (called from Renderer.cpp).
 static bool g_ClipmapIsolateStatic = false;
 static bool g_ClipmapDebugDraw = false;
+// g_ClipmapAutoRedraw: legacy heuristic policy. When true, Init's sun/basis/drift checks force a
+// full redraw on their own (the old spiky behavior). When false (default), the clipmap is an
+// explicit static cache: a full redraw fires ONLY on cold-init, scroll-overflow self-heal, or
+// Renderer::InvalidateStaticShadows(). Cheap L-strip scroll updates always run regardless.
+static bool g_ClipmapAutoRedraw = false;
+// Scroll-overflow self-heal: when the camera outruns a level's window in one frame (|delta| >= R)
+// in explicit mode, rebuild that level amortized over this many frames rather than smear stale
+// content or spike a one-frame full redraw.
+#define SHADOW_CLIPMAP_OVERFLOW_AMORTIZE 4
+
+// Explicit static-shadow redraw request, driven by Renderer::InvalidateStaticShadows(). The game
+// bumps Generation when the cached static shadows must rebuild (level settled after load, sun moved,
+// warp/teleport). Each view's clipmap services the latest Generation, amortizing the rebuild over
+// Amortize frames. Countdown reports "still redrawing" to the warp/fade gate (AreStaticShadowsRedrawing).
+// Volatile: writers are game threads; the render thread reads, services, and ticks the countdown.
+static volatile int64 StaticShadowRedrawGeneration = 0;
+static volatile int32 StaticShadowRedrawAmortize = 1;
+static volatile int32 StaticShadowRedrawCountdown = 0;
+static volatile int64 StaticShadowRedrawCountdownFrame = -1;
 
 // Light-space basis used by the toroidal shadow clipmap. Every site that constructs a
 // (LightRight, LightUp) pair from a sun direction MUST go through this helper - otherwise
@@ -230,7 +249,20 @@ struct ShadowClipmapLevel
     //   py = ((origin.Y - 1 - w.Y) mod R + R) mod R   (Y-flip matches existing ortho convention)
     // Set on full-redraw to (ScrollTexels.X - R/2, ScrollTexels.Y + R/2). Strip updates leave it unchanged.
     Int2 TextureOriginTexels = Int2::Zero;
-    bool NeedsFullRedraw = true;         // First frame, sun changed, or |scroll delta| >= R
+    bool NeedsFullRedraw = true;         // Pending (re)build request: cold-init, overflow, or explicit API
+    bool Populated = false;              // Set true when a rebuild completes; cleared content until then
+    // Amortized rebuild schedule. NeedsFullRedraw requests a build; the render loop then bands it:
+    // each frame rasterizes RedrawRowsPerFrame texel rows at RedrawAnchorScroll, top-to-bottom, until
+    // RedrawRowCursor reaches Resolution. RowCursor < 0 = idle (not rebuilding). ScrollTexels is held
+    // at the anchor while a rebuild is in flight so the compositor samples coherently (I4). amortize=1
+    // -> one full-window band == the old single-frame full redraw.
+    Int2  RedrawAnchorScroll = Int2::Zero;
+    int32 RedrawRowCursor = -1;          // next texel row to rasterize; <0 = idle
+    int32 RedrawRowsPerFrame = 0;        // band height (rows) per frame
+    bool  SelfHealRequested = false;     // engine-detected genuine invalidation (cumulative cascade-scale
+                                         // drift the game can't see). Honored as an amortized rebuild even
+                                         // in explicit mode - survives the populated-clear, unlike the
+                                         // DirtyBounds / per-frame / basis advisory noise.
     // SunDir snapshot at the moment of last full rasterize. The per-frame basis-coherence check
     // in Init() compares current SunDir against this to detect cumulative drift below the
     // sunChanged heuristic's threshold - sub-0.81deg rotations would otherwise let the strip update
@@ -271,7 +303,13 @@ struct ShadowClipmap
     Float3 PrevLightUp = Float3::Zero;
     float BeyondCSMExtent = 0.0f;        // World extent of the extra level
     bool Enabled = false;
+    bool DbgGateWasOpen = false;          // DIAG: cold-load gate-flip tracing
     Guid LightId;                         // ID of directional light using this clipmap
+    // Explicit-redraw bookkeeping (Renderer::InvalidateStaticShadows). ServicedRedrawGeneration is
+    // the last global request this clipmap honored; PendingAmortize carries the frame budget for the
+    // next rebuild start (from the API or overflow self-heal), consumed when a band begins.
+    int64 ServicedRedrawGeneration = 0;
+    int32 PendingAmortize = 1;
 
     void Init(PixelFormat format, int32 cascadeCount, const float* cascadeRadii, const float* splitDistances,
               int32 cascadeResolution, const Float3& sunDir, float beyondExtent)
@@ -375,13 +413,19 @@ struct ShadowClipmap
             const float lastDr = level.LastRedrawDepthRange;
             const bool tsCum = lastTs > 0.0f && Math::Abs(level.TexelSize - lastTs) > 0.01f * lastTs;
             const bool drCum = lastDr > 0.0f && Math::Abs(level.DepthRange - lastDr) > 0.01f * lastDr;
-            if ((tsCum || drCum) && !level.NeedsFullRedraw && !sunChanged)
+            if ((tsCum || drCum) && !level.NeedsFullRedraw && !sunChanged && level.RedrawRowCursor < 0 && !level.SelfHealRequested)
             {
-                LOG(Warning, "[ShadowClipmap] level {0} CUMULATIVE drift since last redraw: TexelSize {1}->{2} ({3}%), DepthRange {4}->{5} ({6}%)",
+                LOG(Info, "[ShadowClipmap] level {0} cumulative drift -> rebuild: TexelSize {1}->{2} ({3}%), DepthRange {4}->{5} ({6}%)",
                     i,
                     lastTs, level.TexelSize, (lastTs > 0.0f ? 100.0f * (level.TexelSize - lastTs) / lastTs : 0.0f),
                     lastDr, level.DepthRange, (lastDr > 0.0f ? 100.0f * (level.DepthRange - lastDr) / lastDr : 0.0f));
-                level.NeedsFullRedraw = true;
+                // Genuine cache invalidation: cascade math moved since the bake (e.g. cold-init raced the
+                // load-time settle - baked at a transient scale, cascades then settled larger). Auto mode
+                // rebuilds now; explicit mode self-heals amortized (reconciles to current scale, then quiet).
+                if (g_ClipmapAutoRedraw)
+                    level.NeedsFullRedraw = true;
+                else
+                    level.SelfHealRequested = true;
             }
 
             if (sunChanged)
@@ -508,6 +552,13 @@ struct ShadowClipmap
         for (int32 i = 0; i < LevelCount; i++)
         {
             auto& level = Levels[i];
+            // Hold the anchor while a rebuild is in flight: no scroll, no strip (keeps the compositor
+            // sampling coherent with the fixed RedrawAnchorScroll - I4).
+            if (level.RedrawRowCursor >= 0)
+            {
+                level.DirtyStrip = Int2::Zero;
+                continue;
+            }
             level.PrevScrollTexels = level.ScrollTexels;
 
             // Project camera position into light-space XY in DOUBLE precision. Single-precision
@@ -533,12 +584,28 @@ struct ShadowClipmap
                     i, level.DirtyStrip.X, level.DirtyStrip.Y, level.Resolution);
                 level.NeedsFullRedraw = true;
                 level.DirtyStrip = Int2::Zero;
+                // Explicit mode: spread the forced rebuild so a fast fly-through can't spike.
+                if (!g_ClipmapAutoRedraw)
+                    PendingAmortize = Math::Max(PendingAmortize, SHADOW_CLIPMAP_OVERFLOW_AMORTIZE);
             }
         }
     }
 
     void MarkFullRedraw()
     {
+        for (int32 i = 0; i < LevelCount; i++)
+            Levels[i].NeedsFullRedraw = true;
+    }
+
+    // Honor an explicit redraw request. On a new generation, flag every level for a banded rebuild
+    // and latch the amortize budget. No-op if already serviced. Levels mid-rebuild keep their flag
+    // and restart once the current band schedule drains (the render loop only starts when idle).
+    void ServiceRedrawRequest(int64 globalGeneration, int32 amortize)
+    {
+        if (ServicedRedrawGeneration == globalGeneration)
+            return;
+        ServicedRedrawGeneration = globalGeneration;
+        PendingAmortize = Math::Max(PendingAmortize, Math::Max(amortize, 1));
         for (int32 i = 0; i < LevelCount; i++)
             Levels[i].NeedsFullRedraw = true;
     }
@@ -1588,6 +1655,18 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
     auto& clipmap = shadows.Clipmap;
     const bool useClipmap = light.StaticShadows && shadows.EnableStaticShadows && EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
 
+    // DIAG: clipmap never enables on cold play, works after editor reload. Trace which gate flips.
+    {
+        const bool sFlag = EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
+        if (useClipmap != clipmap.DbgGateWasOpen)
+            LOG(Info, "[ClipmapGate] {0}->{1} StaticShadows={2} EnableStatic={3} StaticFlagShadow={4} frame={5}",
+                clipmap.DbgGateWasOpen, useClipmap, light.StaticShadows, shadows.EnableStaticShadows, sFlag, Engine::FrameCount);
+        else if (!useClipmap && (Engine::FrameCount % 120) == 0)
+            LOG(Info, "[ClipmapGate] DISABLED StaticShadows={0} EnableStatic={1} StaticFlagShadow={2} frame={3}",
+                light.StaticShadows, shadows.EnableStaticShadows, sFlag, Engine::FrameCount);
+        clipmap.DbgGateWasOpen = useClipmap;
+    }
+
     if (useClipmap)
     {
         // Per-cascade radii + centers for clipmap init. Uses the SAME ComputeCascadeSphere as the
@@ -1621,7 +1700,39 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
 
         if (clipmap.Enabled)
         {
+            // Explicit-redraw policy: Init's heuristic triggers (sun/basis/drift) are advisory. Clear
+            // them on populated, idle levels BEFORE ComputeScroll and the compositor anchor (I4), so
+            // only cold-init (not yet populated), scroll-overflow self-heal (set in ComputeScroll), and
+            // Renderer::InvalidateStaticShadows drive a rebuild. In-flight rebuilds keep their request
+            // so a mid-build re-request restarts once the current band schedule drains.
+            if (!g_ClipmapAutoRedraw)
+            {
+                for (int32 li = 0; li < clipmap.LevelCount; li++)
+                {
+                    auto& l = clipmap.Levels[li];
+                    if (l.Populated && l.RedrawRowCursor < 0)
+                        l.NeedsFullRedraw = false;
+                    // Honor an engine-detected self-heal (cumulative scale drift) AFTER the noise clear:
+                    // genuine invalidation the game can't know about, rebuilt amortized then reconciled.
+                    if (l.SelfHealRequested && l.RedrawRowCursor < 0)
+                    {
+                        l.NeedsFullRedraw = true;
+                        l.SelfHealRequested = false;
+                        clipmap.PendingAmortize = Math::Max(clipmap.PendingAmortize, SHADOW_CLIPMAP_OVERFLOW_AMORTIZE);
+                    }
+                }
+            }
+
             clipmap.ComputeScroll(view.Position);
+
+            // Service an explicit redraw request (generation bump), then tick the warp/fade countdown
+            // once per frame (frame-guarded so multiple views don't over-decrement it).
+            clipmap.ServiceRedrawRequest(StaticShadowRedrawGeneration, StaticShadowRedrawAmortize);
+            if (StaticShadowRedrawCountdown > 0 && StaticShadowRedrawCountdownFrame != (int64)Engine::FrameCount)
+            {
+                StaticShadowRedrawCountdownFrame = (int64)Engine::FrameCount;
+                StaticShadowRedrawCountdown--;
+            }
 
             // Compute compositing parameters per cascade level
             for (int32 ci = 0; ci < csmCount; ci++)
@@ -2391,6 +2502,19 @@ void ShadowsPass::RequestDump()
     ShadowsDumpRequested = true;
 }
 
+void ShadowsPass::RequestStaticShadowRedraw(int32 amortizeFrames)
+{
+    amortizeFrames = Math::Max(amortizeFrames, 1);
+    StaticShadowRedrawAmortize = amortizeFrames;
+    StaticShadowRedrawCountdown = amortizeFrames;
+    StaticShadowRedrawGeneration++; // bump last so the new amortize/countdown are visible when serviced
+}
+
+bool ShadowsPass::AreStaticShadowsRedrawing()
+{
+    return StaticShadowRedrawCountdown > 0;
+}
+
 // Worker-thread routine: pulls texture bytes from GPU and writes the raw blob to disk.
 // Lives on a thread-pool task because GPUTexture::DownloadData asserts off-main-thread
 // (it queues a copy-to-staging on the GPU side then blocks on a CPU fence).
@@ -2721,43 +2845,56 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             if (!level.DepthTexture)
                 continue;
 
-            // Skip if nothing to update
-            if (!level.NeedsFullRedraw && level.DirtyStrip.X == 0 && level.DirtyStrip.Y == 0)
-                continue;
-
             const int32 R = level.Resolution;
-            const Int2 newScroll = level.ScrollTexels;
 
-            if (level.NeedsFullRedraw)
+            // Start a banded rebuild when one is requested and none is running. Anchor the toroidal
+            // mapping at the current scroll; ComputeScroll then holds that anchor until the rebuild
+            // drains. amortize=1 collapses to a single full-window band (the old full redraw).
+            if (level.NeedsFullRedraw && level.RedrawRowCursor < 0)
             {
-                LOG(Info, "[ClipmapRedraw] L{0} FULL redraw extent={1} R={2} ts={3} dr={4} scroll=({5},{6})",
-                    levelIdx, level.WorldExtent, R, level.TexelSize, level.DepthRange,
-                    newScroll.X, newScroll.Y);
-                // Anchor the toroidal mapping so the full rect renders into the texture without wrap
-                // (texture pixel (0,0) holds the rect's top-left world-texel; matches the existing
-                // non-flipped + Y-flipped ortho convention used by RenderClipmapStrip).
-                level.TextureOriginTexels = Int2(newScroll.X - R / 2, newScroll.Y + R / 2);
+                level.NeedsFullRedraw = false;
+                level.RedrawAnchorScroll = level.ScrollTexels;
+                level.TextureOriginTexels = Int2(level.ScrollTexels.X - R / 2, level.ScrollTexels.Y + R / 2);
+                const int32 amortize = Math::Clamp(clipmap.PendingAmortize, 1, R);
+                level.RedrawRowsPerFrame = (R + amortize - 1) / amortize;
+                level.RedrawRowCursor = 0;
+                LOG(Info, "[ClipmapRedraw] L{0} START amortize={1} rowsPerFrame={2} R={3} scroll=({4},{5})",
+                    levelIdx, amortize, level.RedrawRowsPerFrame, R, level.ScrollTexels.X, level.ScrollTexels.Y);
+            }
 
+            // Banded rebuild in flight: rasterize the next horizontal band at the fixed anchor.
+            // RenderClipmapStrip clears+writes its own sub-rect via _psDepthClear, so no full clear
+            // is needed; un-rendered bands hold prior content until their turn (hidden by warp cover).
+            if (level.RedrawRowCursor >= 0)
+            {
+                const Int2 a = level.RedrawAnchorScroll;
+                const int32 y0 = level.RedrawRowCursor;
+                const int32 y1 = Math::Min(y0 + level.RedrawRowsPerFrame, R);
                 context->SetRenderTarget(level.DepthTexture->View(), (GPUTextureView*)nullptr);
-                context->ClearDepth(level.DepthTexture->View(), 1.0f);
                 RenderClipmapStrip(context, renderContext, clipmap, level,
-                                   Int2(newScroll.X - R / 2, newScroll.Y - R / 2),
-                                   Int2(newScroll.X + R / 2, newScroll.Y + R / 2),
+                                   Int2(a.X - R / 2, a.Y - R / 2 + y0),
+                                   Int2(a.X + R / 2, a.Y - R / 2 + y1),
                                    _psDepthClear, quadShaderCB);
                 context->ResetRenderTarget();
-                level.NeedsFullRedraw = false;
-                // Stamp the basis the cache content was rendered against. Per-frame Init compares
-                // current SunDir against this to detect any drift (catches sub-threshold cumulative
-                // rotation that would otherwise slip past the coarser sunChanged heuristic).
-                level.LastRedrawSunDir = clipmap.SunDir;
-                // Stamp the math state the cache content was actually rendered with. Subsequent
-                // frames compare current TexelSize/DepthRange against these to detect cumulative
-                // drift (gradual FOV/near changes that slide under per-frame thresholds).
-                level.LastRedrawTexelSize = level.TexelSize;
-                level.LastRedrawDepthRange = level.DepthRange;
-                level.LastRedrawWorldExtent = level.WorldExtent;
+                level.RedrawRowCursor = y1;
+                if (y1 >= R)
+                {
+                    // Rebuild complete - stamp the math/basis state the content was rendered against.
+                    level.RedrawRowCursor = -1;
+                    level.Populated = true;
+                    level.LastRedrawSunDir = clipmap.SunDir;
+                    level.LastRedrawTexelSize = level.TexelSize;
+                    level.LastRedrawDepthRange = level.DepthRange;
+                    level.LastRedrawWorldExtent = level.WorldExtent;
+                }
+                level.DirtyStrip = Int2::Zero;
+                continue;
             }
-            else
+
+            // Not rebuilding: strip-scroll the leading edge if the camera moved this frame.
+            if (level.DirtyStrip.X == 0 && level.DirtyStrip.Y == 0)
+                continue;
+            const Int2 newScroll = level.ScrollTexels;
             {
                 // Strip update - render only the L-shaped strip of new texels at the leading edges.
                 // X-strip: full Y extent, |dx| wide. Y-strip: |dy| tall, with width = R - |dx| so the
@@ -2810,6 +2947,9 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             // Consume strip delta so the next frame's ComputeScroll starts from this baseline
             level.DirtyStrip = Int2::Zero;
         }
+
+        // Consume the amortize budget: a fresh request (API / overflow self-heal) re-latches it.
+        clipmap.PendingAmortize = 1;
     }
 
     // Render depth to all shadow map tiles

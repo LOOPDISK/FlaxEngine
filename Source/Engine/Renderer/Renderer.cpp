@@ -230,6 +230,16 @@ void Renderer::RequestShadowsDump()
     ShadowsPass::RequestDump();
 }
 
+void Renderer::InvalidateStaticShadows(int32 amortizeFrames)
+{
+    ShadowsPass::RequestStaticShadowRedraw(amortizeFrames);
+}
+
+bool Renderer::AreStaticShadowsRedrawing()
+{
+    return ShadowsPass::AreStaticShadowsRedrawing();
+}
+
 void Renderer::Render(SceneRenderTask* task)
 {
     PROFILE_GPU_CPU_NAMED("Render Frame");

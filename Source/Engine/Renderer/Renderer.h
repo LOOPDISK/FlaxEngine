@@ -37,6 +37,20 @@ public:
     API_FUNCTION() static void RequestShadowsDump();
 
     /// <summary>
+    /// Requests an amortized full rebuild of the static-shadow clipmap cache. Call when the cached static
+    /// shadows must change: the procedural level has settled after load, the sun direction moved, or the
+    /// player warped/teleported. The rebuild is spread over amortizeFrames frames (banded) so it does not
+    /// spike - use ~10-20 while a warp/fade hides the partially-rebuilt cache.
+    /// </summary>
+    /// <param name="amortizeFrames">Frames to spread the rebuild over. 1 = one-frame rebuild (may spike).</param>
+    API_FUNCTION() static void InvalidateStaticShadows(int32 amortizeFrames = 1);
+
+    /// <summary>
+    /// Returns true while an InvalidateStaticShadows rebuild is still in progress. Gate warp/fade cover on this.
+    /// </summary>
+    API_FUNCTION() static bool AreStaticShadowsRedrawing();
+
+    /// <summary>
     /// Draws scene objects depth (to the output Z buffer). The output must be depth texture to write hardware depth to it.
     /// </summary>
     /// <param name="context">The GPU commands context to use.</param>
