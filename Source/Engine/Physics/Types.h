@@ -175,6 +175,36 @@ API_STRUCT(NoDefault) struct RayCastHit
 };
 
 /// <summary>
+/// Single ray query for a batched scene query (see Physics.BatchRayCastAll).
+/// </summary>
+API_STRUCT(NoDefault) struct RayCastQuery
+{
+    DECLARE_SCRIPTING_TYPE_NO_SPAWN(RayCastQuery);
+
+    /// <summary>
+    /// The origin of the ray.
+    /// </summary>
+    API_FIELD() Vector3 Origin;
+
+    /// <summary>
+    /// The normalized direction of the ray.
+    /// </summary>
+    API_FIELD() Vector3 Direction;
+
+    /// <summary>
+    /// The maximum distance the ray should check for collisions.
+    /// </summary>
+    API_FIELD() float MaxDistance = MAX_float;
+};
+
+// Blittable: enables the memcpy fast-path converter for managed->native array marshalling (Physics.BatchRayCastAll input).
+template<>
+struct TIsPODType<RayCastQuery>
+{
+    enum { Value = true };
+};
+
+/// <summary>
 /// Physics collision shape variant for different shapes such as box, sphere, capsule.
 /// </summary>
 struct FLAXENGINE_API CollisionShape

@@ -322,10 +322,53 @@ class CharacterControllerFilterPhysX : public PxControllerFilterCallback
     }
 };
 
+// Contact-normal harvest. move() invokes the hit-report callback synchronously on the calling
+// thread for every shape the capsule touches, so we accumulate the categorized normals here
+// instead of discarding them. MoveController resets this before move(); CharacterController reads
+// it back after via GetLastControllerContacts. Single-threaded with move() - no locking needed.
+struct ControllerContactHarvest
+{
+    Vector3 FloorSum;
+    Vector3 WallSum;
+    Vector3 CeilingSum;
+    int32 FloorCount;
+    int32 WallCount;
+    int32 CeilingCount;
+
+    void Reset()
+    {
+        FloorSum = WallSum = CeilingSum = Vector3::Zero;
+        FloorCount = WallCount = CeilingCount = 0;
+    }
+};
+static ControllerContactHarvest ControllerHarvest;
+
 class CharacterControllerHitReportPhysX : public PxUserControllerHitReport
 {
     void onHit(const PxControllerHit& hit, Collision& c)
     {
+        // Harvest the contact normal (categorized vs the controller up axis) before anything
+        // can early-out. Lets callers slide/ground from move()'s own sweep instead of re-casting.
+        {
+            const Vector3 n = P2C(hit.worldNormal);
+            const float d = Vector3::Dot(n, P2C(hit.controller->getUpDirection()));
+            if (d > 0.5f)
+            {
+                ControllerHarvest.FloorSum += n;
+                ControllerHarvest.FloorCount++;
+            }
+            else if (d < -0.5f)
+            {
+                ControllerHarvest.CeilingSum += n;
+                ControllerHarvest.CeilingCount++;
+            }
+            else
+            {
+                ControllerHarvest.WallSum += n;
+                ControllerHarvest.WallCount++;
+            }
+        }
+
         if (c.ThisActor == nullptr || c.OtherActor == nullptr)
         {
             // One of the actors was deleted (eg. via RigidBody destroyed by gameplay) then skip processing this collision
@@ -3531,7 +3574,20 @@ int32 PhysicsBackend::MoveController(void* controller, void* shape, const Vector
     filters.mFilterCallback = &CharacterQueryFilter;
     filters.mFilterFlags = PxQueryFlag::eDYNAMIC | PxQueryFlag::eSTATIC | PxQueryFlag::ePREFILTER;
     filters.mCCTFilterCallback = &CharacterControllerFilter;
+    // Reset the contact harvest; move() fires the hit-report callback synchronously below,
+    // populating it. CharacterController reads it back via GetLastControllerContacts.
+    ControllerHarvest.Reset();
     return (byte)controllerPhysX->move(C2P(displacement), minMoveDistance, deltaTime, filters);
+}
+
+void PhysicsBackend::GetLastControllerContacts(ControllerHit& result)
+{
+    result.HasFloor = ControllerHarvest.FloorCount > 0;
+    result.HasWall = ControllerHarvest.WallCount > 0;
+    result.HasCeiling = ControllerHarvest.CeilingCount > 0;
+    result.Floor = result.HasFloor ? ControllerHarvest.FloorSum / (float)ControllerHarvest.FloorCount : Vector3::Zero;
+    result.Wall = result.HasWall ? ControllerHarvest.WallSum / (float)ControllerHarvest.WallCount : Vector3::Zero;
+    result.Ceiling = result.HasCeiling ? ControllerHarvest.CeilingSum / (float)ControllerHarvest.CeilingCount : Vector3::Zero;
 }
 
 #if WITH_VEHICLE

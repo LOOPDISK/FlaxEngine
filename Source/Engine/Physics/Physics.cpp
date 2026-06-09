@@ -13,6 +13,8 @@
 #include "Engine/Profiler/ProfilerMemory.h"
 #include "Engine/Serialization/Serialization.h"
 #include "Engine/Threading/Threading.h"
+#include "Engine/Threading/JobSystem.h"
+#include "Engine/Core/Delegate.h"
 
 PhysicsScene* Physics::DefaultScene = nullptr;
 Array<PhysicsScene*> Physics::Scenes;
@@ -314,6 +316,11 @@ bool Physics::RayCastAll(const Vector3& origin, const Vector3& direction, Array<
     return DefaultScene->RayCastAll(origin, direction, results, maxDistance, layerMask, hitTriggers, hitMultiple);
 }
 
+void Physics::BatchRayCastAll(const Array<RayCastQuery>& queries, Array<RayCastHit>& hits, Array<int32>& hitCounts, uint32 layerMask, bool hitTriggers)
+{
+    DefaultScene->BatchRayCastAll(queries, hits, hitCounts, layerMask, hitTriggers);
+}
+
 bool Physics::BoxCast(const Vector3& center, const Vector3& halfExtents, const Vector3& direction, const Quaternion& rotation, const float maxDistance, uint32 layerMask, bool hitTriggers)
 {
     CHECK_RETURN_DEBUG(direction.IsNormalized(), false);
@@ -603,6 +610,63 @@ bool PhysicsScene::RayCastAll(const Vector3& origin, const Vector3& direction, A
 {
     CHECK_RETURN_DEBUG(direction.IsNormalized(), false);
     return PhysicsBackend::RayCastAll(_scene, origin, direction, results, maxDistance, layerMask, hitTriggers, hitMultiple);
+}
+
+void PhysicsScene::BatchRayCastAll(const Array<RayCastQuery>& queries, Array<RayCastHit>& hits, Array<int32>& hitCounts, uint32 layerMask, bool hitTriggers)
+{
+    PROFILE_CPU_NAMED("Physics.BatchRayCastAll");
+    hits.Clear();
+    hitCounts.Clear();
+    const int32 n = queries.Count();
+    if (n == 0)
+        return;
+
+    // Each query collects into its own slot. Outer array is sized up-front so jobs
+    // never reallocate it; each job writes only its own slot (reentrant: per-call
+    // backend uses a stack hit buffer + stateless global QueryFilter).
+    Array<Array<RayCastHit, HeapAllocation>, HeapAllocation> perQuery;
+    perQuery.Resize(n);
+
+    void* scene = _scene;
+    if (_isDuringSimulation)
+    {
+        // Never parallel-read a simulating scene; run serially (matches single-call behaviour in this window).
+        for (int32 i = 0; i < n; i++)
+        {
+            const RayCastQuery& q = queries.Get()[i];
+            PhysicsBackend::RayCastAll(scene, q.Origin, q.Direction, perQuery[i], q.MaxDistance, layerMask, hitTriggers);
+        }
+    }
+    else
+    {
+        // Commit the SQ accel tree once on this thread so the parallel reads don't trip a lazy rebuild.
+        FlushSpatialChanges();
+        const RayCastQuery* queriesPtr = queries.Get();
+        Function<void(int32)> job = [scene, queriesPtr, &perQuery, layerMask, hitTriggers](int32 i)
+        {
+            const RayCastQuery& q = queriesPtr[i];
+            PhysicsBackend::RayCastAll(scene, q.Origin, q.Direction, perQuery[i], q.MaxDistance, layerMask, hitTriggers);
+        };
+        JobSystem::Execute(job, n);
+    }
+
+    // Flatten per-query results into CSR layout (counts + contiguous hits).
+    hitCounts.Resize(n);
+    int32 total = 0;
+    for (int32 i = 0; i < n; i++)
+    {
+        const int32 c = perQuery[i].Count();
+        hitCounts[i] = c;
+        total += c;
+    }
+    hits.Resize(total);
+    int32 offset = 0;
+    for (int32 i = 0; i < n; i++)
+    {
+        const Array<RayCastHit, HeapAllocation>& src = perQuery[i];
+        for (int32 j = 0; j < src.Count(); j++)
+            hits[offset++] = src[j];
+    }
 }
 
 bool PhysicsScene::BoxCast(const Vector3& center, const Vector3& halfExtents, const Vector3& direction, const Quaternion& rotation, const float maxDistance, uint32 layerMask, bool hitTriggers)

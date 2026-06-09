@@ -174,6 +174,16 @@ public:
     API_FUNCTION() static bool RayCastAll(const Vector3& origin, const Vector3& direction, API_PARAM(Out) Array<RayCastHit, HeapAllocation>& results, float maxDistance = MAX_float, uint32 layerMask = MAX_uint32, bool hitTriggers = true, bool hitMultiple = false);
 
     /// <summary>
+    /// Performs many raycasts-all in parallel across job workers (on the default scene). Results are packed CSR-style: query i produces hitCounts[i] hits laid out contiguously in hits at the prefix-sum offset. Use for batches of independent queries (eg. per-pawn grounding) to move the cost off the serial main thread.
+    /// </summary>
+    /// <param name="queries">The ray queries to run.</param>
+    /// <param name="hits">The flat result hits, CSR-packed per query.</param>
+    /// <param name="hitCounts">The per-query hit count (length matches queries).</param>
+    /// <param name="layerMask">The layer mask used to filter the results.</param>
+    /// <param name="hitTriggers">If set to <c>true</c> triggers will be hit, otherwise will skip them.</param>
+    API_FUNCTION() static void BatchRayCastAll(const Array<RayCastQuery, HeapAllocation>& queries, API_PARAM(Out) Array<RayCastHit, HeapAllocation>& hits, API_PARAM(Out) Array<int32, HeapAllocation>& hitCounts, uint32 layerMask = MAX_uint32, bool hitTriggers = true);
+
+    /// <summary>
     /// Performs a sweep test against objects in the scene using a box geometry.
     /// </summary>
     /// <param name="center">The box center.</param>

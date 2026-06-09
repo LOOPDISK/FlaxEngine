@@ -36,6 +36,20 @@ struct PhysicsJointDesc
     Vector3 Pos1;
 };
 
+// Contact normals harvested from the last MoveController call, categorized against the
+// controller up axis (floor = aligned with up, ceiling = opposed, wall = perpendicular).
+// move()'s collide-and-slide already computes these; we keep them so callers can ground/slide
+// without re-casting rays. Normals are averaged across all hits in that category.
+struct ControllerHit
+{
+    Vector3 Floor;
+    Vector3 Wall;
+    Vector3 Ceiling;
+    bool HasFloor;
+    bool HasWall;
+    bool HasCeiling;
+};
+
 struct PhysicsClothDesc
 {
     class Cloth* Actor;
@@ -258,6 +272,8 @@ public:
     static Vector3 GetControllerPosition(void* controller);
     static void SetControllerPosition(void* controller, const Vector3& value);
     static int32 MoveController(void* controller, void* shape, const Vector3& displacement, float minMoveDistance, float deltaTime);
+    // Contact normals harvested during the most recent MoveController call (single-threaded with it).
+    static void GetLastControllerContacts(ControllerHit& result);
 
 #if WITH_VEHICLE
     // Vehicles

@@ -428,7 +428,7 @@ void AnimGraphExecutor::Update(AnimGraphInstanceData& data, float dt)
         const SkeletonNode* skelNodes = animResultSkeleton->Nodes.Get();
         Matrix* posesOut = data.NodesPose.Get();
 
-#if ANIM_GRAPH_PROFILE
+#if ANIM_GRAPH_PROFILE && COMPILE_WITH_PROFILER
         // Bake the node count into a stack-local zone name so in-game profiler dumps
         // can distinguish "huge skeleton" (legit work scales with N) vs "thread stall"
         // (small N but huge wall-clock = preemption inside the loop).
@@ -441,7 +441,7 @@ void AnimGraphExecutor::Update(AnimGraphInstanceData& data, float dt)
         // If both halves are proportionally large, the skeleton is genuinely big.
         const int32 half = nodeCount / 2;
         {
-#if ANIM_GRAPH_PROFILE
+#if ANIM_GRAPH_PROFILE && COMPILE_WITH_PROFILER
             ScopeProfileBlockCPU _poseLoopOuter(_poseLoopName);
 #endif
             {

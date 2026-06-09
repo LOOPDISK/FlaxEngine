@@ -87,6 +87,13 @@ private:
     NonWalkableModes _nonWalkableMode;
     OriginModes _originMode;
     CollisionFlags _lastFlags;
+    // Contact normals harvested from the last Move's collide-and-slide sweep (see GetWallContactNormal).
+    Vector3 _floorContactNormal;
+    Vector3 _wallContactNormal;
+    Vector3 _ceilingContactNormal;
+    bool _hasFloorContact = false;
+    bool _hasWallContact = false;
+    bool _hasCeilingContact = false;
 
 public:
     /// <summary>
@@ -206,6 +213,57 @@ public:
     /// Gets the current collision flags. Tells which parts of the character capsule collided with the environment during the last move call. It can be used to trigger various character animations.
     /// </summary>
     API_PROPERTY() CollisionFlags GetFlags() const;
+
+    /// <summary>
+    /// Gets whether the last Move touched a wall (a surface roughly perpendicular to the up axis).
+    /// </summary>
+    API_PROPERTY() bool HasWallContact() const
+    {
+        return _hasWallContact;
+    }
+
+    /// <summary>
+    /// Gets the averaged wall contact normal from the last Move, harvested from the controller's own
+    /// collide-and-slide sweep (no extra scene query). Valid only when HasWallContact is true.
+    /// </summary>
+    API_PROPERTY() Vector3 GetWallContactNormal() const
+    {
+        return _wallContactNormal;
+    }
+
+    /// <summary>
+    /// Gets whether the last Move touched a floor (a surface roughly aligned with the up axis).
+    /// </summary>
+    API_PROPERTY() bool HasFloorContact() const
+    {
+        return _hasFloorContact;
+    }
+
+    /// <summary>
+    /// Gets the averaged floor contact normal from the last Move, harvested from the controller's own
+    /// collide-and-slide sweep (no extra scene query). Valid only when HasFloorContact is true.
+    /// </summary>
+    API_PROPERTY() Vector3 GetFloorContactNormal() const
+    {
+        return _floorContactNormal;
+    }
+
+    /// <summary>
+    /// Gets whether the last Move touched a ceiling (a surface roughly opposed to the up axis).
+    /// </summary>
+    API_PROPERTY() bool HasCeilingContact() const
+    {
+        return _hasCeilingContact;
+    }
+
+    /// <summary>
+    /// Gets the averaged ceiling contact normal from the last Move, harvested from the controller's own
+    /// collide-and-slide sweep (no extra scene query). Valid only when HasCeilingContact is true.
+    /// </summary>
+    API_PROPERTY() Vector3 GetCeilingContactNormal() const
+    {
+        return _ceilingContactNormal;
+    }
 
 public:
     /// <summary>

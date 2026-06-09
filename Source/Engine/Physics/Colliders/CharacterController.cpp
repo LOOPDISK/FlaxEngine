@@ -188,6 +188,17 @@ CharacterController::CollisionFlags CharacterController::Move(const Vector3& dis
         result = (CollisionFlags)PhysicsBackend::MoveController(_controller, _shape, displacement, _minMoveDistance, deltaTime);
         _lastFlags = result;
 
+        // Harvest the contact normals the move's collide-and-slide already computed, so gameplay
+        // can ground/slide without re-casting rays.
+        ControllerHit contacts;
+        PhysicsBackend::GetLastControllerContacts(contacts);
+        _hasFloorContact = contacts.HasFloor;
+        _hasWallContact = contacts.HasWall;
+        _hasCeilingContact = contacts.HasCeiling;
+        _floorContactNormal = contacts.Floor;
+        _wallContactNormal = contacts.Wall;
+        _ceilingContactNormal = contacts.Ceiling;
+
         // Update position
         Vector3 position;
         if (_originMode == OriginModes::Base)
