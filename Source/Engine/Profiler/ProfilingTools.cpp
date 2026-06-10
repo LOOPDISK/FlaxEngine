@@ -4,6 +4,7 @@
 
 #include "ProfilingTools.h"
 #include "Engine/Core/Types/Pair.h"
+#include "Engine/Platform/CPUInfo.h"
 #include "Engine/Engine/Engine.h"
 #include "Engine/Engine/Time.h"
 #include "Engine/Engine/EngineService.h"
@@ -23,6 +24,36 @@ bool ProfilingTools::ShadowTallyActive = false;
 static volatile uint64 CoreProbeSink = 0;
 #if PLATFORM_WINDOWS
 extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentProcessorNumber(void);
+extern "C" __declspec(dllimport) void* __stdcall LoadLibraryW(const wchar_t*);
+extern "C" __declspec(dllimport) void* __stdcall GetProcAddress(void*, const char*);
+
+// [CoreProbe] CallNtPowerInformation(ProcessorInformation) row - actual current clock per logical core.
+// Lets the dump separate turbo/power throttle (CurrentMhz falls ~2x => DVFS, affinity can't help) from
+// HyperThread/DPC sibling contention (CurrentMhz holds but the synth loop still dilates). Diagnostic-only.
+struct CoreProbePowerInfo { uint32 Number, MaxMhz, CurrentMhz, MhzLimit, MaxIdle, CurrentIdle; };
+typedef long(__stdcall* CallNtPowerInformationFn)(int, void*, unsigned long, void*, unsigned long);
+static int32 ReadCurrentCoreMhz(int32 logicalCore)
+{
+    if (logicalCore < 0 || logicalCore >= 64)
+        return 0;
+    static CallNtPowerInformationFn fn = nullptr;
+    static bool tried = false;
+    if (!tried)
+    {
+        tried = true;
+        if (void* m = LoadLibraryW(L"powrprof.dll"))
+            fn = (CallNtPowerInformationFn)GetProcAddress(m, "CallNtPowerInformation");
+    }
+    if (!fn)
+        return 0;
+    CoreProbePowerInfo info[64] = {};
+    int32 count = (int32)Platform::GetCPUInfo().LogicalProcessorCount;
+    if (count <= 0 || count > 64)
+        count = 64;
+    if (fn(11 /*ProcessorInformation*/, nullptr, 0, info, (unsigned long)(sizeof(CoreProbePowerInfo) * count)) != 0)
+        return 0;
+    return (int32)info[logicalCore].CurrentMhz;
+}
 #endif
 
 namespace
@@ -171,8 +202,10 @@ void ProfilingToolsService::Update()
             stats.SyntheticLoopUs = (float)((sbEnd - sbStart) * 1000000.0);
 #if PLATFORM_WINDOWS
             stats.MainThreadCpuCore = (int32)GetCurrentProcessorNumber();
+            stats.MainCoreMhz = ReadCurrentCoreMhz(stats.MainThreadCpuCore);
 #else
             stats.MainThreadCpuCore = -1;
+            stats.MainCoreMhz = 0;
 #endif
         }
     }

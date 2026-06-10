@@ -119,6 +119,13 @@ public:
         /// CPUs low indices are usually P-cores, high indices E/LP-E cores - catches P->E migration.
         /// </summary>
         API_FIELD() int32 MainThreadCpuCore;
+
+        /// <summary>
+        /// [CoreProbe] Reported current clock (MHz) of the core the main thread ran on (0 if unavailable).
+        /// On a private core a ~2x drop on stutter frames means turbo/power throttle (DVFS) - affinity
+        /// cannot fix that; a flat clock while SyntheticLoopUs still dilates means sibling HT/DPC contention.
+        /// </summary>
+        API_FIELD() int32 MainCoreMhz;
     };
 
     /// <summary>

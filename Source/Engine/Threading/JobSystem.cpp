@@ -1,6 +1,7 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 #include "JobSystem.h"
+#include "ThreadAffinity.h"
 #include "IRunnable.h"
 #include "Engine/Platform/CPUInfo.h"
 #include "Engine/Platform/Thread.h"
@@ -104,8 +105,11 @@ bool JobSystemService::Init()
     JobContexts = (JobContext*)Platform::Allocate(JobContextsSize * sizeof(JobContext), alignof(JobContext));
     Memory::ConstructItems(JobContexts, (int32)JobContextsSize);
 
-    // Spawn threads
+    // Spawn threads. With [PinMain] active, right-size down to the cores left after reserving one for the main thread.
     ThreadsCount = Math::Min<int32>(Platform::GetCPUInfo().LogicalProcessorCount, ARRAY_COUNT(Threads));
+    const int32 pinnedWorkers = ThreadAffinity::GetWorkerCount();
+    if (pinnedWorkers > 0)
+        ThreadsCount = Math::Min<int32>(pinnedWorkers, ARRAY_COUNT(Threads));
     for (int32 i = 0; i < ThreadsCount; i++)
     {
         auto runnable = New<JobSystemThread>();
@@ -148,8 +152,9 @@ void JobSystemService::Dispose()
 
 int32 JobSystemThread::Run()
 {
-    // Pin thread to the physical core
-    Platform::SetThreadAffinityMask(1ull << Index);
+    // Pin worker to a single logical core. With [PinMain] active this excludes the main thread's reserved core.
+    const uint64 affinity = ThreadAffinity::GetWorkerMask((int32)Index);
+    Platform::SetThreadAffinityMask(affinity ? affinity : (1ull << Index));
 
     bool attachCSharpThread = true;
     MONO_THREAD_INFO_TYPE* monoThreadInfo = nullptr;
@@ -325,10 +330,10 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, int32 jobCount)
 
     if (JobStartingOnDispatch)
     {
-        if (jobCount == 1)
+        // Wake at most jobCount workers (NotifyAll alerts every worker serially on the caller - thundering herd)
+        int32 wakes = Math::Min(jobCount, ThreadsCount);
+        while (wakes-- > 0)
             JobsSignal.NotifyOne();
-        else
-            JobsSignal.NotifyAll();
     }
 
     return label;
@@ -388,10 +393,10 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, Span<int64> dependen
 
     if (context.DependenciesLeft == 0 && JobStartingOnDispatch)
     {
-        if (jobCount == 1)
+        // Wake at most jobCount workers (NotifyAll alerts every worker serially on the caller - thundering herd)
+        int32 wakes = Math::Min(jobCount, ThreadsCount);
+        while (wakes-- > 0)
             JobsSignal.NotifyOne();
-        else
-            JobsSignal.NotifyAll();
     }
 
     return label;

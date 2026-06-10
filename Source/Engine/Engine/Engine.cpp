@@ -28,6 +28,7 @@
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Profiler/Profiler.h"
 #include "Engine/Threading/TaskGraph.h"
+#include "Engine/Threading/ThreadAffinity.h"
 #if USE_EDITOR
 #include "Editor/Editor.h"
 #include "Editor/ProjectInfo.h"
@@ -144,6 +145,10 @@ int32 Engine::OnInit(const Char* cmdLine)
         return 1;
     }
 #endif
+
+    // [PinMain] Reserve a physical core for the serial main thread and pin it (before workers spawn).
+    ThreadAffinity::Init();
+    ThreadAffinity::PinMainThread();
 
     // Initialize engine
     UpdateGraph = New<TaskGraph>();
