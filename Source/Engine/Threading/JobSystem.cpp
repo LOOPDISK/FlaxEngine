@@ -189,7 +189,7 @@ int32 JobSystemThread::Run()
                     if (!jobContext->Job.IsBinded())
                     {
                         LOG(Error, "Job method was invalid. Ignoring job.");
-                        jobContext == nullptr;
+                        jobContext = nullptr;
                         goto RETRY;
                     }
 
@@ -316,6 +316,9 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, int32 jobCount)
 
     // Build job
     JobContext& context = JobContexts[GET_CONTEXT_INDEX(label)];
+    // Wait until the slot is fully recycled (contexts counter caps active jobs, not slot age)
+    while (Platform::AtomicRead(&context.JobLabel) != 0 && Platform::AtomicRead(&context.DependenciesLeft) != -999)
+        Platform::Sleep(1);
     context.Job = job;
     context.JobIndex = 0;
     context.JobsLeft = jobCount;
@@ -325,8 +328,9 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, int32 jobCount)
     context.JobsCount = jobCount;
     context.Dependants.Clear();
 
-    // Move the job queue forward
-    Platform::InterlockedIncrement(&JobEndLabel);
+    // Move the job queue forward (publish in label order so workers never scan a half-built slot)
+    while (Platform::InterlockedCompareExchange(&JobEndLabel, label, label - 1) != label - 1)
+        Platform::Yield();
 
     if (JobStartingOnDispatch)
     {
@@ -365,6 +369,9 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, Span<int64> dependen
 
     // Build job
     JobContext& context = JobContexts[GET_CONTEXT_INDEX(label)];
+    // Wait until the slot is fully recycled (contexts counter caps active jobs, not slot age)
+    while (Platform::AtomicRead(&context.JobLabel) != 0 && Platform::AtomicRead(&context.DependenciesLeft) != -999)
+        Platform::Sleep(1);
     context.Job = job;
     context.JobIndex = 0;
     context.JobsLeft = jobCount;
@@ -388,8 +395,9 @@ int64 JobSystem::Dispatch(const Function<void(int32)>& job, Span<int64> dependen
         JobsLocker.Unlock();
     }
 
-    // Move the job queue forward
-    Platform::InterlockedIncrement(&JobEndLabel);
+    // Move the job queue forward (publish in label order so workers never scan a half-built slot)
+    while (Platform::InterlockedCompareExchange(&JobEndLabel, label, label - 1) != label - 1)
+        Platform::Yield();
 
     if (context.DependenciesLeft == 0 && JobStartingOnDispatch)
     {

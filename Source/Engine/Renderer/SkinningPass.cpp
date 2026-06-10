@@ -322,8 +322,9 @@ bool SkinningPass::PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMe
     // Enqueue only if output is stale (dormant-skip). Stamp version now so same-mesh setups this frame coalesce to one dispatch.
     if (skinning->OutputVersion[slot] != skinning->SkinningVersion)
     {
+        const uint64 prevVersion = skinning->OutputVersion[slot];
         skinning->OutputVersion[slot] = skinning->SkinningVersion;
-        _pending.Add({ skinning, mesh, slot });
+        _pending.Add({ skinning, mesh, slot, prevVersion });
     }
 
     return true;
@@ -335,6 +336,9 @@ void SkinningPass::FlushPending(GPUContext* context)
         return;
     if (checkIfSkipPass() || !context)
     {
+        // Same-frame drop (eg shader mid-reload): un-stamp so the next frame retries.
+        for (const PendingDispatch& p : _pending)
+            RollbackStamp(p);
         _pending.Clear();
         return;
     }
@@ -346,7 +350,10 @@ void SkinningPass::FlushPending(GPUContext* context)
     {
         GPUConstantBuffer* cb = GetOrCreateCB(cbIndex++);
         if (!cb)
+        {
+            RollbackStamp(p);
             continue;
+        }
         DispatchOne(context, p, cb, lastBones);
         lastBones = p.Skinning ? p.Skinning->BoneMatrices : nullptr;
     }
@@ -358,7 +365,15 @@ void SkinningPass::FlushPending(GPUContext* context)
 
 void SkinningPass::ClearPending()
 {
+    // No RollbackStamp here: entries may be from a previous frame so Skinning pointers can be stale.
     _pending.Clear();
+}
+
+void SkinningPass::RollbackStamp(const PendingDispatch& p)
+{
+    // Only revert our own stamp; a pose change after enqueue makes the slot stale again anyway.
+    if (p.Skinning && p.Slot < p.Skinning->OutputVersion.Count() && p.Skinning->OutputVersion[p.Slot] == p.Skinning->SkinningVersion)
+        p.Skinning->OutputVersion[p.Slot] = p.PrevVersion;
 }
 
 void SkinningPass::QueuePrewarm(SkinnedMeshDrawData* skinning, SkinnedModel* model)
@@ -442,7 +457,10 @@ void SkinningPass::DispatchOne(GPUContext* context, const PendingDispatch& p, GP
     GPUBuffer* outputVB0 = p.Skinning->OutputVB0[p.Slot];
     GPUBuffer* outputVB1 = p.Skinning->OutputVB1[p.Slot];
     if (!sourceVB || !outputVB0 || !outputVB1 || !p.Skinning->BoneMatrices)
+    {
+        RollbackStamp(p);
         return;
+    }
 
     SkinningCBData cb;
     cb.VertexCount = vertexCount;
@@ -458,7 +476,10 @@ void SkinningPass::DispatchOne(GPUContext* context, const PendingDispatch& p, GP
     cb.OffsetColor = 0;
     cb._padding0 = 0;
     if (!ResolveInputLayout(sourceVB, cb))
+    {
+        RollbackStamp(p);
         return;
+    }
 
     context->UpdateCB(cbResource, &cb);
     context->BindCB(0, cbResource);

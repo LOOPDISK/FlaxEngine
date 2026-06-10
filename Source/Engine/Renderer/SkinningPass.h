@@ -61,6 +61,7 @@ private:
         SkinnedMeshDrawData* Skinning;
         const SkinnedMesh* Mesh;
         int32 Slot;
+        uint64 PrevVersion; // OutputVersion before PrepareForDraw stamped it; restored if the dispatch drops
     };
 
     bool _supported = false;
@@ -87,6 +88,9 @@ private:
     // prevBones = bone buffer bound by the previous dispatch this flush; DispatchOne skips BindSR(0)
     // when it matches (common for multi-slot actors), null for the first.
     void DispatchOne(GPUContext* context, const PendingDispatch& p, GPUConstantBuffer* cb, GPUBuffer* prevBones);
+    // Un-stamps OutputVersion when a queued dispatch is dropped, else dormant skeletons (no version bump)
+    // never retry and render from a never-written output VB. Same-frame only: Skinning must still be alive.
+    void RollbackStamp(const PendingDispatch& p);
 
 #if COMPILE_WITH_DEV_ENV
     void OnShaderReloading(Asset* obj);
