@@ -314,6 +314,11 @@ struct ShadowClipmap
     Float3 PrevLightRight = Float3::Zero;
     Float3 PrevLightUp = Float3::Zero;
     float BeyondCSMExtent = 0.0f;        // World extent of the extra level
+    // Auto-sized beyond-CSM extent: 2*View.Far so the camera-centered window reaches the far plane
+    // (light-XY distance <= world distance). Latched at initial clipmap gen and held - View.Far is
+    // mutated by sub-render passes and any resize re-anchors TexelSize (forced rebuild). Reset to 0
+    // (re-latch) by the InvalidateStaticShadows purge in SetupShadows.
+    float BeyondAutoExtent = 0.0f;
     bool Enabled = false;
     bool DbgGateWasOpen = false;          // DIAG: cold-load gate-flip tracing
     Guid LightId;                         // ID of directional light using this clipmap
@@ -795,6 +800,8 @@ struct ShadowAtlasLight
     uint16 StaticResolution;
     uint8 TilesNeeded;
     uint8 TilesCount;
+    uint8 ShaderTilesCount; // Tiles the shader may sample (excludes an inactive/unpopulated beyond-CSM tile)
+    bool ShaderBeyondTile; // Last shader tile is the beyond-CSM clipmap window (packed as 0x80 in the TilesCount byte)
     bool HasStaticShadowContext;
     bool BlendCSM;
     mutable StaticStates StaticState;
@@ -1613,7 +1620,12 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
     SetupLight(shadows, renderContext, renderContextBatch, (RenderLightData&)light, atlasLight);
 
     const auto& view = renderContext.View;
-    const int32 csmCount = atlasLight.TilesCount;
+    const bool useClipmap = light.StaticShadows && shadows.EnableStaticShadows && EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
+    // Last tile is the beyond-CSM clipmap composite, not a cascade (gate MUST match the TilesNeeded site)
+    const bool beyondTile = useClipmap && light.StaticShadowBeyondCSMExtent > 0.0f && !view.IsOrthographicProjection();
+    const int32 csmCount = atlasLight.TilesCount - (beyondTile ? 1 : 0);
+    atlasLight.ShaderTilesCount = (uint8)csmCount; // Bumped below once the beyond level is usable
+    atlasLight.ShaderBeyondTile = false;
     const auto shadowMapsSize = (float)atlasLight.Resolution;
     atlasLight.BlendCSM = Graphics::AllowCSMBlending;
 #if USE_EDITOR
@@ -1720,11 +1732,9 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
     if (!atlasLight.RenderDynamic)
         atlasLight.ContextCount = 0;
 
-    const bool useClipmapForLight = light.StaticShadows && shadows.EnableStaticShadows && EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
-
     // Init shadow data. Allow non-dynamic paths (clipmap composite, static atlas copy) to still
     // process even when no dynamic cascade contexts will be added.
-    if (atlasLight.ContextCount == 0 && !useClipmapForLight && !atlasLight.HasStaticShadowContext)
+    if (atlasLight.ContextCount == 0 && !useClipmap && !atlasLight.HasStaticShadowContext)
         return;
     if (atlasLight.ContextCount > 0)
         renderContextBatch.Contexts.AddDefault(atlasLight.ContextCount);
@@ -1835,7 +1845,15 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
 
     // Setup shadow clipmap for static geometry caching
     auto& clipmap = shadows.Clipmap;
-    const bool useClipmap = light.StaticShadows && shadows.EnableStaticShadows && EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
+
+    // Beyond-CSM tile bookkeeping: never consumes a dynamic cascade context; enabled for rendering
+    // in the clipmap block below once the level is usable.
+    if (beyondTile)
+    {
+        auto& tile = atlasLight.Tiles[csmCount];
+        tile.SkipUpdate = true;
+        tile.CachedViewport = Viewport(tile.RectTile->X, tile.RectTile->Y, tile.RectTile->Width, tile.RectTile->Height);
+    }
 
     // DIAG: clipmap never enables on cold play, works after editor reload. Trace which gate flips.
     {
@@ -1881,7 +1899,7 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
         // drives the clipmap's dynamic depth range so any verticality is captured.
         float sceneMinZ = 0.0f, sceneMaxZ = 0.0f;
         const bool sceneZValid = shadows.GetStaticCastersSunRange(light.Direction, renderContext.View.Origin, sceneMinZ, sceneMaxZ);
-        clipmap.Init(clipmapFormat, csmCount, cascadeRadii, splitDistances, atlasLight.Resolution, light.Direction, light.StaticShadowBeyondCSMExtent, sceneZValid, sceneMinZ, sceneMaxZ);
+        clipmap.Init(clipmapFormat, csmCount, cascadeRadii, splitDistances, atlasLight.Resolution, light.Direction, beyondTile ? light.StaticShadowBeyondCSMExtent : 0.0f, sceneZValid, sceneMinZ, sceneMaxZ);
         clipmap.LightId = light.ID;
 
         if (clipmap.Enabled)
@@ -2283,11 +2301,16 @@ void ShadowsPass::SetupShadows(RenderContext& renderContext, RenderContextBatch&
 
         if (light->IsDirectionalLight)
         {
-            atlasLight.TilesNeeded = Math::Clamp(((const RenderDirectionalLightData*)light)->CascadeCount, 1, MAX_CSM_CASCADES);
+            const auto* dirLight = (const RenderDirectionalLightData*)light;
+            atlasLight.TilesNeeded = Math::Clamp(dirLight->CascadeCount, 1, MAX_CSM_CASCADES);
 
             // Views with orthographic cameras cannot use cascades, we force it to 1 shadow map here
             if (renderContext.View.IsOrthographicProjection())
                 atlasLight.TilesNeeded = 1;
+            // Extra tile for the beyond-CSM clipmap composite, sampled past the last cascade split
+            // (gate MUST match the directional SetupLight beyond-tile condition)
+            else if (dirLight->StaticShadowBeyondCSMExtent > 0.0f && dirLight->StaticShadows && shadows.EnableStaticShadows && EnumHasAllFlags(dirLight->StaticFlags, StaticFlags::Shadow))
+                atlasLight.TilesNeeded++;
         }
         else if (light->IsPointLight)
             atlasLight.TilesNeeded = 6;
@@ -2415,6 +2438,8 @@ RETRY_ATLAS_SETUP:
 
             light->HasShadow = true;
             atlasLight.TilesCount = atlasLight.TilesNeeded;
+            atlasLight.ShaderTilesCount = atlasLight.TilesNeeded; // Directional SetupLight refines (beyond-CSM tile)
+            atlasLight.ShaderBeyondTile = false;
             if (light->IsPointLight)
                 SetupLight(shadows, renderContext, renderContextBatch, *(RenderPointLightData*)light, atlasLight);
             else if (light->IsSpotLight)
@@ -2471,7 +2496,7 @@ RETRY_ATLAS_SETUP:
         {
             // Shadow info
             auto* packed = shadows.ShadowsBuffer.WriteReserve<Float4>(2);
-            Color32 packed0x((byte)(atlasLight.Sharpness * (255.0f / 10.0f)), (byte)(atlasLight.Fade * 255.0f), (byte)atlasLight.TilesCount, (byte)Math::Clamp(atlasLight.Softness * 255.0f, 0.0f, 255.0f));
+            Color32 packed0x((byte)(atlasLight.Sharpness * (255.0f / 10.0f)), (byte)(atlasLight.Fade * 255.0f), (byte)(atlasLight.ShaderTilesCount | (atlasLight.ShaderBeyondTile ? 0x80 : 0)), (byte)Math::Clamp(atlasLight.Softness * 255.0f, 0.0f, 255.0f));
             packed[0] = Float4(*(const float*)&packed0x, atlasLight.FadeDistance, atlasLight.NormalOffsetScale, atlasLight.Bias);
             packed[1] = atlasLight.CascadeSplits;
         }
