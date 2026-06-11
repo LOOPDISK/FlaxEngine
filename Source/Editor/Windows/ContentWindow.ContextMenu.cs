@@ -41,8 +41,7 @@ namespace FlaxEditor.Windows
                 folder = CurrentViewFolder;
             }
             Assert.IsNotNull(folder);
-            bool isRootFolder = CurrentViewFolder == _root.Folder;
-
+            
             // Create context menu
             ContextMenuButton b;
             ContextMenu cm = new ContextMenu
@@ -61,7 +60,7 @@ namespace FlaxEditor.Windows
                 cm.AddSeparator();
             }
 
-            if (item is ContentFolder contentFolder && contentFolder.Node is ProjectTreeNode)
+            if (item is ContentFolder contentFolder && contentFolder.Node is ProjectFolderTreeNode)
             {
                 cm.AddButton(Utilities.Constants.ShowInExplorer, () => FileSystem.ShowFileExplorer(CurrentViewFolder.Path));
             }
@@ -70,16 +69,32 @@ namespace FlaxEditor.Windows
                 b = cm.AddButton("Open", () => Open(item));
                 b.Enabled = proxy != null || isFolder;
 
-                if (_view.SelectedCount > 1)
-                    b = cm.AddButton("Open (all selected)", () =>
+                if (_showAllContentInTree)
+                {
+                    var selection = _tree.Selection;
+                    if (selection.Count > 0)
                     {
-                        foreach (var e in _view.Selection)
-                            Open(e);
-                    });
+                        b = cm.AddButton("Open (all selected)", () =>
+                        {
+                            foreach (var e in _tree.Selection)
+                                if (e is ContentItemTreeNode contentNode)
+                                    Open(contentNode.Item);
+                        });
+                    }
+                }
+                else
+                {
+                    if (_view.SelectedCount > 1)
+                        b = cm.AddButton("Open (all selected)", () =>
+                        {
+                            foreach (var e in _view.Selection)
+                                Open(e);
+                        });
+                }
 
                 cm.AddButton(Utilities.Constants.ShowInExplorer, () => FileSystem.ShowFileExplorer(System.IO.Path.GetDirectoryName(item.Path)));
                 
-                if (!String.IsNullOrEmpty(Editor.Instance.Windows.ContentWin._itemsSearchBox.Text))
+                if (!_showAllContentInTree && !String.IsNullOrEmpty(Editor.Instance.Windows.ContentWin._itemsSearchBox.Text))
                 {
                     cm.AddButton("Show in Content Panel", () =>
                     {
@@ -132,7 +147,7 @@ namespace FlaxEditor.Windows
                     }
                 }
 
-                if (isFolder && folder.Node is MainContentTreeNode)
+                if (isFolder && folder.Node is MainContentFolderTreeNode)
                 {
                     cm.AddSeparator();
                 }
@@ -140,15 +155,24 @@ namespace FlaxEditor.Windows
                 {
                     cm.AddButton("Delete", () => Delete(item));
                     cm.AddSeparator();
-                    cm.AddButton("Duplicate", _view.Duplicate);
-                    cm.AddButton("Cut", _view.Cut);
-                    cm.AddButton("Copy", _view.Copy);
+                    if (_showAllContentInTree)
+                    {
+                        cm.AddButton("Duplicate", _treeOnlyPanel.Duplicate);
+                        cm.AddButton("Cut", _treeOnlyPanel.Cut);
+                        cm.AddButton("Copy", _treeOnlyPanel.Copy);
+                    }
+                    else
+                    {
+                        cm.AddButton("Duplicate", _view.Duplicate);
+                        cm.AddButton("Cut", _view.Cut);
+                        cm.AddButton("Copy", _view.Copy);
+                    }
                 }
 
-                b = cm.AddButton("Paste", _view.Paste);
+                b = _showAllContentInTree ? cm.AddButton("Paste", _treeOnlyPanel.Paste) : cm.AddButton("Paste", _view.Paste);
                 b.Enabled = _view.CanPaste();
 
-                if (isFolder && folder.Node is MainContentTreeNode)
+                if (isFolder && folder.Node is MainContentFolderTreeNode)
                 {
                     // Do nothing
                 }
@@ -180,19 +204,61 @@ namespace FlaxEditor.Windows
 
             cm.AddSeparator();
 
-            // Check if is source folder to add new module
-            if (folder?.ParentFolder?.Node is ProjectTreeNode parentFolderNode && folder.Node == parentFolderNode.Source)
+            CreateNewModuleMenu(cm, folder);
+            CreateNewFolderMenu(cm, folder, false, item);
+            CreateNewContentItemMenu(cm, folder);
+
+            if (folder.CanHaveAssets)
             {
-                var button = cm.AddButton("New module");
+                cm.AddButton("Import file", () =>
+                {
+                    _view.ClearSelection();
+                    Editor.ContentImporting.ShowImportFileDialog(CurrentViewFolder);
+                });
+            }
+
+            // Remove any leftover separator
+            if (cm.ItemsContainer.Children.LastOrDefault() is ContextMenuSeparator)
+                cm.ItemsContainer.Children.Last().Dispose();
+
+            // Show it
+            cm.Show(this, location);
+        }
+
+        private void CreateNewModuleMenu(ContextMenu menu, ContentFolder folder, bool disableUncreatable = false)
+        {
+            // Check if is source folder to add new module
+            if (folder?.ParentFolder?.Node is ProjectFolderTreeNode parentFolderNode && folder.Node == parentFolderNode.Source)
+            {
+                var button = menu.AddButton("New module");
                 button.CloseMenuOnClick = false;
                 button.Clicked += () => NewModule(button, parentFolderNode.Source.Path);
             }
-
-            if (!isRootFolder && !(item is ContentFolder projectFolder && projectFolder.Node is ProjectTreeNode))
+            else if (disableUncreatable)
             {
-                cm.AddButton("New folder", NewFolder);
+                var button = menu.AddButton("New module");
+                button.Enabled = false;
             }
+        }
 
+        private bool CanCreateFolder(ContentItem item = null)
+        {
+            bool canCreateFolder = CurrentViewFolder != _root.Folder && !(item is ContentFolder projectFolder && projectFolder.Node is ProjectFolderTreeNode);
+            return canCreateFolder;
+        }
+
+        private void CreateNewFolderMenu(ContextMenu menu, ContentFolder folder, bool disableUncreatable = false, ContentItem item = null)
+        {
+            bool canCreateFolder = CanCreateFolder(item);
+            if (canCreateFolder || disableUncreatable)
+            {
+                var b = menu.AddButton("New folder", NewFolder);
+                b.Enabled = canCreateFolder;
+            }
+        }
+
+        private void CreateNewContentItemMenu(ContextMenu menu, ContentFolder folder, bool showNew = true, bool disableUncreatable = false)
+        {
             // Loop through each proxy and user defined json type and add them to the context menu
             var actorType = new ScriptType(typeof(Actor));
             var scriptType = new ScriptType(typeof(Script));
@@ -232,7 +298,8 @@ namespace FlaxEditor.Windows
                 if (p == null)
                     continue;
 
-                if (p.CanCreate(folder))
+                bool canCreate = p.CanCreate(folder);
+                if (canCreate || disableUncreatable)
                 {
                     var parts = attribute.Path.Split('/');
                     ContextMenuChildMenu childCM = null;
@@ -240,16 +307,20 @@ namespace FlaxEditor.Windows
                     for (int i = 0; i < parts?.Length; i++)
                     {
                         var part = parts[i].Trim();
+                        if (part == "New" && !showNew)
+                            continue;
                         if (i == parts.Length - 1)
                         {
                             if (mainCM)
                             {
-                                cm.AddButton(part, () => NewItem(p));
+                                var b = menu.AddButton(part, () => NewItem(p));
+                                b.Enabled = canCreate;
                                 mainCM = false;
                             }
                             else if (childCM != null)
                             {
-                                childCM.ContextMenu.AddButton(part, () => NewItem(p));
+                                var b = childCM.ContextMenu.AddButton(part, () => NewItem(p));
+                                b.Enabled = canCreate;
                                 childCM.ContextMenu.AutoSort = true;
                             }
                         }
@@ -257,35 +328,21 @@ namespace FlaxEditor.Windows
                         {
                             if (mainCM)
                             {
-                                childCM = cm.GetOrAddChildMenu(part);
+                                childCM = menu.GetOrAddChildMenu(part);
                                 childCM.ContextMenu.AutoSort = true;
+                                childCM.Enabled = canCreate;
                                 mainCM = false;
                             }
                             else if (childCM != null)
                             {
                                 childCM = childCM.ContextMenu.GetOrAddChildMenu(part);
                                 childCM.ContextMenu.AutoSort = true;
+                                childCM.Enabled = canCreate;
                             }
                         }
                     }
                 }
             }
-
-            if (folder.CanHaveAssets)
-            {
-                cm.AddButton("Import file", () =>
-                {
-                    _view.ClearSelection();
-                    Editor.ContentImporting.ShowImportFileDialog(CurrentViewFolder);
-                });
-            }
-
-            // Remove any leftover separator
-            if (cm.ItemsContainer.Children.LastOrDefault() is ContextMenuSeparator)
-                cm.ItemsContainer.Children.Last().Dispose();
-
-            // Show it
-            cm.Show(this, location);
         }
 
         private void OnExpandAllClicked(ContextMenuButton button)

@@ -90,6 +90,11 @@ namespace FlaxEditor.GUI.Input
         public bool IsSliding => _isSliding;
 
         /// <summary>
+        /// The color of the highlight to the left of the value box.
+        /// </summary>
+        public Color HighlightColor;
+
+        /// <summary>
         /// Occurs when sliding starts.
         /// </summary>
         public event Action SlidingStart;
@@ -211,6 +216,12 @@ namespace FlaxEditor.GUI.Input
                     Render2D.DrawRectangle(bounds, style.SelectionBorder);
                 }
             }
+
+            if (HighlightColor != Color.Transparent)
+            {
+                var highlightRect = new Rectangle(-3.0f, 0.0f, 3.0f, Height);
+                Render2D.FillRectangle(highlightRect, HighlightColor);
+            }
         }
 
         /// <inheritdoc />
@@ -295,6 +306,7 @@ namespace FlaxEditor.GUI.Input
         /// <inheritdoc />
         public override void OnMouseMove(Float2 location)
         {
+#if !PLATFORM_SDL
             if (_isSliding && !RootWindow.Window.IsMouseFlippingHorizontally)
             {
                 // Update sliding
@@ -302,6 +314,7 @@ namespace FlaxEditor.GUI.Input
                 ApplySliding(Mathf.RoundToInt(slideLocation.X - _startSlideLocation.X) * _slideSpeed);
                 return;
             }
+#endif
 
             // Update cursor type so user knows they can slide value
             if (CanUseSliding && SlideRect.Contains(location) && !_isSliding)
@@ -318,13 +331,43 @@ namespace FlaxEditor.GUI.Input
             base.OnMouseMove(location);
         }
 
+#if PLATFORM_SDL
+        /// <inheritdoc />
+        public override void OnMouseMoveRelative(Float2 motion)
+        {
+            var location = Root.TrackingMouseOffset;
+            if (_isSliding)
+            {
+                // Update sliding
+                ApplySliding(Root.TrackingMouseOffset.X * _slideSpeed);
+                return;
+            }
+
+            // Update cursor type so user knows they can slide value
+            if (CanUseSliding && SlideRect.Contains(location) && !_isSliding)
+            {
+                Cursor = CursorType.SizeWE;
+                _cursorChanged = true;
+            }
+            else if (_cursorChanged && !_isSliding)
+            {
+                Cursor = CursorType.Default;
+                _cursorChanged = false;
+            }
+
+            base.OnMouseMoveRelative(motion);
+        }
+#endif
+
         /// <inheritdoc />
         public override bool OnMouseUp(Float2 location, MouseButton button)
         {
             if (button == MouseButton.Left && _isSliding)
             {
+#if !PLATFORM_SDL
                 // End sliding and return mouse to original location
                 RootWindow.MousePosition = _mouseClickedPosition;
+#endif
                 EndSliding();
                 return true;
             }

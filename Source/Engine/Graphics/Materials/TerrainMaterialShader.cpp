@@ -88,9 +88,8 @@ void TerrainMaterialShader::Bind(BindParameters& params)
     }
 
     // Bind terrain textures
-    const auto heightmap = drawCall.Terrain.Patch->Heightmap->GetTexture();
-    const auto splatmap0 = drawCall.Terrain.Patch->Splatmap[0] ? drawCall.Terrain.Patch->Splatmap[0]->GetTexture() : nullptr;
-    const auto splatmap1 = drawCall.Terrain.Patch->Splatmap[1] ? drawCall.Terrain.Patch->Splatmap[1]->GetTexture() : nullptr;
+    GPUTexture* heightmap, *splatmap0, *splatmap1;
+    drawCall.Terrain.Patch->GetTextures(heightmap, splatmap0, splatmap1);
     context->BindSR(0, heightmap);
     context->BindSR(1, splatmap0);
     context->BindSR(2, splatmap1);
@@ -191,6 +190,7 @@ bool TerrainMaterialShader::Load()
     psDesc.DepthWriteEnable = true;
     psDesc.DepthEnable = true;
     psDesc.DepthFunc = ComparisonFunc::Less;
+    psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::None;
     psDesc.HS = nullptr;
     psDesc.DS = nullptr;
     psDesc.PS = nullptr;

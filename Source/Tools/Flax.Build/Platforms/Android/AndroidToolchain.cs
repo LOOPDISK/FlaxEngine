@@ -8,13 +8,13 @@ using Flax.Build.NativeCpp;
 
 namespace Flax.Build
 {
-    partial class Configuration
+    partial class AndroidConfiguration
     {
         /// <summary>
         /// Specifies the Android API level to use (eg. 24).
         /// </summary>
-        [CommandLine("androidPlatformApi", "<version>", "Specifies the Android API level to use (eg. 24).")]
-        public static int AndroidPlatformApi = 24;
+        [CommandLine("platformApi", "<version>", "Specifies the Android API level to use (eg. 24).")]
+        public static int PlatformApi = 24;
     }
 }
 
@@ -66,7 +66,7 @@ namespace Flax.Build.Platforms
             base.SetupEnvironment(options);
 
             options.CompileEnv.PreprocessorDefinitions.Add("PLATFORM_ANDROID");
-            options.CompileEnv.PreprocessorDefinitions.Add(string.Format("__ANDROID_API__={0}", Configuration.AndroidPlatformApi));
+            options.CompileEnv.PreprocessorDefinitions.Add(string.Format("__ANDROID_API__={0}", AndroidConfiguration.PlatformApi));
 
             options.LinkEnv.InputLibraries.Add("c");
             options.LinkEnv.InputLibraries.Add("z");
@@ -104,11 +104,14 @@ namespace Flax.Build.Platforms
                 args.Add("-fno-function-sections");
             }
 
+            // Support 16kb pages
+            args.Add("-D__BIONIC_NO_PAGE_SIZE_MACRO");
+
             switch (Architecture)
             {
             case TargetArchitecture.x86:
                 args.Add("-march=atom");
-                if (Configuration.AndroidPlatformApi < 24)
+                if (AndroidConfiguration.PlatformApi < 24)
                     args.Add("-mstackrealign");
                 break;
             case TargetArchitecture.x64:
@@ -167,7 +170,7 @@ namespace Flax.Build.Platforms
             var toolchain = ToolsetRoot.Replace('\\', '/');
             args.Add(string.Format("--sysroot=\"{0}/sysroot\"", toolchain));
             args.Add(string.Format("--gcc-toolchain=\"{0}\"", toolchain));
-            args.Add("--target=" + target + Configuration.AndroidPlatformApi);
+            args.Add("--target=" + target + AndroidConfiguration.PlatformApi);
         }
 
         /// <inheritdoc />
@@ -195,10 +198,10 @@ namespace Flax.Build.Platforms
             {
                 // https://android.googlesource.com/platform/ndk/+/master/docs/BuildSystemMaintainers.md#libc
                 var ndkPath = AndroidNdk.Instance.RootPath;
-                var libCppSharedPath = Path.Combine(ndkPath, "sources/cxx-stl/llvm-libc++/libs/", GetAbiName(Architecture), "libc++_shared.so"); // NDK24 (and older) location
+                var libCppSharedPath = Path.Combine(ndkPath, "toolchains/llvm/prebuilt", AndroidSdk.GetHostName(), "sysroot/usr/lib/", GetToolchainName(TargetPlatform.Android, Architecture), "libc++_shared.so"); // NDK25+ location
                 if (!File.Exists(libCppSharedPath))
                 {
-                    libCppSharedPath = Path.Combine(ndkPath, "toolchains/llvm/prebuilt", AndroidSdk.GetHostName(), "sysroot/usr/lib/", GetToolchainName(TargetPlatform.Android, Architecture), "libc++_shared.so"); // NDK25+ location
+                    libCppSharedPath = Path.Combine(ndkPath, "sources/cxx-stl/llvm-libc++/libs/", GetAbiName(Architecture), "libc++_shared.so"); // NDK24 (and older) location
                     if (!File.Exists(libCppSharedPath))
                         throw new Exception($"Missing Android NDK `libc++_shared.so` for architecture {Architecture}.");
                 }

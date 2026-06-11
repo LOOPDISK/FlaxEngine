@@ -416,6 +416,14 @@ namespace Flax.Build
             }
         }
 
+        private static void StdLogError(object sender, DataReceivedEventArgs e)
+        {
+            if (e.Data != null)
+            {
+                Log.Error(e.Data);
+            }
+        }
+
         private static void StdLogVerbose(object sender, DataReceivedEventArgs e)
         {
             if (e.Data != null)
@@ -506,7 +514,7 @@ namespace Flax.Build
                 if (options.HasFlag(RunOptions.ConsoleLogOutput))
                 {
                     proc.OutputDataReceived += StdLogInfo;
-                    proc.ErrorDataReceived += StdLogInfo;
+                    proc.ErrorDataReceived += StdLogError;
                 }
                 else
                 {
@@ -587,8 +595,9 @@ namespace Flax.Build
         /// </summary>
         /// <param name="filename">The executable file path.</param>
         /// <param name="args">The custom arguments.</param>
+        /// <param name="workspace">The custom folder to run program in it.</param>
         /// <returns>Returned process output.</returns>
-        public static string ReadProcessOutput(string filename, string args = null)
+        public static string ReadProcessOutput(string filename, string args = null, string workspace = null)
         {
             Process p = new Process
             {
@@ -599,6 +608,7 @@ namespace Flax.Build
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
+                    WorkingDirectory = workspace,
                 }
             };
             p.Start();

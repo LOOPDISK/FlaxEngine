@@ -45,8 +45,9 @@ static_assert(sizeof(double) == 8, "Invalid double type size.");
 
 // Check configuration
 static_assert((PLATFORM_THREADS_LIMIT & (PLATFORM_THREADS_LIMIT - 1)) == 0, "Threads limit must be power of two.");
-static_assert(PLATFORM_THREADS_LIMIT % 4 == 0, "Threads limit must be multiple of 4.");
+static_assert(PLATFORM_THREADS_LIMIT % 4 == 0 || PLATFORM_THREADS_LIMIT == 1, "Threads limit must be multiple of 4.");
 
+const Char* PlatformBase::ApplicationClassName = TEXT("FlaxWindow");
 float PlatformBase::CustomDpiScale = 1.0f;
 Array<User*, FixedAllocation<8>> PlatformBase::Users;
 Delegate<User*> PlatformBase::UserAdded;
@@ -227,7 +228,7 @@ void PlatformBase::OnMemoryAlloc(void* ptr, uint64 size)
 
 #if TEST_MALLOC
     if (GetMallocTester().OnMalloc(ptr, size))
-        LOG(Fatal, "Invalid mallloc detected for pointer 0x{0:x} ({1} bytes)!\n{2}", (uintptr)ptr, size, Platform::GetStackTrace(3));
+        LOG(Fatal, "Invalid malloc detected for pointer 0x{0:x} ({1} bytes)!\n{2}", (uintptr)ptr, size, Platform::GetStackTrace(3));
 #endif
 
 #if TRACY_ENABLE_MEMORY
@@ -293,6 +294,15 @@ PlatformType PlatformBase::GetPlatformType()
 }
 
 bool PlatformBase::Is64BitApp()
+{
+#if PLATFORM_64BITS
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool PlatformBase::Is64BitPlatform()
 {
 #if PLATFORM_64BITS
     return true;
@@ -376,9 +386,13 @@ RETRY:
                     StringAsUTF16<ARRAY_COUNT(StackFrame::FileName)> fileName(frame.FileName);
                     LOG(Error, "    at {0}{1}() in {2}:line {3}", moduleName.Get(), functionName.Get(), fileName.Get(), frame.LineNumber);
                 }
-                else if (StringUtils::Length(frame.FunctionName) != 0)
+                else if (StringUtils::Length(frame.ModuleName) != 0 && StringUtils::Length(frame.FunctionName) != 0)
                 {
                     LOG(Error, "    at {0}{1}()", moduleName.Get(), functionName.Get());
+                }
+                else if (StringUtils::Length(frame.FunctionName) != 0)
+                {
+                    LOG(Error, "    at {0}0x{1:x}", functionName.Get(), (uint64)frame.ProgramCounter);
                 }
                 else if (StringUtils::Length(frame.ModuleName) != 0)
                 {
@@ -511,7 +525,7 @@ void PlatformBase::Fatal(const StringView& msg, FatalErrorType error)
     Fatal(msg, nullptr, error);
 }
 
-void PlatformBase::Log(const StringView& msg)
+void PlatformBase::Log(const StringView& msg, int32 logType)
 {
 }
 
@@ -601,6 +615,11 @@ NetworkConnectionType PlatformBase::GetNetworkConnectionType()
 ScreenOrientationType PlatformBase::GetScreenOrientationType()
 {
     return ScreenOrientationType::Unknown;
+}
+
+String PlatformBase::GetUserLanguage()
+{
+    return Platform::GetUserLocaleName();
 }
 
 String PlatformBase::GetUserName()
@@ -781,6 +800,26 @@ void PlatformBase::CollectCrashData(const String& crashDataFolder, void* context
 {
 }
 
+#if USE_EDITOR
+
+#include "Engine/Core/Math/Color32.h"
+
+Delegate<Color32> PlatformBase::PickScreenColorDone;
+
+Color32 PlatformBase::GetScreenColorAt(const Float2& pos)
+{
+    // No supported
+    return Color32::Transparent;
+}
+
+void PlatformBase::PickScreenColor()
+{
+    // Just return transparent color when not implemented/supported
+    PickScreenColorDone(Color32::Transparent);
+}
+
+#endif
+
 const Char* ToString(PlatformType type)
 {
     switch (type)
@@ -807,6 +846,8 @@ const Char* ToString(PlatformType type)
         return TEXT("Mac");
     case PlatformType::iOS:
         return TEXT("iOS");
+    case PlatformType::Web:
+        return TEXT("Web");
     default:
         return TEXT("");
     }

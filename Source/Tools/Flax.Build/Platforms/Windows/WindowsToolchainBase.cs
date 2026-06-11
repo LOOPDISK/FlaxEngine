@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Xml;
 using Flax.Build.Graph;
@@ -25,6 +24,11 @@ namespace Flax.Build.Platforms
         /// The VC tools root path.
         /// </summary>
         protected readonly string _vcToolPath;
+
+        /// <summary>
+        /// The VC tools version.
+        /// </summary>
+        protected readonly string _vcToolVersion;
 
         /// <summary>
         /// The compiler path.
@@ -146,6 +150,21 @@ namespace Flax.Build.Platforms
             _linkerPath = Path.Combine(_vcToolPath, "link.exe");
             _libToolPath = Path.Combine(_vcToolPath, "lib.exe");
             _xdcmakePath = Path.Combine(_vcToolPath, "xdcmake.exe");
+
+            // Find 'MSVC\XX.YY.ZZ\bin' to get version
+            _vcToolVersion = string.Empty;
+            var pathParts = _vcToolPath.Split('\\');
+            if (pathParts.Length >= 3)
+            {
+                for (int i = 3; i < pathParts.Length; i++)
+                {
+                    if (pathParts[i] == "bin" && pathParts[i - 2] == "MSVC")
+                    {
+                        _vcToolVersion = pathParts[i - 1];
+                        break;
+                    }
+                }
+            }
 
             // Add Visual C++ toolset include and library paths
             var vcToolChainDir = toolsets[Toolset];
@@ -370,7 +389,7 @@ namespace Flax.Build.Platforms
         public override void LogInfo()
         {
             var sdkPath = WindowsPlatformBase.GetSDKs()[SDK];
-            Log.Info(string.Format("Using Windows Toolset {0} ({1})", Toolset, sdkPath));
+            Log.Info(string.Format("Using Windows Toolset {0}, {2} ({1})", Toolset, sdkPath, _vcToolVersion));
             Log.Info(string.Format("Using Windows SDK {0} ({1})", WindowsPlatformBase.GetSDKVersion(SDK), _vcToolPath));
         }
 
@@ -419,6 +438,16 @@ namespace Flax.Build.Platforms
             options.CompileEnv.PreprocessorDefinitions.Add("_WINDOWS");
             if (Architecture == TargetArchitecture.x64 || Architecture == TargetArchitecture.ARM64)
                 options.CompileEnv.PreprocessorDefinitions.Add("WIN64");
+
+            // Linker may need access to rc.exe for embedding manifests,
+            // inject the location into PATH of current process so linker can inherit it from it.
+            if (!string.IsNullOrEmpty(_resourceCompilerPath))
+            {
+                string binRootDir = Directory.GetParent(_resourceCompilerPath).FullName;
+                var path = Environment.GetEnvironmentVariable("PATH");
+                if (!string.IsNullOrEmpty(_resourceCompilerPath) && !path.Contains(binRootDir))
+                    Environment.SetEnvironmentVariable("PATH", path + ";" + binRootDir);
+            }
         }
 
         /// <summary>
@@ -663,8 +692,9 @@ namespace Flax.Build.Platforms
                 var pchSourceFile = Path.Combine(options.IntermediateFolder, Path.ChangeExtension(pchFilName, "cpp"));
                 var contents = Bindings.BindingsGenerator.GetStringBuilder();
                 contents.AppendLine("// This code was auto-generated. Do not modify it.");
-                // TODO: write compiler version to properly rebuild pch on Visual Studio updates
                 contents.Append("// Compiler: ").AppendLine(_compilerPath);
+                contents.Append("// Toolchain: ").AppendLine(_vcToolVersion);
+                contents.Append("// CppVersion: ").AppendLine(compileEnvironment.CppVersion.ToString());
                 contents.Append("#include \"").Append(pchSource).AppendLine("\"");
                 Utilities.WriteFileIfChanged(pchSourceFile, contents.ToString());
                 Bindings.BindingsGenerator.PutStringBuilder(contents);
@@ -856,8 +886,27 @@ namespace Flax.Build.Platforms
                 }
                 else
                 {
-                    // Don't create Side-by-Side Assembly Manifest
-                    args.Add("/MANIFEST:NO");
+                    // Embed Side-by-Side Assembly Manifest
+                    args.Add("/MANIFEST:EMBED");
+
+                    // Required manifest information for modern visual styles in Windows Common Controls
+                    switch (Architecture)
+                    {
+                    case TargetArchitecture.ARM:
+                        args.Add("\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='arm' publicKeyToken='6595b64144ccf1df' language='*'\"");
+                        break;
+                    case TargetArchitecture.ARM64:
+                        args.Add("\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='arm64' publicKeyToken='6595b64144ccf1df' language='*'\"");
+                        break;
+                    case TargetArchitecture.x86:
+                        args.Add("\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='' publicKeyToken='6595b64144ccf1df' language='*'\"");
+                        break;
+                    case TargetArchitecture.x64:
+                        args.Add("\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='amd64' publicKeyToken='6595b64144ccf1df' language='*'\"");
+                        break;
+                    default:
+                        break;
+                    }
 
                     // Fixed Base Address
                     args.Add("/FIXED:NO");

@@ -4,6 +4,7 @@ using System;
 using System.Linq;
 using FlaxEditor.Content.Settings;
 using FlaxEditor.GUI.ContextMenu;
+using FlaxEditor.GUI.Docking;
 using FlaxEditor.GUI.Input;
 using FlaxEditor.Options;
 using FlaxEditor.Viewport.Cameras;
@@ -49,6 +50,16 @@ namespace FlaxEditor.Viewport
             /// The is orbiting state.
             /// </summary>
             public bool IsOrbiting;
+
+            /// <summary>
+            /// The zoom in state.
+            /// </summary>
+            public bool ZoomInDown;
+
+            /// <summary>
+            /// The zoom out state.
+            /// </summary>
+            public bool ZoomOutDown;
 
             /// <summary>
             /// The is control down flag.
@@ -108,6 +119,10 @@ namespace FlaxEditor.Viewport
                 IsAltDown = window.GetKey(KeyboardKeys.Alt);
                 WasAltDownBefore = prevInput.WasAltDownBefore || prevInput.IsAltDown;
 
+                InputOptions inputOptions = Editor.Instance.Options.Options.Input;
+                ZoomInDown = window.GetKey(inputOptions.ZoomIn.Key);
+                ZoomOutDown = window.GetKey(inputOptions.ZoomOut.Key);
+
                 IsMouseRightDown = useMouse && window.GetMouseButton(MouseButton.Right);
                 IsMouseMiddleDown = useMouse && window.GetMouseButton(MouseButton.Middle);
                 IsMouseLeftDown = useMouse && window.GetMouseButton(MouseButton.Left);
@@ -158,18 +173,21 @@ namespace FlaxEditor.Viewport
         private float _movementSpeed;
         private float _minMovementSpeed;
         private float _maxMovementSpeed;
+#if !PLATFORM_SDL
         private float _mouseAccelerationScale;
         private bool _useMouseFiltering;
         private bool _useMouseAcceleration;
+#endif
 
         // Input
-
         internal bool _disableInputUpdate;
         private bool _isControllingMouse, _isViewportControllingMouse, _wasVirtualMouseRightDown, _isVirtualMouseRightDown;
-        private int _deltaFilteringStep;
         private Float2 _startPos;
+#if !PLATFORM_SDL
         private Float2 _mouseDeltaLast;
+        private int _deltaFilteringStep;
         private Float2[] _deltaFilteringBuffer = new Float2[FpsCameraFilteringFrames];
+#endif
 
         /// <summary>
         /// The previous input (from the previous update).
@@ -247,8 +265,8 @@ namespace FlaxEditor.Viewport
             {
                 _movementSpeed = value;
 
-                if (_cameraButton != null)
-                    _cameraButton.Text = string.Format(MovementSpeedTextFormat, _movementSpeed);
+                if (_orthographicModeButton != null)
+                    _orthographicModeButton.Text = string.Format(MovementSpeedTextFormat, _movementSpeed);
             }
         }
 
@@ -522,10 +540,11 @@ namespace FlaxEditor.Viewport
         : base(task)
         {
             _editor = Editor.Instance;
-
+#if !PLATFORM_SDL
             _mouseAccelerationScale = 0.1f;
             _useMouseFiltering = false;
             _useMouseAcceleration = false;
+#endif
             _camera = camera;
             if (_camera != null)
                 _camera.Viewport = this;
@@ -581,7 +600,7 @@ namespace FlaxEditor.Viewport
 
                 // Camera Settings Menu
                 var cameraCM = new ContextMenu();
-                _cameraButton = new ViewportWidgetButton(string.Format(MovementSpeedTextFormat, _movementSpeed), _editor.Icons.Camera64, cameraCM, false, cameraSpeedTextWidth)
+                _cameraButton = new ViewportWidgetButton("", _editor.Icons.Camera64, cameraCM)
                 {
                     Tag = this,
                     TooltipText = "Camera Settings.",
@@ -590,7 +609,7 @@ namespace FlaxEditor.Viewport
                 _cameraWidget.Parent = this;
 
                 // Orthographic/Perspective Mode Widget
-                _orthographicModeButton = new ViewportWidgetButton(string.Empty, _editor.Icons.CamSpeed32, null, true)
+                _orthographicModeButton = new OrthoCamToggleViewportWidgetButton(cameraSpeedTextWidth)
                 {
                     Checked = !_isOrtho,
                     TooltipText = "Toggle Orthographic/Perspective Mode.",
@@ -1224,7 +1243,7 @@ namespace FlaxEditor.Viewport
         /// Orients the viewport.
         /// </summary>
         /// <param name="orientation">The orientation.</param>
-        protected void OrientViewport(Quaternion orientation)
+        public void OrientViewport(Quaternion orientation)
         {
             OrientViewport(ref orientation);
         }
@@ -1233,7 +1252,7 @@ namespace FlaxEditor.Viewport
         /// Orients the viewport.
         /// </summary>
         /// <param name="orientation">The orientation.</param>
-        protected virtual void OrientViewport(ref Quaternion orientation)
+        public virtual void OrientViewport(ref Quaternion orientation)
         {
             if (ViewportCamera is FPSCamera fpsCamera)
             {
@@ -1429,7 +1448,10 @@ namespace FlaxEditor.Viewport
             else
             {
                 float aspect = Width / Height;
-                Matrix.PerspectiveFov(_fieldOfView * Mathf.DegreesToRadians, aspect, _nearPlane, _farPlane, out result);
+                float fov = _fieldOfView;
+                if (_camera is FPSCamera fpsCam)
+                    fov += fpsCam.AdditionalZoomFOV;
+                Matrix.PerspectiveFov(fov * Mathf.DegreesToRadians, aspect, _nearPlane, _farPlane, out result);
             }
         }
 
@@ -1531,7 +1553,9 @@ namespace FlaxEditor.Viewport
             // Hide cursor and start tracking mouse movement
             win.StartTrackingMouse(false);
             win.Cursor = CursorType.Hidden;
+            win.MouseMoveRelative += OnMouseMoveRelative;
 
+#if !PLATFORM_SDL
             // Center mouse position if it's too close to the edge
             var size = Size;
             var center = Float2.Round(size * 0.5f);
@@ -1540,6 +1564,7 @@ namespace FlaxEditor.Viewport
                 _viewMousePos = center;
                 win.MousePosition = PointToWindow(_viewMousePos);
             }
+#endif
         }
 
         /// <summary>
@@ -1551,6 +1576,7 @@ namespace FlaxEditor.Viewport
             // Restore cursor and stop tracking mouse movement
             win.Cursor = CursorType.Default;
             win.EndTrackingMouse();
+            win.MouseMoveRelative -= OnMouseMoveRelative;
         }
 
         /// <summary>
@@ -1632,18 +1658,15 @@ namespace FlaxEditor.Viewport
 
             // Get parent window
             var win = (WindowRootControl)Root;
-
-            // Get current mouse position in the view
+            if (win.IsFocused)
             {
-                // When the window is not focused, the position in window does not return sane values
-                Float2 pos = PointFromWindow(win.MousePosition);
-                if (!float.IsInfinity(pos.LengthSquared))
-                    _viewMousePos = pos;
+                // Get current mouse position in the view
+                _viewMousePos = PointFromWindow(win.MousePosition);
             }
 
             // Update input
             var window = win.Window;
-            var canUseInput = window != null && window.IsFocused && window.IsForegroundWindow;
+            var canUseInput = window != null && window.IsFocused && window.IsForegroundWindow && !WindowDragHelper.IsDragActive;
             {
                 // Get input buttons and keys (skip if viewport has no focus or mouse is over a child control)
                 var isViewportControllingMouse = canUseInput && IsControllingMouse;
@@ -1655,9 +1678,17 @@ namespace FlaxEditor.Viewport
                     else
                         EndMouseCapture();
                 }
-                bool useMouse = IsControllingMouse || (Mathf.IsInRange(_viewMousePos.X, 0, Width) && Mathf.IsInRange(_viewMousePos.Y, 0, Height));
+                
                 _prevInput = _input;
+#if PLATFORM_SDL
+                bool useMouse = IsControllingMouse || ContainsPoint(ref _viewMousePos) || _prevInput.IsControllingMouse;
                 var hit = GetChildAt(_viewMousePos, c => c.Visible && !(c is CanvasRootControl) && !(c is UIEditorRoot));
+                if (_prevInput.IsControllingMouse)
+                    hit = null;
+#else
+                bool useMouse = IsControllingMouse || ContainsPoint(ref _viewMousePos);
+                var hit = GetChildAt(_viewMousePos, c => c.Visible && !(c is CanvasRootControl) && !(c is UIEditorRoot));
+#endif
                 if (canUseInput && ContainsFocus && hit == null)
                     _input.Gather(win.Window, useMouse, ref _prevInput);
                 else
@@ -1770,6 +1801,10 @@ namespace FlaxEditor.Viewport
                 if (_input.IsControlDown)
                     moveDelta *= 0.3f;
 
+#if PLATFORM_SDL
+                var mouseDelta = _mouseDelta;
+                _mouseDelta = Float2.Zero;
+#else
                 // Calculate smooth mouse delta not dependant on viewport size
                 var offset = _viewMousePos - _startPos;
                 if (_input.IsZooming && !_input.IsMouseRightDown && !_input.IsMouseLeftDown && !_input.IsMouseMiddleDown && !_isOrtho && !rmbWheel && !_isVirtualMouseRightDown)
@@ -1811,6 +1846,7 @@ namespace FlaxEditor.Viewport
                     mouseDelta += _mouseDeltaLast * _mouseAccelerationScale;
                     _mouseDeltaLast = currentDelta;
                 }
+#endif
 
                 // Update
                 moveDelta *= dt * (60.0f * 4.0f);
@@ -1819,12 +1855,14 @@ namespace FlaxEditor.Viewport
                     mouseDelta *= new Float2(1, -1);
                 UpdateView(dt, ref moveDelta, ref mouseDelta, out var centerMouse);
 
+#if !PLATFORM_SDL
                 // Move mouse back to the root position
                 if (centerMouse && (_input.IsMouseRightDown || _input.IsMouseLeftDown || _input.IsMouseMiddleDown || _isVirtualMouseRightDown))
                 {
                     var center = PointToWindow(_startPos);
                     win.MousePosition = center;
                 }
+#endif
 
                 // Change Ortho size on mouse scroll
                 if (_isOrtho && !rmbWheel)
@@ -1836,6 +1874,8 @@ namespace FlaxEditor.Viewport
             }
             else
             {
+#if PLATFORM_SDL
+#else
                 if (_input.IsMouseLeftDown || _input.IsMouseRightDown || _isVirtualMouseRightDown)
                 {
                     // Calculate smooth mouse delta not dependant on viewport size
@@ -1850,6 +1890,7 @@ namespace FlaxEditor.Viewport
                     _mouseDelta = Float2.Zero;
                 }
                 _mouseDeltaLast = Float2.Zero;
+#endif
 
                 if (ContainsFocus)
                 {
@@ -1897,6 +1938,11 @@ namespace FlaxEditor.Viewport
             }
 
             _input.MouseWheelDelta = 0;
+        }
+
+        private void OnMouseMoveRelative(ref Float2 motion)
+        {
+            _mouseDelta += motion;
         }
 
         /// <inheritdoc />
@@ -1964,7 +2010,8 @@ namespace FlaxEditor.Viewport
 
             if (_isControllingMouse)
             {
-                OnControlMouseEnd(RootWindow.Window);
+                if (RootWindow?.Window != null)
+                    OnControlMouseEnd(RootWindow.Window);
                 _isControllingMouse = false;
                 _isVirtualMouseRightDown = false;
             }

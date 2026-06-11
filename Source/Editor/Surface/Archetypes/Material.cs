@@ -331,16 +331,17 @@ namespace FlaxEditor.Surface.Archetypes
             : base(id, context, nodeArch, groupArch)
             {
                 _sizeValueIndex = Archetype.TypeID == 8 ? 1 : 3; // Index of the Size stored in Values array
-                Float2 pos = new Float2(FlaxEditor.Surface.Constants.NodeMarginX, FlaxEditor.Surface.Constants.NodeMarginY + FlaxEditor.Surface.Constants.NodeHeaderSize), size;
+                Float2 pos = new Float2(FlaxEditor.Surface.Constants.NodeMarginX, FlaxEditor.Surface.Constants.NodeMarginY + FlaxEditor.Surface.Constants.NodeHeaderHeight), size;
                 if (nodeArch.TypeID == 8)
                 {
-                    pos += new Float2(60, 0);
-                    size = new Float2(172, 200);
+                    pos += new Float2(65, 0);
+                    size = new Float2(160, 185);
+                    _sizeMin = new Float2(240, 185);
                 }
                 else
                 {
-                    pos += new Float2(0, 40);
-                    size = new Float2(300, 200);
+                    pos += new Float2(0, 40 + FlaxEditor.Utilities.Constants.UIMargin * 2f);
+                    size = new Float2(300, 180);
                 }
                 _textBox = new CustomCodeTextBox
                 {
@@ -525,8 +526,8 @@ namespace FlaxEditor.Surface.Archetypes
                 Size = new Float2(300, 200),
                 DefaultValues = new object[]
                 {
-                    "// Here you can add HLSL code\nOutput0 = Input0;",
-                    new Float2(300, 200),
+                    "// You can add HLSL code here\nOutput0 = Input0;",
+                    new Float2(350, 200),
                 },
                 Elements = new[]
                 {
@@ -605,8 +606,9 @@ namespace FlaxEditor.Surface.Archetypes
                 TypeID = 13,
                 Title = "Pre-skinned Local Position",
                 Description = "Per vertex local position (before skinning)",
+                AlternativeTitles = new[] { "Vertex Position", "Pre skinning Local Vertex Position" },
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(230, 40),
+                Size = new Float2(270, 40),
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(Float3), 0),
@@ -617,8 +619,9 @@ namespace FlaxEditor.Surface.Archetypes
                 TypeID = 14,
                 Title = "Pre-skinned Local Normal",
                 Description = "Per vertex local normal (before skinning)",
+                AlternativeTitles = new[] { "Vertex Normal", "Pre skinning Local Normal" },
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(230, 40),
+                Size = new Float2(270, 40),
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(Float3), 0),
@@ -823,8 +826,8 @@ namespace FlaxEditor.Surface.Archetypes
                 },
                 Elements = new[]
                 {
-                    NodeElementArchetype.Factory.Input(0, "A", true, null, 0),
-                    NodeElementArchetype.Factory.Input(1, "B", true, null, 1),
+                    NodeElementArchetype.Factory.Input(0, "UV", true, null, 0),
+                    NodeElementArchetype.Factory.Input(1, "Center", true, null, 1),
                     NodeElementArchetype.Factory.Input(2, "Radius", true, typeof(float), 2, 0),
                     NodeElementArchetype.Factory.Input(3, "Hardness", true, typeof(float), 3, 1),
                     NodeElementArchetype.Factory.Input(4, "Invert", true, typeof(bool), 4, 2),
@@ -948,7 +951,7 @@ namespace FlaxEditor.Surface.Archetypes
             new NodeArchetype
             {
                 TypeID = 36,
-                Title = "HSVToRGB",
+                Title = "HSV To RGB",
                 Description = "Converts a HSV value to linear RGB [X = 0/360, Y = 0/1, Z = 0/1]",
                 Flags = NodeFlags.MaterialGraph,
                 Size = new Float2(160, 25),
@@ -965,7 +968,7 @@ namespace FlaxEditor.Surface.Archetypes
             new NodeArchetype
             {
                 TypeID = 37,
-                Title = "RGBToHSV",
+                Title = "RGB To HSV",
                 Description = "Converts a linear RGB value to HSV [X = 0/360, Y = 0/1, Z = 0/1]",
                 Flags = NodeFlags.MaterialGraph,
                 Size = new Float2(160, 25),
@@ -989,7 +992,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Size = new Float2(300, 240),
                 DefaultValues = new object[]
                 {
-                    "// Here you can add HLSL code\nfloat4 GetCustomColor()\n{\n\treturn float4(1, 0, 0, 1);\n}",
+                    "// You can add HLSL code here\nfloat4 GetCustomColor()\n{\n\treturn float4(1, 0, 0, 1);\n}",
                     true,
                     (int)MaterialTemplateInputsMapping.Utilities,
                     new Float2(300, 240),
@@ -1278,6 +1281,32 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Output(1, "Grunge Edge", typeof(float), 9),
                     NodeElementArchetype.Factory.Output(2, "Edge Highlight", typeof(float), 10),
                 }
+            },
+            new NodeArchetype
+            {
+                TypeID = 53,
+                Title = "Linear to sRGB",
+                Description = "Converts linear color into sRGB.",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(150, 20),
+                Elements =
+                [
+                    NodeElementArchetype.Factory.Input(0, "Linear", true, typeof(Float3), 0),
+                    NodeElementArchetype.Factory.Output(0, "sRGB", typeof(Float3), 1),
+                ]
+            },
+            new NodeArchetype
+            {
+                TypeID = 54,
+                Title = "sRGB to Linear",
+                Description = "Converts sRGB color into linear.",
+                Flags = NodeFlags.MaterialGraph,
+                Size = new Float2(150, 20),
+                Elements =
+                [
+                    NodeElementArchetype.Factory.Input(0, "sRGB", true, typeof(Float3), 0),
+                    NodeElementArchetype.Factory.Output(0, "Linear", typeof(Float3), 1),
+                ]
             },
         };
     }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2024 Flax Engine. All rights reserved.
+// Copyright (c) Wojciech Figat. All rights reserved.
 
 #define USE_STD
 
@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
 using Flax.Build;
 using Flax.Build.Platforms;
 
@@ -184,6 +185,15 @@ namespace Flax.Deploy
                     plist = plist.Replace("{Arch}", arch == TargetArchitecture.ARM64 ? "arm64" : "x86_64");
                     File.WriteAllText(Path.Combine(appContentsPath, "Info.plist"), plist, Encoding.ASCII);
 
+                    // Codesign tint compiler executable and remove ones for Windows/Linux
+                    var webPlatformFolder = Path.Combine(OutputPath, "Source/Platforms/Web");
+                    if (Directory.Exists(webPlatformFolder))
+                    {
+                        Utilities.DirectoryDelete(Path.Combine(webPlatformFolder, "Binaries/Tools/Linux"));
+                        Utilities.DirectoryDelete(Path.Combine(webPlatformFolder, "Binaries/Tools/Windows"));
+                        CodeSign(Path.Combine(webPlatformFolder, "Binaries/Tools/Mac/ARM64/tint"));
+                    }
+
                     // Copy output editor files
                     Utilities.DirectoryCopy(OutputPath, appContentsPath);
 
@@ -199,8 +209,13 @@ namespace Flax.Deploy
                     var dmgPath = Path.Combine(Deployer.PackageOutputPath, "FlaxEditor.dmg");
                     Log.Info(string.Empty);
                     Log.Info("Building disk image...");
+                    Thread.Sleep(100);
                     if (File.Exists(dmgPath))
+                    {
+                        Log.Verbose("Removing old image");
                         File.Delete(dmgPath);
+                        Thread.Sleep(100);
+                    }
                     Utilities.Run("hdiutil", $"create -srcFolder \"{appPath}\" -o \"{dmgPath}\"", null, null, Utilities.RunOptions.Default | Utilities.RunOptions.ThrowExceptionOnError);
                     CodeSign(dmgPath);
                     Log.Info("Output disk image size: " + Utilities.GetFileSize(dmgPath));
@@ -342,6 +357,8 @@ namespace Flax.Deploy
                     DeployFile(src, dst, "MoltenVK_icd.json");
                     DeployFiles(src, dst, "*.dll");
                     DeployFiles(src, dst, "*.dylib");
+                    if (EngineConfiguration.UseSDL && MacConfiguration.UseSDL)
+                        DeployFile(src, dst, "Logo.png");
 
                     // Optimize package size
                     Utilities.Run("strip", "FlaxEditor", null, dst, Utilities.RunOptions.None);

@@ -5,6 +5,7 @@
 #include "TextureTool.h"
 #include "Engine/Core/Log.h"
 #include "Engine/Core/Math/Math.h"
+#include "Engine/Core/Config/GraphicsSettings.h"
 #include "Engine/Platform/File.h"
 #include "Engine/Platform/CriticalSection.h"
 #include "Engine/Platform/ConditionVariable.h"
@@ -665,8 +666,7 @@ bool TextureTool::ImportTextureDirectXTex(ImageType type, const StringView& path
     if (sourceWidth != width || sourceHeight != height)
     {
         // During resizing we need to keep texture aspect ratio
-        const bool keepAspectRatio = options.KeepAspectRatio;
-        if (keepAspectRatio)
+        if (options.KeepAspectRatio)
         {
             const float aspectRatio = static_cast<float>(sourceWidth) / sourceHeight;
             if (width >= height)
@@ -722,6 +722,10 @@ bool TextureTool::ImportTextureDirectXTex(ImageType type, const StringView& path
         errorMsg = String::Format(TEXT("Imported texture has not full mip chain, loaded mips count: {0}, expected: {1}"), sourceMipLevels, mipLevels);
         return true;
     }
+    if (options.GenerateMipMaps && !isPowerOfTwo)
+    {
+        LOG(Warning, "Cannot generate mip maps for texture '{}' that size is not power of two. Use Resize or Max Size to change dimensions.", StringUtils::GetFileName(path), width, height);
+    }
 
     // Allocate memory for texture data
     auto& data = textureData.Items;
@@ -740,7 +744,9 @@ bool TextureTool::ImportTextureDirectXTex(ImageType type, const StringView& path
         !options.InvertAlphaChannel &&
         !options.InvertBlueChannel &&
         !options.ReconstructZChannel &&
+        !options.sRGB &&
         options.Compress && 
+        options.InternalFormat == PixelFormat::Unknown &&
         type == ImageType::DDS && 
         mipLevels == sourceMipLevels && 
         DirectX::IsCompressed(sourceDxgiFormat) && 
@@ -772,6 +778,14 @@ bool TextureTool::ImportTextureDirectXTex(ImageType type, const StringView& path
     if (!keepAsIs && DirectX::IsSRGB(sourceDxgiFormat))
     {
         sourceDxgiFormat = ToDxgiFormat(PixelFormatExtensions::ToNonsRGB(::ToPixelFormat(sourceDxgiFormat)));
+        ((DirectX::TexMetadata&)currentImage->GetMetadata()).format = sourceDxgiFormat;
+        for (size_t i = 0; i < currentImage->GetImageCount(); i++)
+            ((DirectX::Image*)currentImage->GetImages())[i].format = sourceDxgiFormat;
+    }
+    // Import as sRGB data for Linear color space
+    else if (options.sRGB && !GraphicsSettings::Get()->GammaColorSpace)
+    {
+        sourceDxgiFormat = ToDxgiFormat(PixelFormatExtensions::TosRGB(::ToPixelFormat(sourceDxgiFormat)));
         ((DirectX::TexMetadata&)currentImage->GetMetadata()).format = sourceDxgiFormat;
         for (size_t i = 0; i < currentImage->GetImageCount(); i++)
             ((DirectX::Image*)currentImage->GetImages())[i].format = sourceDxgiFormat;
@@ -1071,6 +1085,15 @@ bool TextureTool::ConvertDirectXTex(TextureData& dst, const TextureData& src, co
         return ConvertAstc(dst, src, dstFormat);
 #else
         LOG(Error, "Missing ASTC texture format compression lib.");
+        return true;
+#endif
+    }
+    if (dstFormat == PixelFormat::Basis)
+    {
+#if COMPILE_WITH_BASISU
+        return ConvertBasisUniversal(dst, src);
+#else
+        LOG(Error, "Missing Basis Universal texture format compression lib.");
         return true;
 #endif
     }

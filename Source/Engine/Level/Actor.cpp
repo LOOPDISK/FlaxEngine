@@ -5,6 +5,7 @@
 #include "Level.h"
 #include "SceneQuery.h"
 #include "SceneObjectsFactory.h"
+#include "FlaxEngine.Gen.h"
 #include "Scene/Scene.h"
 #include "Prefabs/Prefab.h"
 #include "Prefabs/PrefabManager.h"
@@ -19,12 +20,13 @@
 #include "Engine/Core/Math/Double4x4.h"
 #include "Engine/Debug/Exceptions/JsonParseException.h"
 #include "Engine/Graphics/RenderTask.h"
-#include "Engine/Graphics/RenderView.h"
 #include "Engine/Physics/Physics.h"
 #include "Engine/Profiler/ProfilerCPU.h"
+#include "Engine/Profiler/ProfilerMemory.h"
 #include "Engine/Scripting/Scripting.h"
 #include "Engine/Serialization/ISerializeModifier.h"
 #include "Engine/Serialization/Serialization.h"
+#include "Engine/Serialization/JsonTools.h"
 #include "Engine/Serialization/JsonWriters.h"
 #include "Engine/Serialization/MemoryReadStream.h"
 #include "Engine/Serialization/MemoryWriteStream.h"
@@ -72,6 +74,44 @@ namespace
             }
         }
         return result;
+    }
+
+    void LinkPrefab(SceneObject* object, Prefab* linkPrefab)
+    {
+        // Find prefab object that is used by this object in a given prefab
+        Guid currentPrefabId = object->GetPrefabID(), currentObjectId = object->GetPrefabObjectID();
+    RETRY:
+        auto prefab = Content::Load<Prefab>(currentPrefabId);
+        Guid nestedPrefabId, nestedObjectId;
+        if (prefab && prefab->GetNestedObject(currentObjectId, nestedPrefabId, nestedObjectId))
+        {
+            auto nestedPrefab = Content::Load<Prefab>(nestedPrefabId);
+            if (nestedPrefab)
+            {
+                auto nestedObject = (Actor*)nestedPrefab->GetDefaultInstance(nestedObjectId);
+                if (nestedObject && nestedPrefab == linkPrefab)
+                {
+                    object->LinkPrefab(nestedPrefabId, nestedObjectId);
+                    return;
+                }
+            }
+
+            // Try deeper
+            currentPrefabId = nestedPrefabId;
+            currentObjectId = nestedObjectId;
+            goto RETRY;
+        }
+
+        // Failed to resolve properly object from a given prefab
+        object->BreakPrefabLink();
+    }
+
+    void LinkPrefabRecursive(Actor* actor, Prefab* linkPrefab)
+    {
+        for (auto script : actor->Scripts)
+            LinkPrefab(script, linkPrefab);
+        for (auto child : actor->Children)
+            LinkPrefab(child, linkPrefab);
     }
 }
 
@@ -183,20 +223,19 @@ void Actor::OnDeleteObject()
             _scene = nullptr;
         }
     }
-    else if (_parent)
+    else
     {
-        // Unlink from the parent
-        _parent->Children.RemoveKeepOrder(this);
-        _parent->_isHierarchyDirty = true;
-        _parent = nullptr;
-        _scene = nullptr;
+        if (_isEnabled)
+            OnDisable();
+        if (_parent)
+        {
+            // Unlink from the parent
+            _parent->Children.RemoveKeepOrder(this);
+            _parent->_isHierarchyDirty = true;
+            _parent = nullptr;
+            _scene = nullptr;
+        }
     }
-
-    // Ensure to exit gameplay in a valid way
-    ASSERT(!IsDuringPlay());
-#if BUILD_DEBUG || BUILD_DEVELOPMENT
-    ASSERT(!_isEnabled);
-#endif
 
     // Fire event
     Deleted(this);
@@ -834,6 +873,11 @@ void Actor::SetRotation(const Matrix& value)
 
 void Actor::SetDirection(const Float3& value)
 {
+    SetForward(value);
+}
+
+void Actor::SetForward(const Float3& value)
+{
     CHECK(!value.IsNanOrInfinity());
     Quaternion orientation;
     if (Float3::Dot(value, Float3::Up) >= 0.999f)
@@ -1240,19 +1284,23 @@ void Actor::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
             }
             else if (!parent && parentId.IsValid())
             {
+                // Skip warning if object was mapped to empty id (intentionally ignored)
                 Guid tmpId;
-                if (_prefabObjectID.IsValid())
+                if (!modifier->IdsMapping.TryGet(parentId, tmpId) || tmpId.IsValid())
                 {
-                    String prefabPath;
-                    if (Asset* prefab = Content::GetAsset(_prefabID))
-                        prefabPath = prefab->GetPath();
-                    if (prefabPath.HasChars())
-                        LOG(Warning, "Missing parent actor (ID={0}) for '{1}' in prefab '{2}' (prefab object {3})", parentId, ToString(), prefabPath, _prefabObjectID);
+                    if (_prefabObjectID.IsValid())
+                    {
+                        String prefabPath;
+                        if (Asset* prefab = Content::GetAsset(_prefabID))
+                            prefabPath = prefab->GetPath();
+                        if (prefabPath.HasChars())
+                            LOG(Warning, "Missing parent actor (ID={0}) for '{1}' in prefab '{2}' (prefab object {3})", parentId, ToString(), prefabPath, _prefabObjectID);
+                        else
+                            LOG(Warning, "Missing parent actor (ID={0}) for '{1}' (prefab object {2})", parentId, ToString(), _prefabObjectID);
+                    }
                     else
-                        LOG(Warning, "Missing parent actor (ID={0}) for '{1}' (prefab object {2})", parentId, ToString(), _prefabObjectID);
+                        LOG(Warning, "Missing parent actor (ID={0}) for '{1}'", parentId, ToString());
                 }
-                else if (!modifier->IdsMapping.TryGet(parentId, tmpId) || tmpId.IsValid()) // Skip warning if object was mapped to empty id (intentionally ignored)
-                    LOG(Warning, "Missing parent actor (ID={0}) for '{1}'", parentId, ToString());
             }
         }
     }
@@ -1734,17 +1782,22 @@ Actor* Actor::Intersects(const Ray& ray, Real& distance, Vector3& normal)
 
 void Actor::LookAt(const Vector3& worldPos)
 {
-    const Quaternion orientation = LookingAt(worldPos);
+    const Quaternion orientation = GetLookAtDirection(worldPos);
     SetOrientation(orientation);
 }
 
 void Actor::LookAt(const Vector3& worldPos, const Vector3& worldUp)
 {
-    const Quaternion orientation = LookingAt(worldPos, worldUp);
+    const Quaternion orientation = GetLookAtDirection(worldPos, worldUp);
     SetOrientation(orientation);
 }
 
 Quaternion Actor::LookingAt(const Vector3& worldPos) const
+{
+    return GetLookAtDirection(worldPos);
+}
+
+Quaternion Actor::GetLookAtDirection(const Vector3& worldPos) const
 {
     const Vector3 direction = worldPos - _transform.Translation;
     if (direction.LengthSquared() < ZeroTolerance)
@@ -1773,15 +1826,19 @@ Quaternion Actor::LookingAt(const Vector3& worldPos) const
 
 Quaternion Actor::LookingAt(const Vector3& worldPos, const Vector3& worldUp) const
 {
+    return GetLookAtDirection(worldPos, worldUp);
+}
+
+Quaternion Actor::GetLookAtDirection(const Vector3& worldPos, const Vector3& worldUp) const
+{
     const Vector3 direction = worldPos - _transform.Translation;
     if (direction.LengthSquared() < ZeroTolerance)
         return _parent ? _parent->GetOrientation() : Quaternion::Identity;
+
     const Float3 forward = Vector3::Normalize(direction);
     const Float3 up = Vector3::Normalize(worldUp);
     if (Math::IsOne(Float3::Dot(forward, up)))
-    {
-        return LookingAt(worldPos);
-    }
+        return GetLookAtDirection(worldPos);
 
     Quaternion orientation;
     Quaternion::LookRotation(direction, up, orientation);
@@ -1792,7 +1849,6 @@ void WriteObjectToBytes(SceneObject* obj, rapidjson_flax::StringBuffer& buffer, 
 {
     // Create JSON
     CompactJsonWriter writer(buffer);
-
     writer.SceneObject(obj);
 
     // Write json to output
@@ -1800,28 +1856,24 @@ void WriteObjectToBytes(SceneObject* obj, rapidjson_flax::StringBuffer& buffer, 
     output.WriteInt32((int32)buffer.GetSize());
     output.WriteBytes((byte*)buffer.GetString(), (int32)buffer.GetSize());
 
-    // Store order in parent. Makes life easier for editor to sync objects order on undo/redo actions.
-    output.WriteInt32(obj->GetOrderInParent());
-
     // Reuse string buffer
     buffer.Clear();
 }
 
 bool Actor::ToBytes(const Array<Actor*>& actors, MemoryWriteStream& output)
 {
-    PROFILE_CPU();
     if (actors.IsEmpty())
     {
         // Cannot serialize empty list
         return true;
     }
+    PROFILE_CPU();
+    PROFILE_MEM(Level);
 
     // Collect object ids that exist in the serialized data to allow references mapping later
     Array<Guid> ids(actors.Count());
     for (int32 i = 0; i < actors.Count(); i++)
     {
-        // By default we collect actors and scripts (they are ManagedObjects recognized by the id)
-
         auto actor = actors[i];
         if (!actor)
             continue;
@@ -1829,7 +1881,8 @@ bool Actor::ToBytes(const Array<Actor*>& actors, MemoryWriteStream& output)
         for (int32 j = 0; j < actor->Scripts.Count(); j++)
         {
             const auto script = actor->Scripts[j];
-            ids.Add(script->GetID());
+            if (script)
+                ids.Add(script->GetID());
         }
     }
 
@@ -1839,23 +1892,28 @@ bool Actor::ToBytes(const Array<Actor*>& actors, MemoryWriteStream& output)
     // Serialized objects ids (for references mapping)
     output.Write(ids);
 
-    // Objects data
+    // Objects data (JSON)
     rapidjson_flax::StringBuffer buffer;
+    CompactJsonWriter writer(buffer);
+    writer.StartArray();
     for (int32 i = 0; i < actors.Count(); i++)
     {
         Actor* actor = actors[i];
         if (!actor)
             continue;
-
-        WriteObjectToBytes(actor, buffer, output);
-
+        writer.SceneObject(actor);
         for (int32 j = 0; j < actor->Scripts.Count(); j++)
         {
             Script* script = actor->Scripts[j];
-
-            WriteObjectToBytes(script, buffer, output);
+            if (!script)
+                continue;
+            writer.SceneObject(script);
         }
     }
+    writer.EndArray();
+    // TODO: compress json (LZ4) if it's big enough
+    output.WriteInt32((int32)buffer.GetSize());
+    output.WriteBytes((byte*)buffer.GetString(), (int32)buffer.GetSize());
 
     return false;
 }
@@ -1874,8 +1932,8 @@ Array<byte> Actor::ToBytes(const Array<Actor*>& actors)
 bool Actor::FromBytes(const Span<byte>& data, Array<Actor*>& output, ISerializeModifier* modifier)
 {
     PROFILE_CPU();
+    PROFILE_MEM(Level);
     output.Clear();
-
     ASSERT(modifier);
     if (data.Length() <= 0)
         return true;
@@ -1891,50 +1949,71 @@ bool Actor::FromBytes(const Span<byte>& data, Array<Actor*>& output, ISerializeM
     }
 
     // Serialized objects ids (for references mapping)
+#if 0
     Array<Guid> ids;
     stream.Read(ids);
     int32 objectsCount = ids.Count();
+#else
+    int32 objectsCount;
+    stream.ReadInt32(&objectsCount);
+    stream.Move<Guid>(objectsCount);
+#endif
     if (objectsCount < 0)
         return true;
 
+    // Load objects data (JSON)
+    int32 bufferSize;
+    stream.ReadInt32(&bufferSize);
+    const char* buffer = (const char*)stream.Move(bufferSize);
+    rapidjson_flax::Document document;
+    {
+        PROFILE_CPU_NAMED("Json.Parse");
+        document.Parse(buffer, bufferSize);
+    }
+    if (document.HasParseError())
+    {
+        Log::JsonParseException(document.GetParseError(), document.GetErrorOffset());
+        return true;
+    }
+
     // Prepare
-    Array<int32> order;
-    order.Resize(objectsCount);
     modifier->EngineBuild = engineBuild;
     CollectionPoolCache<ActorsCache::SceneObjectsListType>::ScopeCache sceneObjects = ActorsCache::SceneObjectsListCache.Get();
     sceneObjects->Resize(objectsCount);
     SceneObjectsFactory::Context context(modifier);
 
+    // Fix root linkage for prefab instances (eg. when user duplicates a sub-prefab actor but not a root one)
+    SceneObjectsFactory::PrefabSyncData prefabSyncData(*sceneObjects.Value, document, modifier);
+    SceneObjectsFactory::SetupPrefabInstances(context, prefabSyncData);
+    for (auto& instance : context.Instances)
+    {
+        Guid prefabObjectId;
+        if (!JsonTools::GetGuidIfValid(prefabObjectId, document[instance.RootIndex], "PrefabObjectID"))
+            continue;
+
+        // Get the original object from prefab
+        SceneObject* prefabObject = instance.Prefab->GetDefaultInstance(prefabObjectId);
+        if (prefabObject && prefabObject->GetParent())
+        {
+            // Add empty mapping to parent object in prefab to prevent linking to it
+            auto prefabObjectParentId = prefabObject->GetParent()->GetPrefabObjectID();
+            instance.IdsMapping[prefabObjectParentId] = Guid::Empty;
+            modifier->IdsMapping[prefabObjectParentId] = Guid::Empty;
+            Guid nestedPrefabId, nestedPrefabObjectId;
+            if (instance.Prefab->GetNestedObject(prefabObjectParentId, nestedPrefabId, nestedPrefabObjectId))
+            {
+                instance.IdsMapping[nestedPrefabObjectId] = Guid::Empty;
+                modifier->IdsMapping[nestedPrefabObjectId] = Guid::Empty;
+            }
+        }
+    }
+
     // Deserialize objects
     Scripting::ObjectsLookupIdMapping.Set(&modifier->IdsMapping);
-    auto startPos = stream.GetPosition();
     for (int32 i = 0; i < objectsCount; i++)
     {
-        // Buffer
-        int32 bufferSize;
-        stream.ReadInt32(&bufferSize);
-        const char* buffer = (const char*)stream.GetPositionHandle();
-        stream.Move(bufferSize);
-
-        // Order in parent
-        int32 orderInParent;
-        stream.ReadInt32(&orderInParent);
-        order[i] = orderInParent;
-
-        // Load JSON 
-        rapidjson_flax::Document document;
-        {
-            PROFILE_CPU_NAMED("Json.Parse");
-            document.Parse(buffer, bufferSize);
-        }
-        if (document.HasParseError())
-        {
-            Log::JsonParseException(document.GetParseError(), document.GetErrorOffset());
-            return true;
-        }
-
-        // Create object
-        auto obj = SceneObjectsFactory::Spawn(context, document);
+        auto& objData = document[i];
+        auto obj = SceneObjectsFactory::Spawn(context, objData);
         sceneObjects->At(i) = obj;
         if (obj == nullptr)
         {
@@ -1942,56 +2021,20 @@ bool Actor::FromBytes(const Span<byte>& data, Array<Actor*>& output, ISerializeM
             continue;
         }
         obj->RegisterObject();
-
-        // Add to results
         Actor* actor = dynamic_cast<Actor*>(obj);
         if (actor)
-        {
             output.Add(actor);
-        }
     }
-    // TODO: optimize this to call json parsing only once per-object instead of twice (spawn + load)
-    stream.SetPosition(startPos);
     for (int32 i = 0; i < objectsCount; i++)
     {
-        // Buffer
-        int32 bufferSize;
-        stream.ReadInt32(&bufferSize);
-        const char* buffer = (const char*)stream.GetPositionHandle();
-        stream.Move(bufferSize);
-
-        // Order in parent
-        int32 orderInParent;
-        stream.ReadInt32(&orderInParent);
-
-        // Load JSON
-        rapidjson_flax::Document document;
-        {
-            PROFILE_CPU_NAMED("Json.Parse");
-            document.Parse(buffer, bufferSize);
-        }
-        if (document.HasParseError())
-        {
-            Log::JsonParseException(document.GetParseError(), document.GetErrorOffset());
-            return true;
-        }
-
-        // Deserialize object
+        auto& objData = document[i];
         auto obj = sceneObjects->At(i);
         if (obj)
-            SceneObjectsFactory::Deserialize(context, obj, document);
+            SceneObjectsFactory::Deserialize(context, obj, objData);
         else
-            SceneObjectsFactory::HandleObjectDeserializationError(document);
+            SceneObjectsFactory::HandleObjectDeserializationError(objData);
     }
     Scripting::ObjectsLookupIdMapping.Set(nullptr);
-
-    // Update objects order
-    //for (int32 i = 0; i < objectsCount; i++)
-    {
-        //SceneObject* obj = sceneObjects->At(i);
-        // TODO: remove order from saved data?
-        //obj->SetOrderInParent(order[i]);
-    }
 
     // Call events (only for parents because they will propagate events down the tree)
     CollectionPoolCache<ActorsCache::ActorsListType>::ScopeCache parents = ActorsCache::ActorsListCache.Get();
@@ -2003,6 +2046,32 @@ bool Actor::FromBytes(const Span<byte>& data, Array<Actor*>& output, ISerializeM
         Actor* actor = parents->At(i);
         if (actor->HasPrefabLink() && !actor->IsPrefabRoot())
         {
+            // Find a prefab in which that object is a root to establish a new linkage
+            Guid currentPrefabId = actor->GetPrefabID(), currentObjectId = actor->GetPrefabObjectID();
+        RETRY:
+            auto prefab = Content::Load<Prefab>(currentPrefabId);
+            Guid nestedPrefabId, nestedObjectId;
+            if (prefab && prefab->GetNestedObject(currentObjectId, nestedPrefabId, nestedObjectId))
+            {
+                auto nestedPrefab = Content::Load<Prefab>(nestedPrefabId);
+                if (nestedPrefab)
+                {
+                    auto nestedObject = (Actor*)nestedPrefab->GetDefaultInstance(nestedObjectId);
+                    if (nestedObject && nestedObject->IsPrefabRoot())
+                    {
+                        // Change link to the nested prefab
+                        actor->LinkPrefab(nestedPrefabId, nestedObjectId);
+                        LinkPrefabRecursive(actor, nestedPrefab);
+                        continue;
+                    }
+                }
+
+                // Try deeper
+                currentPrefabId = nestedPrefabId;
+                currentObjectId = nestedObjectId;
+                goto RETRY;
+            }
+
             actor->BreakPrefabLink();
         }
     }
@@ -2012,8 +2081,7 @@ bool Actor::FromBytes(const Span<byte>& data, Array<Actor*>& output, ISerializeM
     }
     for (int32 i = 0; i < parents->Count(); i++)
     {
-        Actor* actor = parents->At(i);
-        actor->OnTransformChanged();
+        parents->At(i)->OnTransformChanged();
     }
 
     // Initialize actor that are spawned to scene or create managed instanced for others

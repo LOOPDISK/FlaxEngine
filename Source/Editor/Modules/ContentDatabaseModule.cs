@@ -24,23 +24,23 @@ namespace FlaxEditor.Modules
         private bool _rebuildInitFlag;
         private int _itemsCreated;
         private int _itemsDeleted;
-        private readonly HashSet<MainContentTreeNode> _dirtyNodes = new HashSet<MainContentTreeNode>();
+        private readonly HashSet<MainContentFolderTreeNode> _dirtyNodes = new HashSet<MainContentFolderTreeNode>();
         private int _fileWatcherSuppressCount;
 
         /// <summary>
         /// The project directory.
         /// </summary>
-        public ProjectTreeNode Game { get; private set; }
+        public ProjectFolderTreeNode Game { get; private set; }
 
         /// <summary>
         /// The engine directory.
         /// </summary>
-        public ProjectTreeNode Engine { get; private set; }
+        public ProjectFolderTreeNode Engine { get; private set; }
 
         /// <summary>
         /// The list of all projects workspace directories (including game, engine and plugins projects).
         /// </summary>
-        public readonly List<ProjectTreeNode> Projects = new List<ProjectTreeNode>();
+        public readonly List<ProjectFolderTreeNode> Projects = new List<ProjectFolderTreeNode>();
 
         /// <summary>
         /// The list with all content items proxy objects. Use <see cref="AddProxy"/> and <see cref="RemoveProxy"/> to modify this or <see cref="Rebuild"/> to refresh database when adding new item proxy types.
@@ -117,7 +117,7 @@ namespace FlaxEditor.Modules
         /// </summary>
         /// <param name="project">The project.</param>
         /// <returns>The project workspace or null if not loaded into database.</returns>
-        public ProjectTreeNode GetProjectWorkspace(ProjectInfo project)
+        public ProjectFolderTreeNode GetProjectWorkspace(ProjectInfo project)
         {
             return Projects.FirstOrDefault(x => x.Project == project);
         }
@@ -162,7 +162,7 @@ namespace FlaxEditor.Modules
         public ContentProxy GetProxy(string extension)
         {
             if (string.IsNullOrEmpty(extension))
-                throw new ArgumentNullException();
+                return null;
             extension = StringUtils.NormalizeExtension(extension);
             for (int i = 0; i < Proxy.Count; i++)
             {
@@ -755,6 +755,10 @@ namespace FlaxEditor.Modules
                     // Delete asset by using content pool
                     FlaxEngine.Content.DeleteAsset(path);
                 }
+                else if (item is ScriptItem)
+                {
+                    FlaxEngine.Content.DeleteScript(path);
+                }
                 else if (deletedByUser)
                 {
                     // Delete file
@@ -875,7 +879,7 @@ namespace FlaxEditor.Modules
             }
         }
 
-        private void LoadFolder(ContentTreeNode node, bool checkSubDirs)
+        private void LoadFolder(ContentFolderTreeNode node, bool checkSubDirs)
         {
             if (node == null)
                 return;
@@ -902,7 +906,7 @@ namespace FlaxEditor.Modules
                     {
                         // Item doesn't exist anymore
                         Editor.Log(string.Format($"Content item \'{child.Path}\' has been removed"));
-                        Delete(child, false);
+                        Delete(child);
                         i--;
                     }
                     else if (canHaveAssets && child is AssetItem childAsset)
@@ -954,7 +958,7 @@ namespace FlaxEditor.Modules
                 if (childFolderNode == null)
                 {
                     // Create node
-                    ContentTreeNode n = new ContentTreeNode(node, childPath);
+                    ContentFolderTreeNode n = new ContentFolderTreeNode(node, childPath);
                     if (!_isDuringFastSetup)
                         sortChildren = true;
 
@@ -979,7 +983,7 @@ namespace FlaxEditor.Modules
                 node.SortChildren();
 
             // Ignore some special folders
-            if (node is MainContentTreeNode mainNode && mainNode.Folder.ShortName == "Source")
+            if (node is MainContentFolderTreeNode mainNode && mainNode.Folder.ShortName == "Source")
             {
                 var mainNodeChild = mainNode.Folder.Find(StringUtils.CombinePaths(mainNode.Path, "obj")) as ContentFolder;
                 if (mainNodeChild != null)
@@ -996,7 +1000,7 @@ namespace FlaxEditor.Modules
             }
         }
 
-        private void LoadScripts(ContentTreeNode parent, string[] files)
+        private void LoadScripts(ContentFolderTreeNode parent, string[] files)
         {
             for (int i = 0; i < files.Length; i++)
             {
@@ -1014,7 +1018,7 @@ namespace FlaxEditor.Modules
                     ContentItem item;
                     if (path.EndsWith(".cs"))
                         item = new CSharpScriptItem(path);
-                    else if (path.EndsWith(".cpp") || path.EndsWith(".h"))
+                    else if (path.EndsWith(".cpp") || path.EndsWith(".h") || path.EndsWith(".c") || path.EndsWith(".hpp"))
                         item = new CppScriptItem(path);
                     else if (path.EndsWith(".shader") || path.EndsWith(".hlsl"))
                         item = new ShaderSourceItem(path);
@@ -1042,7 +1046,7 @@ namespace FlaxEditor.Modules
             }
         }
 
-        private void LoadAssets(ContentTreeNode parent, string[] files)
+        private void LoadAssets(ContentFolderTreeNode parent, string[] files)
         {
             for (int i = 0; i < files.Length; i++)
             {
@@ -1094,20 +1098,20 @@ namespace FlaxEditor.Modules
             var workspace = GetProjectWorkspace(project);
             if (workspace == null)
             {
-                workspace = new ProjectTreeNode(project);
+                workspace = new ProjectFolderTreeNode(project);
                 Projects.Add(workspace);
 
                 var contentFolder = StringUtils.CombinePaths(project.ProjectFolderPath, "Content");
                 if (Directory.Exists(contentFolder))
                 {
-                    workspace.Content = new MainContentTreeNode(workspace, ContentFolderType.Content, contentFolder);
+                    workspace.Content = new MainContentFolderTreeNode(workspace, ContentFolderType.Content, contentFolder);
                     workspace.Content.Folder.ParentFolder = workspace.Folder;
                 }
 
                 var sourceFolder = StringUtils.CombinePaths(project.ProjectFolderPath, "Source");
                 if (Directory.Exists(sourceFolder))
                 {
-                    workspace.Source = new MainContentTreeNode(workspace, ContentFolderType.Source, sourceFolder);
+                    workspace.Source = new MainContentFolderTreeNode(workspace, ContentFolderType.Source, sourceFolder);
                     workspace.Source.Folder.ParentFolder = workspace.Folder;
                 }
             }
@@ -1189,6 +1193,7 @@ namespace FlaxEditor.Modules
             Proxy.Add(new SettingsProxy(typeof(AndroidPlatformSettings), Editor.Instance.Icons.AndroidSettings128));
             Proxy.Add(new SettingsProxy(typeof(MacPlatformSettings), Editor.Instance.Icons.AppleSettings128));
             Proxy.Add(new SettingsProxy(typeof(iOSPlatformSettings), Editor.Instance.Icons.AppleSettings128));
+            Proxy.Add(new SettingsProxy(typeof(WebPlatformSettings), Editor.Instance.Icons.WebSettings128));
 
             var typePS4PlatformSettings = TypeUtils.GetManagedType(GameSettings.PS4PlatformSettingsTypename);
             if (typePS4PlatformSettings != null)
@@ -1214,16 +1219,16 @@ namespace FlaxEditor.Modules
             Proxy.Add(new GenericJsonAssetProxy());
 
             // Create content folders nodes
-            Engine = new ProjectTreeNode(Editor.EngineProject)
+            Engine = new ProjectFolderTreeNode(Editor.EngineProject)
             {
-                Content = new MainContentTreeNode(Engine, ContentFolderType.Content, Globals.EngineContentFolder),
+                Content = new MainContentFolderTreeNode(Engine, ContentFolderType.Content, Globals.EngineContentFolder),
             };
             if (Editor.GameProject != Editor.EngineProject)
             {
-                Game = new ProjectTreeNode(Editor.GameProject)
+                Game = new ProjectFolderTreeNode(Editor.GameProject)
                 {
-                    Content = new MainContentTreeNode(Game, ContentFolderType.Content, Globals.ProjectContentFolder),
-                    Source = new MainContentTreeNode(Game, ContentFolderType.Source, Globals.ProjectSourceFolder),
+                    Content = new MainContentFolderTreeNode(Game, ContentFolderType.Content, Globals.ProjectContentFolder),
+                    Source = new MainContentFolderTreeNode(Game, ContentFolderType.Source, Globals.ProjectSourceFolder),
                 };
                 // TODO: why it's required? the code above should work for linking the nodes hierarchy
                 Game.Content.Folder.ParentFolder = Game.Folder;
@@ -1366,7 +1371,7 @@ namespace FlaxEditor.Modules
             FlaxEngine.Scripting.InvokeOnUpdate(ResumeFileSystemWatchers);
         }
 
-        internal void OnDirectoryEvent(MainContentTreeNode node, FileSystemEventArgs e)
+        internal void OnDirectoryEvent(MainContentFolderTreeNode node, FileSystemEventArgs e)
         {
             // Ensure to be ready for external events
             if (_isDuringFastSetup)

@@ -4,13 +4,14 @@
 #include "./Flax/MaterialCommon.hlsl"
 #include "./Flax/GBuffer.hlsl"
 #include "./Flax/Common.hlsl"
+#include "./Flax/Noise.hlsl"
 #include "./Flax/AtmosphereFog.hlsl"
 
 META_CB_BEGIN(0, Data)
 float4x4 WorldViewProjection;
 float4x4 InvViewProjection;
 float3 ViewOffset;
-float Padding;
+float NoiseScale;
 GBufferData GBuffer;
 AtmosphericFogData AtmosphericFog;
 float3 HorizonColor;
@@ -36,7 +37,7 @@ MaterialInput VS(ModelInput_PosOnly input)
 	MaterialInput output;
 
 	// Compute vertex position
-	output.Position = mul(float4(input.Position.xyz, 1), WorldViewProjection);
+	output.Position = PROJECT_POINT(float4(input.Position.xyz, 1), WorldViewProjection);
 	output.ScreenPos = output.Position;
 
 	return output;
@@ -51,37 +52,17 @@ GBufferOutput PS_Sky(MaterialInput input)
     // Calculate view vector (unproject at the far plane)
 	GBufferData gBufferData = GetGBufferData();
 	float4 clipPos = float4(input.ScreenPos.xy / input.ScreenPos.w, 1.0, 1.0);
-	clipPos = mul(clipPos, InvViewProjection);
+	clipPos = PROJECT_POINT(clipPos, InvViewProjection);
 	float3 worldPos = clipPos.xyz / clipPos.w;
     float3 viewVector = normalize(worldPos - gBufferData.ViewPos);
 
 	// Sample atmosphere color
     float4 color = GetAtmosphericFog(AtmosphericFog, gBufferData.ViewFar, gBufferData.ViewPos + ViewOffset, viewVector, gBufferData.ViewFar, float3(0, 0, 0));
 
-	// TEMP: Always use fallback gradient until atmospheric fog is working properly
-	float3 viewDir = normalize(viewVector);
-	float skyGradient = saturate(viewDir.y * 0.5 + 0.5);
-
-	// Use colors from Sky actor if set, otherwise use defaults
-	float3 horizonColor = HorizonColor;
-	float3 zenithColor = ZenithColor;
-
-	// DEBUG: Always use defaults to see if shader is even running
-	horizonColor = float3(0x2C / 255.0, 0x2C / 255.0, 0x2C / 255.0); // 0x2C2C2CFF
-	zenithColor = float3(0xAE / 255.0, 0x9F / 255.0, 0x9A / 255.0);  // 0xAE9F9AFF
-
-	color.rgb = lerp(horizonColor, zenithColor, skyGradient);
-	color.a = 1.0;
-
-	// Add sun disk (matching original GetSunColor implementation)
-	float sunDiscScale = AtmosphericFog.AtmosphericFogSunDiscScale;
-	if (sunDiscScale > 0.0)
-	{
-		float3 sunDir = AtmosphericFog.AtmosphericFogSunDirection;
-		float sunIntensity = step(cos(PI * sunDiscScale / 180.0), dot(viewDir, sunDir));
-		float3 sunColor = AtmosphericFog.AtmosphericFogSunColor * AtmosphericFog.AtmosphericFogSunPower;
-		color.rgb += sunColor * sunIntensity;
-	}
+    // Apply dithering to hide banding artifacts
+    float2 uv = (input.ScreenPos.xy / input.ScreenPos.w) * float2(0.5, -0.5) + float2(0.5, 0.5);
+    float luminance = Luminance(saturate(color.rgb));
+    color.rgb += rand2dTo1d(uv) * luminance * NoiseScale;
 
 	// Pack GBuffer
 	output.Light = color;

@@ -26,7 +26,6 @@ namespace FlaxEditor.Windows
         private Tree _tree;
         private Panel _sceneTreePanel;
         private bool _isUpdatingSelection;
-        private bool _isMouseDown;
         private bool _blockSceneTreeScroll = false;
 
         private DragAssets _dragAssets;
@@ -68,6 +67,7 @@ namespace FlaxEditor.Windows
                 TooltipText = "Search the scene tree.\n\nYou can prefix your search with different search operators:\ns: -> Actor with script of type\na: -> Actor type\nc: -> Control type",
             };
             _searchBox.TextChanged += OnSearchBoxTextChanged;
+            ScriptsBuilder.ScriptsReloadEnd += OnSearchBoxTextChanged;
 
             // Scene tree panel
             _sceneTreePanel = new Panel
@@ -112,7 +112,7 @@ namespace FlaxEditor.Windows
             InputActions.Add(options => options.LockFocusSelection, () => Editor.Windows.EditWin.Viewport.LockFocusSelection());
             InputActions.Add(options => options.Rename, RenameSelection);
         }
-        
+
         /// <inheritdoc />
         public override void OnPlayBeginning()
         {
@@ -125,6 +125,7 @@ namespace FlaxEditor.Windows
         {
             base.OnPlayBegin();
             _blockSceneTreeScroll = false;
+            OnSearchBoxTextChanged();
         }
 
         /// <inheritdoc />
@@ -139,6 +140,7 @@ namespace FlaxEditor.Windows
         {
             base.OnPlayEnd();
             _blockSceneTreeScroll = true;
+            OnSearchBoxTextChanged();
         }
 
         /// <summary>
@@ -173,6 +175,7 @@ namespace FlaxEditor.Windows
             if (IsLayoutLocked)
                 return;
 
+            PerformLayout();
             _tree.LockChildrenRecursive();
 
             // Update tree
@@ -374,10 +377,7 @@ namespace FlaxEditor.Windows
                 return true;
 
             if (buttons == MouseButton.Right)
-            {
-                _isMouseDown = true;
                 return true;
-            }
 
             return false;
         }
@@ -388,10 +388,8 @@ namespace FlaxEditor.Windows
             if (base.OnMouseUp(location, buttons))
                 return true;
 
-            if (_isMouseDown && buttons == MouseButton.Right)
+            if (buttons == MouseButton.Right)
             {
-                _isMouseDown = false;
-
                 if (Editor.StateMachine.CurrentState.CanEditScene)
                 {
                     // Show context menu
@@ -414,14 +412,6 @@ namespace FlaxEditor.Windows
             }
 
             return false;
-        }
-
-        /// <inheritdoc />
-        public override void OnLostFocus()
-        {
-            _isMouseDown = false;
-
-            base.OnLostFocus();
         }
 
         /// <inheritdoc />
@@ -600,6 +590,7 @@ namespace FlaxEditor.Windows
             _dragHandlers = null;
             _tree = null;
             _searchBox = null;
+            ScriptsBuilder.ScriptsReloadEnd -= OnSearchBoxTextChanged;
 
             base.OnDestroy();
         }

@@ -1091,6 +1091,11 @@ const MAssembly::ClassesDictionary& MAssembly::GetClasses() const
     return _classes;
 }
 
+MAssembly::ClassesDictionary& MAssembly::GetTypeClasses() const
+{
+    return const_cast<ClassesDictionary&>(GetClasses());
+}
+
 bool MAssembly::Load(MonoImage* monoImage)
 {
     if (IsLoaded())
@@ -1355,6 +1360,11 @@ MMethod* MClass::GetMethod(const char* name, int32 numParams) const
     auto method = New<MMethod>(monoMethod, name, (MClass*)this);
     _methods.Add(method);
     return method;
+}
+
+MMethod* MClass::GetMethod(const ScriptingTypeMethodSignature& signature) const
+{
+    return GetMethod(signature.Name.Get(), signature.Params.Count());
 }
 
 const Array<MMethod*>& MClass::GetMethods() const

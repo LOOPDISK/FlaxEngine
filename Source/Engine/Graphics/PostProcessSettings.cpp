@@ -22,6 +22,7 @@ void AmbientOcclusionSettings::BlendWith(AmbientOcclusionSettings& other, float 
     BLEND_FLOAT(Radius);
     BLEND_FLOAT(FadeOutDistance);
     BLEND_FLOAT(FadeDistance);
+    BLEND_ENUM(DepthResolution);
 }
 
 void GlobalIlluminationSettings::BlendWith(GlobalIlluminationSettings& other, float weight)
@@ -201,7 +202,9 @@ void ScreenSpaceReflectionsSettings::BlendWith(ScreenSpaceReflectionsSettings& o
     BLEND_FLOAT(FadeDistance);
     BLEND_BOOL(UseColorBufferMips);
     BLEND_BOOL(TemporalEffect);
+PRAGMA_DISABLE_DEPRECATION_WARNINGS
     BLEND_FLOAT(TemporalScale);
+PRAGMA_ENABLE_DEPRECATION_WARNINGS
     BLEND_FLOAT(TemporalResponse);
 }
 
@@ -231,7 +234,11 @@ void PostFxMaterialsSettings::BlendWith(PostFxMaterialsSettings& other, float we
         while (Materials.Count() != POST_PROCESS_SETTINGS_MAX_MATERIALS && indexSrc < other.Materials.Count())
         {
             if (!Materials.Contains(materialsSrc[indexSrc].GetID()))
-                Materials.Add(materialsSrc[indexSrc]);
+            {
+                auto& ref = materialsSrc[indexSrc];
+                ref.Get(); // Load asset
+                Materials.Add(ref);
+            }
             indexSrc++;
         }
     }

@@ -74,7 +74,7 @@ namespace FlaxEditor.Surface.Archetypes
                 /// <summary>
                 /// The header height.
                 /// </summary>
-                public const float HeaderHeight = FlaxEditor.Surface.Constants.NodeHeaderSize;
+                public const float HeaderHeight = FlaxEditor.Surface.Constants.NodeHeaderHeight;
 
                 /// <summary>
                 /// Gets the type of the module.
@@ -199,7 +199,7 @@ namespace FlaxEditor.Surface.Archetypes
                 DrawChildren();
 
                 // Options border
-                var optionsAreaStart = FlaxEditor.Surface.Constants.NodeHeaderSize + 3.0f;
+                var optionsAreaStart = FlaxEditor.Surface.Constants.NodeHeaderHeight + 3.0f;
                 var optionsAreaHeight = 7 * FlaxEditor.Surface.Constants.LayoutOffsetY + 6.0f;
                 Render2D.DrawRectangle(new Rectangle(1, optionsAreaStart, Width - 2, optionsAreaHeight), style.BackgroundSelected);
 
@@ -340,7 +340,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Create = (id, context, arch, groupArch) => new ParticleEmitterNode(id, context, arch, groupArch),
                 Title = "Particle Emitter",
                 Description = "Main particle emitter node. Contains a set of modules per emitter context. Modules are executed in order from top to bottom of the stack.",
-                Flags = NodeFlags.ParticleEmitterGraph | NodeFlags.NoRemove | NodeFlags.NoSpawnViaGUI | NodeFlags.NoSpawnViaPaste | NodeFlags.NoCloseButton,
+                Flags = NodeFlags.ParticleEmitterGraph | NodeFlags.NoRemove | NodeFlags.NoSpawnViaGUI | NodeFlags.NoSpawnViaPaste | NodeFlags.NoCloseButton | NodeFlags.FixedSize,
                 Size = new Float2(300, 600),
                 DefaultValues = new object[]
                 {
@@ -436,10 +436,11 @@ namespace FlaxEditor.Surface.Archetypes
             new NodeArchetype
             {
                 TypeID = 102,
-                Title = "Particle Lifetime",
-                Description = "Particle lifetime (in seconds).",
+                Title = "Particle Total Lifetime",
+                Description = "Total particle lifetime (in seconds) at the time when the particle was created. Always the same, no matter the particles age.",
+                AlternativeTitles = new[] { "Age" },
                 Flags = NodeFlags.MaterialGraph | NodeFlags.ParticleEmitterGraph,
-                Size = new Float2(200, 30),
+                Size = new Float2(250, 30),
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(float), 0),
@@ -449,9 +450,10 @@ namespace FlaxEditor.Surface.Archetypes
             {
                 TypeID = 103,
                 Title = "Particle Age",
-                Description = "Particle age (in seconds).",
+                Description = "Particle age (in seconds). How long the particle has been alive since it was created.",
+                AlternativeTitles = new[] { "Lifetime" },
                 Flags = NodeFlags.MaterialGraph | NodeFlags.ParticleEmitterGraph,
-                Size = new Float2(200, 30),
+                Size = new Float2(170, 30),
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(float), 0),
@@ -533,9 +535,10 @@ namespace FlaxEditor.Surface.Archetypes
             {
                 TypeID = 110,
                 Title = "Particle Normalized Age",
-                Description = "Particle normalized age to range 0-1 (age divided by lifetime).",
+                Description = "The normalized age of the particle, represented as 0 (max lifetime) to 1 (max age). (Same as age divided by lifetime.)",
+                AlternativeTitles = new[] { "Lifetime" },
                 Flags = NodeFlags.MaterialGraph | NodeFlags.ParticleEmitterGraph,
-                Size = new Float2(230, 30),
+                Size = new Float2(250, 30),
                 Elements = new[]
                 {
                     NodeElementArchetype.Factory.Output(0, string.Empty, typeof(float), 0),

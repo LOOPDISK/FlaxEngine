@@ -347,7 +347,7 @@ VertexOutput VS(ModelInput input)
 	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
 	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
 #else
-	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
 #endif
 
 	// Pass vertex attributes
@@ -389,7 +389,7 @@ VertexOutput VS(ModelInput input)
 	aspect = (float)ScreenSize.x / (float)ScreenSize.y;
 	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
 #else
-	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
 #endif
 #endif
 
@@ -429,7 +429,7 @@ float4 VS_Depth(ModelInput_PosOnly input) : SV_Position
 	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
 	float4 position = ApplyWeaponFOVOverride(worldPosition, aspect);
 #else
-	float4 position = mul(float4(worldPosition, 1), ViewProjectionMatrix);
+	float4 position = PROJECT_POINT(float4(worldPosition, 1), ViewProjectionMatrix);
 #endif
 	return position;
 }
@@ -541,7 +541,7 @@ VertexOutput VS_Skinned(ModelInput_Skinned input)
 	float aspect = (float)ScreenSize.x / (float)ScreenSize.y;
 	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
 #else
-	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
 #endif
 
 	// Pass vertex attributes
@@ -578,7 +578,7 @@ VertexOutput VS_Skinned(ModelInput_Skinned input)
 	aspect = (float)ScreenSize.x / (float)ScreenSize.y;
 	output.Position = ApplyWeaponFOVOverride(output.Geometry.WorldPosition, aspect);
 #else
-	output.Position = mul(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
+	output.Position = PROJECT_POINT(float4(output.Geometry.WorldPosition, 1), ViewProjectionMatrix);
 #endif
 #endif
 

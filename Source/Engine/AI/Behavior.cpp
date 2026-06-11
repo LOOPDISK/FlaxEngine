@@ -109,7 +109,12 @@ void Behavior::UpdateAsync()
     const BehaviorUpdateResult result = tree->Graph.Root->InvokeUpdate(context);
     if (result != BehaviorUpdateResult::Running)
         _result = result;
-    if (_result != BehaviorUpdateResult::Running)
+    if (_result != BehaviorUpdateResult::Running && tree->Graph.Root->Loop)
+    {
+        // Reset State
+        _result = BehaviorUpdateResult::Running;
+    }
+    else if (_result != BehaviorUpdateResult::Running)
     {
         Finished();
     }

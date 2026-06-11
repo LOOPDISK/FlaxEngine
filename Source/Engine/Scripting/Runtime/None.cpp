@@ -303,6 +303,11 @@ const MAssembly::ClassesDictionary& MAssembly::GetClasses() const
     return _classes;
 }
 
+MAssembly::ClassesDictionary& MAssembly::GetTypeClasses() const
+{
+    return const_cast<ClassesDictionary&>(GetClasses());
+}
+
 bool MAssembly::LoadCorlib()
 {
     return false;
@@ -359,6 +364,11 @@ uint32 MClass::GetInstanceSize() const
 }
 
 MMethod* MClass::GetMethod(const char* name, int32 numParams) const
+{
+    return nullptr;
+}
+
+MMethod* MClass::GetMethod(const ScriptingTypeMethodSignature& signature) const
 {
     return nullptr;
 }
