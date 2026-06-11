@@ -13,6 +13,8 @@ class FLAXENGINE_API SkinnedMeshDrawData
 private:
     bool _hasValidData = false;
     bool _isDirty = false;
+    bool _settled = false; // last pose unchanged (Prev==Bone), so the next identical frame may skip
+    Array<byte> _prevData; // last accepted Data, for dormant (byte-identical) detection
 
 public:
     /// <summary>
@@ -34,6 +36,31 @@ public:
     /// The CPU data buffer with the bones transformations (ready to be flushed with the GPU).
     /// </summary>
     Array<byte> Data;
+
+    /// <summary>
+    /// Per-mesh compute-skinning output: pre-skinned Position VB (12 bytes/vert). Indexed by mesh slot.
+    /// </summary>
+    Array<GPUBuffer*> OutputVB0;
+
+    /// <summary>
+    /// Per-mesh compute-skinning output: TexCoord+Normal+Tangent+TexCoord1 VB (16 bytes/vert, TexCoord1 zero).
+    /// </summary>
+    Array<GPUBuffer*> OutputVB1;
+
+    /// <summary>
+    /// Per-mesh compute-skinning output: Color VB (4 bytes/vert), allocated only when the source has Color.
+    /// </summary>
+    Array<GPUBuffer*> OutputVB2;
+
+    /// <summary>
+    /// Bumped on each data change; the skinning pass skips dispatch when its output matches (dormant skeletons).
+    /// </summary>
+    uint64 SkinningVersion = 0;
+
+    /// <summary>
+    /// Per-mesh SkinningVersion at the last dispatch; equal to SkinningVersion means the cached output is valid.
+    /// </summary>
+    Array<uint64> OutputVersion;
 
 public:
     /// <summary>
@@ -68,7 +95,8 @@ public:
     /// After bones Data has been modified externally. Updates the bone matrices data for the GPU buffer. Ensure to call Flush before rendering.
     /// </summary>
     /// <param name="dropHistory">True if drop previous update bones used for motion blur, otherwise will keep them and do the update.</param>
-    void OnDataChanged(bool dropHistory);
+    /// <returns>True if data changed (dirty/version bumped); false if byte-identical and skipped.</returns>
+    bool OnDataChanged(bool dropHistory);
 
     /// <summary>
     /// After bones Data has been sent to the GPU buffer.
@@ -77,4 +105,9 @@ public:
     {
         _isDirty = false;
     }
+
+    /// <summary>
+    /// Releases the compute-skinning output VB cache. Call on SkinnedModel change; stale buffers sized for the old vertex counts collapse verts.
+    /// </summary>
+    void ReleaseOutputVBs();
 };

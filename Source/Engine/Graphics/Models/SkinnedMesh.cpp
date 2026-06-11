@@ -14,6 +14,7 @@
 #include "Engine/Graphics/Shaders/GPUVertexLayout.h"
 #include "Engine/Level/Scene/Scene.h"
 #include "Engine/Renderer/RenderList.h"
+#include "Engine/Renderer/SkinningPass.h"
 #include "Engine/Scripting/ManagedCLR/MCore.h"
 #include "Engine/Threading/Threading.h"
 
@@ -338,9 +339,31 @@ void SkinnedMesh::Draw(const RenderContext& renderContext, const DrawInfo& info,
     // Setup draw call
     DrawCall drawCall;
     drawCall.Geometry.IndexBuffer = _indexBuffer;
-    drawCall.Geometry.VertexBuffers[0] = _vertexBuffers[0];
-    if (info.Deformation)
-        info.Deformation->RunDeformers(this, MeshBufferType::Vertex0, drawCall.Geometry.VertexBuffers[0]);
+    // Compute-skinning fast path: bind pre-skinned static-layout VBs + null Surface.Skinning so the static VS runs (else VS-time skinning).
+    GPUBuffer* skinnedOutVB0 = nullptr;
+    GPUBuffer* skinnedOutVB1 = nullptr;
+    GPUBuffer* skinnedOutVB2 = nullptr;
+    const int32 skinSlot = (_lodIndex << 8) | (_index & 0xFF);
+    const bool useComputeSkinning = !info.Deformation && SkinningPass::Instance()->PrepareForDraw(info.Skinning, this, skinSlot, skinnedOutVB0, skinnedOutVB1, skinnedOutVB2);
+    if (useComputeSkinning)
+    {
+        drawCall.Geometry.VertexBuffers[0] = skinnedOutVB0;
+        drawCall.Geometry.VertexBuffers[1] = skinnedOutVB1;
+        drawCall.Geometry.VertexBuffers[2] = skinnedOutVB2; // nullptr when mesh has no vertex color
+        drawCall.Surface.Skinning = nullptr;
+    }
+    else
+    {
+        drawCall.Geometry.VertexBuffers[0] = _vertexBuffers[0];
+        drawCall.Geometry.VertexBuffers[1] = nullptr;
+        drawCall.Geometry.VertexBuffers[2] = nullptr;
+        if (info.Deformation)
+            info.Deformation->RunDeformers(this, MeshBufferType::Vertex0, drawCall.Geometry.VertexBuffers[0]);
+        drawCall.Surface.Skinning = info.Skinning;
+    }
+    drawCall.Geometry.VertexBuffersOffsets[0] = 0;
+    drawCall.Geometry.VertexBuffersOffsets[1] = 0;
+    drawCall.Geometry.VertexBuffersOffsets[2] = 0;
     drawCall.Draw.StartIndex = 0;
     drawCall.Draw.IndicesCount = _triangles * 3;
     drawCall.InstanceCount = 1;
@@ -350,7 +373,6 @@ void SkinnedMesh::Draw(const RenderContext& renderContext, const DrawInfo& info,
     drawCall.ObjectRadius = (float)info.Bounds.Radius; // TODO: should it be kept in sync with ObjectPosition?
     drawCall.Surface.GeometrySize = _box.GetSize();
     drawCall.Surface.PrevWorld = info.DrawState->PrevWorld;
-    drawCall.Surface.Skinning = info.Skinning;
     drawCall.Surface.LODDitherFactor = lodDitherFactor;
     drawCall.PerInstanceRandom = info.PerInstanceRandom;
     drawCall.StencilValue = info.StencilValue;
@@ -379,12 +401,33 @@ void SkinnedMesh::Draw(const RenderContextBatch& renderContextBatch, const DrawI
     if (!material || !material->IsMeshMaterial())
         return;
 
-    // Setup draw call
+    // Setup draw call (same compute-skinning fast path as the single-context Draw above).
     DrawCall drawCall;
     drawCall.Geometry.IndexBuffer = _indexBuffer;
-    drawCall.Geometry.VertexBuffers[0] = _vertexBuffers[0];
-    if (info.Deformation)
-        info.Deformation->RunDeformers(this, MeshBufferType::Vertex0, drawCall.Geometry.VertexBuffers[0]);
+    GPUBuffer* skinnedOutVB0 = nullptr;
+    GPUBuffer* skinnedOutVB1 = nullptr;
+    GPUBuffer* skinnedOutVB2 = nullptr;
+    const int32 skinSlot = (_lodIndex << 8) | (_index & 0xFF);
+    const bool useComputeSkinning = !info.Deformation && SkinningPass::Instance()->PrepareForDraw(info.Skinning, this, skinSlot, skinnedOutVB0, skinnedOutVB1, skinnedOutVB2);
+    if (useComputeSkinning)
+    {
+        drawCall.Geometry.VertexBuffers[0] = skinnedOutVB0;
+        drawCall.Geometry.VertexBuffers[1] = skinnedOutVB1;
+        drawCall.Geometry.VertexBuffers[2] = skinnedOutVB2; // nullptr when mesh has no vertex color
+        drawCall.Surface.Skinning = nullptr;
+    }
+    else
+    {
+        drawCall.Geometry.VertexBuffers[0] = _vertexBuffers[0];
+        drawCall.Geometry.VertexBuffers[1] = nullptr;
+        drawCall.Geometry.VertexBuffers[2] = nullptr;
+        if (info.Deformation)
+            info.Deformation->RunDeformers(this, MeshBufferType::Vertex0, drawCall.Geometry.VertexBuffers[0]);
+        drawCall.Surface.Skinning = info.Skinning;
+    }
+    drawCall.Geometry.VertexBuffersOffsets[0] = 0;
+    drawCall.Geometry.VertexBuffersOffsets[1] = 0;
+    drawCall.Geometry.VertexBuffersOffsets[2] = 0;
     drawCall.Draw.IndicesCount = _triangles * 3;
     drawCall.InstanceCount = 1;
     drawCall.Material = material;
@@ -393,7 +436,6 @@ void SkinnedMesh::Draw(const RenderContextBatch& renderContextBatch, const DrawI
     drawCall.ObjectRadius = (float)info.Bounds.Radius; // TODO: should it be kept in sync with ObjectPosition?
     drawCall.Surface.GeometrySize = _box.GetSize();
     drawCall.Surface.PrevWorld = info.DrawState->PrevWorld;
-    drawCall.Surface.Skinning = info.Skinning;
     drawCall.Surface.LODDitherFactor = lodDitherFactor;
     drawCall.PerInstanceRandom = info.PerInstanceRandom;
     drawCall.StencilValue = info.StencilValue;

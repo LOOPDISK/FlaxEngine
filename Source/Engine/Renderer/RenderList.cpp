@@ -774,20 +774,57 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
     float minObjectPixelSizeSq = Math::Square(Graphics::Shadows::MinObjectPixelSize);
     float cullingDistanceSq = Math::Square(Graphics::Shadows::CullingDistance);
 
-    for (int32 i = 1; i < renderContextBatch.Contexts.Count(); i++)
+    // Cascade best-fit: a caster fully in a finer cascade is added only there, not every coarser one it intersects.
+    // Cull-and-add this draw call to a shadow context if it passes that context's pass mask, frustum, static-flags and custom culling.
+    auto addShadowCaster = [&](const RenderContext& rc)
     {
-        const RenderContext& renderContext = renderContextBatch.Contexts.Get()[i];
-        ASSERT_LOW_LAYER(renderContext.View.Pass == DrawPass::Depth);
-        drawModes = modes & renderContext.View.Pass;
-        // TODO: DSM frustum culling is broken - skip for now
-        const bool frustumCheck = true; // renderContext.View.CullingFrustum.Intersects(bounds);
-        if (drawModes != DrawPass::None &&
-            renderContext.View.CullingFrustum.Intersects(bounds) &&
-            (staticFlags & renderContext.View.StaticFlagsMask) == renderContext.View.StaticFlagsCompare
-            && CustomCullingCriteria(staticFlags, mainRenderContext.View, bounds, cullingDistanceSq, minObjectPixelSizeSq))
+        const DrawPass dm = modes & rc.View.Pass;
+        if (dm != DrawPass::None &&
+            rc.View.CullingFrustum.Intersects(bounds) &&
+            (staticFlags & rc.View.StaticFlagsMask) == rc.View.StaticFlagsCompare &&
+            CustomCullingCriteria(staticFlags, mainRenderContext.View, bounds, cullingDistanceSq, minObjectPixelSizeSq))
+            rc.List->ShadowDepthDrawCallsList.Indices.Add(index);
+    };
+
+    const int32 contextCount = renderContextBatch.Contexts.Count();
+    int32 i = 1;
+    while (i < contextCount)
+    {
+        const RenderContext& firstRc = renderContextBatch.Contexts.Get()[i];
+        ASSERT_LOW_LAYER(firstRc.View.Pass == DrawPass::Depth);
+        if (firstRc.View.CascadeIndex < 0)
         {
-            renderContext.List->ShadowDepthDrawCallsList.Indices.Add(index);
+            // Non-cascade shadow context (cube face, spot, clipmap-style): legacy intersect-and-add.
+            addShadowCaster(firstRc);
+            i++;
+            continue;
         }
+
+        // Group spans the monotonic CascadeIndex run; it ends when the sequence breaks (new light or -1).
+        int32 groupEnd = i + 1;
+        int8 expected = (int8)(firstRc.View.CascadeIndex + 1);
+        while (groupEnd < contextCount && renderContextBatch.Contexts.Get()[groupEnd].View.CascadeIndex == expected)
+        {
+            groupEnd++;
+            expected++;
+        }
+
+        // Finest cascade fully containing the bounds wins (added only there); else straddling - per-cascade intersect.
+        int32 bestFit = -1;
+        for (int32 c = i; c < groupEnd; c++)
+        {
+            if (renderContextBatch.Contexts.Get()[c].View.CullingFrustum.Contains(bounds) == ContainmentType::Contains)
+            {
+                bestFit = c;
+                break;
+            }
+        }
+        if (bestFit >= 0)
+            addShadowCaster(renderContextBatch.Contexts.Get()[bestFit]);
+        else
+            for (int32 c = i; c < groupEnd; c++)
+                addShadowCaster(renderContextBatch.Contexts.Get()[c]);
+        i = groupEnd;
     }
 }
 

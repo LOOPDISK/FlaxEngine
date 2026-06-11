@@ -187,6 +187,10 @@ public:
     /// </summary>
     API_FIELD() LayersMask RenderLayersMask;
 
+    // -1 = not a directional cascade (main view, point/spot). 0..N = cascade index from finest.
+    // Set by ShadowsPass; read by RenderList::AddDrawCall for cascade best-fit.
+    int8 CascadeIndex = -1;
+
 public:
     /// <summary>
     /// The view information vector with packed components to reconstruct linear depth and view position from the hardware depth buffer. Cached before rendering.

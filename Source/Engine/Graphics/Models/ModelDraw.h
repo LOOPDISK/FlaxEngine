@@ -75,6 +75,13 @@ FORCE_INLINE void ModelDraw(ModelType* model, const RenderContext& renderContext
     lodIndex += info.LODBias + renderContext.View.ModelLODBias;
     lodIndex = model->ClampLODIndex(lodIndex);
 
+    // Pass=Depth skips LOD dither: shadows don't cross-fade, and a shadow LOD != main-view PrevLOD would force a blend + double-draw.
+    if (renderContext.View.Pass == DrawPass::Depth)
+    {
+        model->LODs.Get()[lodIndex].Draw(context, info, 0.0f);
+        return;
+    }
+
     if (renderContext.View.IsSingleFrame)
     {
     }

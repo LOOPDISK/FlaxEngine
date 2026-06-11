@@ -19,6 +19,7 @@
 #include "Engine/Graphics/Models/MeshAccessor.h"
 #include "Engine/Graphics/Models/MeshDeformation.h"
 #include "Engine/Renderer/RenderList.h"
+#include "Engine/Renderer/SkinningPass.h"
 #include "Engine/Level/Scene/Scene.h"
 #include "Engine/Level/SceneObjectsFactory.h"
 #include "Engine/Profiler/Profiler.h"
@@ -40,6 +41,9 @@ public:
     void PreDraw(GPUContext* context, RenderContextBatch& renderContextBatch) override
     {
         Items.Clear();
+        SkinningPass::Instance()->ClearPending();
+        // Drain pending GPU prewarm for newly-spawned AnimatedModels.
+        SkinningPass::Instance()->FlushPrewarm(context);
     }
 
     void PostDraw(GPUContext* context, RenderContextBatch& renderContextBatch) override
@@ -87,6 +91,9 @@ public:
 #endif
 
         Items.Clear();
+
+        // Dispatch skinning now: after the bone upload, before any pass samples the output VBs.
+        SkinningPass::Instance()->FlushPending(context);
     }
 };
 
@@ -123,13 +130,14 @@ void AnimatedModel::ResetAnimation()
 
 void AnimatedModel::UpdateAnimation()
 {
-    // Skip if need to
+    // Skip own graph only when master pose is usable (linked + loaded); else fall through to self-anim (no freeze).
+    const bool masterPoseUsable = _masterPose && _masterPose->SkinnedModel && _masterPose->SkinnedModel->IsLoaded();
     if (UpdateMode == AnimationUpdateMode::Never
         || !IsActiveInHierarchy()
         || SkinnedModel == nullptr
         || !SkinnedModel->IsLoaded()
         || _lastUpdateFrame == Engine::UpdateCount
-        || _masterPose)
+        || masterPoseUsable)
         return;
     _lastUpdateFrame = Engine::UpdateCount;
 
@@ -151,6 +159,9 @@ void AnimatedModel::SetupSkinningData()
     if (targetBonesCount != currentBonesCount)
     {
         _skinningData.Setup(targetBonesCount);
+        // Prewarm output VBs now (BoneMatrices exists) so the wake cost lands at scene streaming, not the first visible frame.
+        if (_skinningData.IsReady())
+            SkinningPass::Instance()->QueuePrewarm(&_skinningData, SkinnedModel.Get());
     }
 }
 
@@ -349,6 +360,27 @@ void AnimatedModel::SetMasterPoseModel(AnimatedModel* masterPose)
     _masterPose = masterPose;
     if (_masterPose)
         _masterPose->AnimationUpdated.Bind<AnimatedModel, &AnimatedModel::OnAnimationUpdated>(this);
+    _masterPoseMapSrc = nullptr; // force remap rebuild vs new master
+}
+
+void AnimatedModel::RebuildMasterPoseMap()
+{
+    const void* src = _masterPose ? (const void*)_masterPose->SkinnedModel.Get() : nullptr;
+    const void* dst = (const void*)SkinnedModel.Get();
+    if (src == _masterPoseMapSrc && dst == _masterPoseMapDst)
+        return;
+    _masterPoseMapSrc = src;
+    _masterPoseMapDst = dst;
+    _masterPoseMap.Clear();
+    if (!src || !dst)
+        return;
+    const auto& master = _masterPose->SkinnedModel->Skeleton;
+    const auto& puppet = SkinnedModel->Skeleton;
+    const int32 count = puppet.Nodes.Count();
+    _masterPoseMap.Resize(count);
+    int32* map = _masterPoseMap.Get();
+    for (int32 i = 0; i < count; i++)
+        map[i] = master.FindNode(puppet.Nodes.Get()[i].Name);
 }
 
 const Array<AnimGraphTraceEvent>& AnimatedModel::GetTraceEvents() const
@@ -840,6 +872,8 @@ void AnimatedModel::EndPlay()
 {
     Animations::RemoveFromUpdate(this);
     SetMasterPoseModel(nullptr);
+    // Cancel any pending prewarm so the render thread can't dereference this freed SkinnedMeshDrawData.
+    SkinningPass::Instance()->CancelPrewarm(&_skinningData);
 
     // Base
     ModelInstanceActor::EndPlay();
@@ -873,6 +907,8 @@ void AnimatedModel::UpdateBounds()
 {
     const auto model = SkinnedModel.Get();
     BoundingSphere prevSphere = _sphere;
+    _lastBoundsScale = BoundsScale;
+    _lastCustomBounds = CustomBounds;
     if (CustomBounds.GetSize().LengthSquared() > 0.01f)
     {
         BoundingBox::Transform(CustomBounds, _transform, _box);
@@ -923,17 +959,38 @@ void AnimatedModel::OnAnimationUpdated_Async()
     const auto& skeleton = SkinnedModel->Skeleton;
 
     // Copy pose from the master
-    // TODO: support retargetting master pose to current pose
-    if (_masterPose && _masterPose->SkinnedModel && _masterPose->SkinnedModel->IsLoaded() && _masterPose->SkinnedModel->Skeleton.Nodes.Count() == skeleton.Nodes.Count())
+    if (_masterPose && _masterPose->SkinnedModel && _masterPose->SkinnedModel->IsLoaded())
     {
         ANIM_GRAPH_PROFILE_EVENT("Copy Master Pose");
+        const auto& masterSkeleton = _masterPose->SkinnedModel->Skeleton;
         const auto& masterInstance = _masterPose->GraphInstance;
-        GraphInstance.NodesPose = masterInstance.NodesPose;
+        if (masterSkeleton.Nodes.Count() == skeleton.Nodes.Count())
+        {
+            // Matching skeletons: bulk copy (fast path, unchanged)
+            GraphInstance.NodesPose = masterInstance.NodesPose;
+        }
+        else if (GraphInstance.NodesPose.Count() == skeleton.Nodes.Count())
+        {
+            // Node counts differ: copy matched nodes by name, keep own pose for the rest (no freeze on master skeleton swap)
+            RebuildMasterPoseMap();
+            const int32* map = _masterPoseMap.Get();
+            const Matrix* srcPose = masterInstance.NodesPose.Get();
+            const int32 srcCount = masterInstance.NodesPose.Count();
+            Matrix* dstPose = GraphInstance.NodesPose.Get();
+            const int32 count = Math::Min(_masterPoseMap.Count(), GraphInstance.NodesPose.Count());
+            for (int32 i = 0; i < count; i++)
+            {
+                const int32 m = map[i];
+                if (m >= 0 && m < srcCount)
+                    dstPose[i] = srcPose[m];
+            }
+        }
         GraphInstance.RootTransform = masterInstance.RootTransform;
         GraphInstance.RootMotion = masterInstance.RootMotion;
     }
 
     // Calculate the final bones transformations and update skinning
+    bool poseChanged = false;
     {
         ANIM_GRAPH_PROFILE_EVENT("Final Pose");
         const int32 bonesCount = skeleton.Bones.Count();
@@ -949,10 +1006,11 @@ void AnimatedModel::OnAnimationUpdated_Async()
             Matrix::Multiply(bone.OffsetMatrix, GraphInstance.NodesPose.Get()[bone.NodeIndex], matrix);
             output[boneIndex].SetMatrixTranspose(matrix);
         }
-        _skinningData.OnDataChanged(!PerBoneMotionBlur);
+        poseChanged = _skinningData.OnDataChanged(!PerBoneMotionBlur);
     }
 
-    //if (UpdateWhenOffscreen)
+    // Refresh bounds on pose change or a CustomBounds/BoundsScale change; transform moves go via OnTransformChanged.
+    if (poseChanged || BoundsScale != _lastBoundsScale || CustomBounds != _lastCustomBounds)
     {
         UpdateBounds();
     }
@@ -989,6 +1047,9 @@ void AnimatedModel::OnSkinnedModelChanged()
     }
     if (_deformation)
         _deformation->Clear();
+    // Drop the output cache (sized for the old model) + cancel prewarm; neither must run against new vertex counts.
+    SkinningPass::Instance()->CancelPrewarm(&_skinningData);
+    _skinningData.ReleaseOutputVBs();
     GraphInstance.NodesSkeleton = SkinnedModel;
 }
 
@@ -1161,11 +1222,31 @@ void AnimatedModel::Draw(RenderContextBatch& renderContextBatch)
         PRAGMA_DISABLE_DEPRECATION_WARNINGS
         if (ShadowsMode != ShadowsCastingMode::All)
         {
-            // To handle old ShadowsMode option for all meshes we need to call per-context drawing (no batching opportunity)
-            // TODO: maybe deserialize ShadowsMode into ModelInstanceBuffer entries options?
-            for (auto& e : renderContextBatch.Contexts)
+            // Per-context legacy ShadowsMode draw: cascade contexts use best-fit, non-cascade gate by frustum intersect.
+            int32 bestFit = -1;
+            const int32 ctxCount = renderContextBatch.Contexts.Count();
+            for (int32 ci = 0; ci < ctxCount; ci++)
             {
+                const auto& e = renderContextBatch.Contexts.Get()[ci];
+                if (e.View.CascadeIndex < 0) continue;
+                if (e.View.CullingFrustum.Contains(draw.Bounds) == ContainmentType::Contains)
+                {
+                    bestFit = ci;
+                    break;
+                }
+            }
+            for (int32 ci = 0; ci < ctxCount; ci++)
+            {
+                auto& e = renderContextBatch.Contexts.Get()[ci];
+                const bool isCascade = e.View.CascadeIndex >= 0;
+                if (isCascade)
+                {
+                    if (bestFit >= 0 ? (ci != bestFit) : !e.View.CullingFrustum.Intersects(draw.Bounds))
+                        continue;
+                }
                 draw.DrawModes = DrawModes & e.View.GetShadowsDrawPassMask(ShadowsMode);
+                if (draw.DrawModes == DrawPass::None)
+                    continue;
                 SkinnedModel->Draw(e, draw);
             }
         }

@@ -710,6 +710,7 @@ void ShadowsPass::SetupRenderContext(RenderContext& renderContext, RenderContext
         shadowView.ModelLODDistanceFactor = view.ModelLODDistanceFactor;
         shadowView.Pass = DrawPass::Depth;
         shadowView.Origin = view.Origin;
+        shadowView.CascadeIndex = -1; // default; cascade setup overrides per-cascade below
         if (atlasLight && atlasLight->StaticState != ShadowAtlasLight::Unused && atlasLight->StaticState != ShadowAtlasLight::FailedToInsertTiles)
         {
             // Draw only dynamic geometry
@@ -1093,6 +1094,10 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
         shadowContext.View.Direction = light.Direction;
         shadowContext.View.SetUp(shadowView, shadowProjection);
         shadowContext.View.CullingFrustum.SetMatrix(cullingVP);
+        // Tag cascade index (for RenderList best-fit grouping) and bias distant cascades to coarser LODs.
+        // Safe because ModelDraw skips the LOD dither-transition in Pass=Depth (ShadowModelLODBias deprecated).
+        shadowContext.View.CascadeIndex = (int8)cascadeIndex;
+        shadowContext.View.ModelLODBias += cascadeIndex;
         shadowContext.View.PrepareCache(shadowContext, shadowMapsSize, shadowMapsSize, Float2::Zero, &renderContext.View);
     }
 

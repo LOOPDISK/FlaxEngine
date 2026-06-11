@@ -9,6 +9,7 @@
 #include "Engine/Graphics/PostProcessEffect.h"
 #include "Engine/Engine/EngineService.h"
 #include "HierarchialZBufferPass.h"
+#include "SkinningPass.h"
 #include "GBufferPass.h"
 #include "ForwardPass.h"
 #include "ShadowsPass.h"
@@ -78,6 +79,7 @@ bool RendererService::Init()
     // Register passes
     PassList.EnsureCapacity(64);
     PassList.Add(HierarchialZBufferPass::Instance());
+    PassList.Add(SkinningPass::Instance());
     PassList.Add(GBufferPass::Instance());
     PassList.Add(ShadowsPass::Instance());
     PassList.Add(LightPass::Instance());
