@@ -10,6 +10,7 @@
 #include "Engine/Platform/CreateProcessSettings.h"
 #include "Engine/Core/Types/StringView.h"
 #include "Engine/Core/Collections/Array.h"
+#include "Engine/Core/Collections/Dictionary.h"
 #include "../Win32/IncludeWindowsHeaders.h"
 
 // Hack this stuff (the problem is that GDI has function named Rectangle -> like one of the Flax core types)
@@ -96,6 +97,24 @@ static int CALLBACK BrowseCallbackProc(HWND hwnd, UINT uMsg, LPARAM lParam, LPAR
     }
 
     return 0;
+}
+
+// Remembers the last-used directory of each file dialog keyed by its title, so that an import script
+// with multiple differently-titled pickers reopens each one at its own last location instead of a
+// single shared one. Kept in-memory for the editor session (the OS still handles cross-session memory).
+static Dictionary<String, String> DialogLastDirectories;
+
+// Returns the remembered directory for the given dialog title, or null if none is stored.
+static const String* GetDialogLastDirectory(const StringView& title)
+{
+    return title.HasChars() ? DialogLastDirectories.TryGet(String(title)) : nullptr;
+}
+
+// Stores the last-used directory for the given dialog title.
+static void SetDialogLastDirectory(const StringView& title, const String& directory)
+{
+    if (title.HasChars() && directory.HasChars())
+        DialogLastDirectories[String(title)] = directory;
 }
 
 bool WindowsFileSystem::MoveFileToRecycleBin(const StringView& path)
@@ -200,6 +219,25 @@ void WindowsFileSystem::GetSpecialFolderPath(const SpecialFolder type, String& r
     CoTaskMemFree(path);
 }
 
+// Builds a stable GUID per dialog title so each differently-titled folder picker remembers its own
+// last location. An empty title returns the original shared GUID so the default behavior is unchanged.
+static Guid GetDialogClientGuid(const StringView& title)
+{
+    Guid guid(0x53890ed9, 0xa55e47ba, 0xa970bdae, 0x72acedff);
+    if (title.HasChars())
+    {
+        // FNV-1a hash of the title mixed into the GUID lanes
+        uint32 h = 2166136261u;
+        for (int32 i = 0; i < title.Length(); i++)
+            h = (h ^ (uint32)title[i]) * 16777619u;
+        guid.A ^= h;
+        guid.B ^= h * 2654435761u;
+        guid.C ^= h ^ 0x9e3779b9u;
+        guid.D ^= h + 0x7f4a7c15u;
+    }
+    return guid;
+}
+
 bool WindowsFileSystem::ShowOpenFileDialog(Window* parentWindow, const StringView& initialDirectory, const StringView& filter, bool multiSelect, const StringView& title, Array<String, HeapAllocation>& filenames)
 {
     bool result = true;
@@ -210,6 +248,9 @@ bool WindowsFileSystem::ShowOpenFileDialog(Window* parentWindow, const StringVie
     fileNamesBuffer.Resize(maxFilenamesSize);
     fileNamesBuffer[0] = 0;
 
+    // Use the last-used directory remembered for this dialog title when no explicit one is given
+    const String* lastDirectory = initialDirectory.HasChars() ? nullptr : GetDialogLastDirectory(title);
+
     // Setup description
     Windows::OPENFILENAME of;
     ZeroMemory(&of, sizeof(of));
@@ -219,7 +260,7 @@ bool WindowsFileSystem::ShowOpenFileDialog(Window* parentWindow, const StringVie
     of.nMaxFile = maxFilenamesSize;
     of.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_ENABLESIZING | OFN_NOCHANGEDIR;
     of.lpstrTitle = title.HasChars() ? title.Get() : nullptr;
-    of.lpstrInitialDir = initialDirectory.HasChars() ? initialDirectory.Get() : nullptr;
+    of.lpstrInitialDir = initialDirectory.HasChars() ? initialDirectory.Get() : (lastDirectory ? lastDirectory->Get() : nullptr);
     if (parentWindow)
         of.hwndOwner = static_cast<HWND>(parentWindow->GetNativePtr());
     if (multiSelect)
@@ -241,6 +282,9 @@ bool WindowsFileSystem::ShowOpenFileDialog(Window* parentWindow, const StringVie
                 ptr++;
         }
 
+        // Remember the picked directory for this dialog title
+        SetDialogLastDirectory(title, directory);
+
         result = false;
     }
 
@@ -257,6 +301,9 @@ bool WindowsFileSystem::ShowSaveFileDialog(Window* parentWindow, const StringVie
     fileNamesBuffer.Resize(maxFilenamesSize);
     fileNamesBuffer[0] = 0;
 
+    // Use the last-used directory remembered for this dialog title when no explicit one is given
+    const String* lastDirectory = initialDirectory.HasChars() ? nullptr : GetDialogLastDirectory(title);
+
     // Setup description
     Windows::OPENFILENAME of;
     ZeroMemory(&of, sizeof(of));
@@ -266,7 +313,7 @@ bool WindowsFileSystem::ShowSaveFileDialog(Window* parentWindow, const StringVie
     of.nMaxFile = maxFilenamesSize;
     of.Flags = OFN_EXPLORER | OFN_ENABLESIZING | OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
     of.lpstrTitle = title.HasChars() ? title.Get() : nullptr;
-    of.lpstrInitialDir = initialDirectory.HasChars() ? initialDirectory.Get() : nullptr;
+    of.lpstrInitialDir = initialDirectory.HasChars() ? initialDirectory.Get() : (lastDirectory ? lastDirectory->Get() : nullptr);
     if (parentWindow)
         of.hwndOwner = static_cast<HWND>(parentWindow->GetNativePtr());
     if (multiSelect)
@@ -288,6 +335,9 @@ bool WindowsFileSystem::ShowSaveFileDialog(Window* parentWindow, const StringVie
                 ptr++;
         }
 
+        // Remember the picked directory for this dialog title
+        SetDialogLastDirectory(title, directory);
+
         result = false;
     }
 
@@ -298,8 +348,8 @@ bool WindowsFileSystem::ShowBrowseFolderDialog(Window* parentWindow, const Strin
 {
     bool result = true;
 
-    // Randomly generated GUID used for storing the last location of this dialog
-    const Guid folderGuid(0x53890ed9, 0xa55e47ba, 0xa970bdae, 0x72acedff);
+    // GUID used for storing the last location of this dialog (per-title so each picker can remember its own folder)
+    const Guid folderGuid = GetDialogClientGuid(title);
 
     ComPtr<IFileOpenDialog> fd;
     if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&fd))))
