@@ -319,12 +319,10 @@ bool SkinningPass::PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMe
     outVB1 = skinning->OutputVB1[slot];
     outVB2 = (hasVertexColor && slot < skinning->OutputVB2.Count()) ? skinning->OutputVB2[slot] : nullptr;
 
-    // Enqueue only if output is stale (dormant-skip). Stamp version now so same-mesh setups this frame coalesce to one dispatch.
+    // Enqueue if the cached output is stale (dormant-skip). OutputVersion advances only once the dispatch
+    // actually runs (see DispatchOne), so a dropped dispatch retries next frame instead of locking the pose.
     if (skinning->OutputVersion[slot] != skinning->SkinningVersion)
-    {
-        skinning->OutputVersion[slot] = skinning->SkinningVersion;
         _pending.Add({ skinning, mesh, slot });
-    }
 
     return true;
 }
@@ -344,11 +342,14 @@ void SkinningPass::FlushPending(GPUContext* context)
     int32 cbIndex = 0;
     for (const PendingDispatch& p : _pending)
     {
+        // Coalesce: a prior entry this frame (another context drawing the same mesh) already skinned this slot.
+        if (!p.Skinning || p.Skinning->OutputVersion[p.Slot] == p.Skinning->SkinningVersion)
+            continue;
         GPUConstantBuffer* cb = GetOrCreateCB(cbIndex++);
         if (!cb)
             continue;
         DispatchOne(context, p, cb, lastBones);
-        lastBones = p.Skinning ? p.Skinning->BoneMatrices : nullptr;
+        lastBones = p.Skinning->BoneMatrices;
     }
     // Clear bindings once at end of pass; downstream passes rebind what they need.
     context->ResetSR();
@@ -474,4 +475,7 @@ void SkinningPass::DispatchOne(GPUContext* context, const PendingDispatch& p, GP
 
     const uint32 groups = (vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE;
     context->Dispatch(_csSkin, groups, 1, 1);
+
+    // Mark the cached output resident only after a real dispatch; the early-outs above leave it stale to retry.
+    p.Skinning->OutputVersion[p.Slot] = p.Skinning->SkinningVersion;
 }

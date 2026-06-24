@@ -49,50 +49,53 @@ public:
     void PostDraw(GPUContext* context, RenderContextBatch& renderContextBatch) override
     {
         const int32 count = Items.Count();
-        if (count == 0)
-            return;
-        PROFILE_GPU_CPU_NAMED("Update Bones");
-        GPUMemoryPass pass(context);
-        Item* items = Items.Get();
-
-        // Special case for D3D11 backend that doesn't need transitions
-        if (context->GetDevice()->GetRendererType() <= RendererType::DirectX11)
+        if (count != 0)
         {
-            for (int32 i = 0; i < count; i++)
-            {
-                Item& item = items[i];
-                context->UpdateBuffer(item.BoneMatrices, item.Data, item.Size);
-            }
-        }
-        else
-        {
-            // Batch resource barriers for buffer update
-            for (int32 i = 0; i < count; i++)
-                pass.Transition(items[i].BoneMatrices, GPUResourceAccess::CopyWrite);
+            PROFILE_GPU_CPU_NAMED("Update Bones");
+            GPUMemoryPass pass(context);
+            Item* items = Items.Get();
 
-            // Update all buffers within Memory Pass (no barriers between)
-            for (int32 i = 0; i < count; i++)
+            // Special case for D3D11 backend that doesn't need transitions
+            if (context->GetDevice()->GetRendererType() <= RendererType::DirectX11)
             {
-                Item& item = items[i];
-                context->UpdateBuffer(item.BoneMatrices, item.Data, item.Size);
+                for (int32 i = 0; i < count; i++)
+                {
+                    Item& item = items[i];
+                    context->UpdateBuffer(item.BoneMatrices, item.Data, item.Size);
+                }
             }
+            else
+            {
+                // Batch resource barriers for buffer update
+                for (int32 i = 0; i < count; i++)
+                    pass.Transition(items[i].BoneMatrices, GPUResourceAccess::CopyWrite);
 
-            // Batch resource barriers for reading in Vertex Shader
-            for (int32 i = 0; i < count; i++)
-                pass.Transition(items[i].BoneMatrices, GPUResourceAccess::ShaderReadGraphics);
-        }
+                // Update all buffers within Memory Pass (no barriers between)
+                for (int32 i = 0; i < count; i++)
+                {
+                    Item& item = items[i];
+                    context->UpdateBuffer(item.BoneMatrices, item.Data, item.Size);
+                }
+
+                // Batch resource barriers for reading in Vertex Shader
+                for (int32 i = 0; i < count; i++)
+                    pass.Transition(items[i].BoneMatrices, GPUResourceAccess::ShaderReadGraphics);
+            }
 
 #if COMPILE_WITH_PROFILER
-        // Insert amount of kilobytes of data updated into profiler trace
-        uint32 dataSize = 0;
-        for (int32 i = 0; i < count; i++)
-            dataSize += items[i].Size;
-        ZoneValue(dataSize / 1024);
+            // Insert amount of kilobytes of data updated into profiler trace
+            uint32 dataSize = 0;
+            for (int32 i = 0; i < count; i++)
+                dataSize += items[i].Size;
+            ZoneValue(dataSize / 1024);
 #endif
 
-        Items.Clear();
+            Items.Clear();
+        }
 
-        // Dispatch skinning now: after the bone upload, before any pass samples the output VBs.
+        // Dispatch skinning now: after the bone upload, before any pass samples the output VBs. Runs even
+        // with no bone upload: a dormant skeleton enqueues a dispatch (e.g. first draw of a new LOD slot
+        // after re-appearing from culling) without dirtying bones, so gating this on the upload would drop it.
         SkinningPass::Instance()->FlushPending(context);
     }
 };
