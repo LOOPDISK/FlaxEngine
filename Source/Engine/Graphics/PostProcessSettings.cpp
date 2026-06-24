@@ -69,6 +69,10 @@ void ToneMappingSettings::BlendWith(ToneMappingSettings& other, float weight)
     BLEND_FLOAT(WhiteTemperature);
     BLEND_FLOAT(WhiteTint);
     BLEND_ENUM(Mode);
+    BLEND_FLOAT(Toe);
+    BLEND_FLOAT(Shoulder);
+    BLEND_FLOAT(Saturation);
+    BLEND_FLOAT(PathToWhite);
 }
 
 void ColorGradingSettings::BlendWith(ColorGradingSettings& other, float weight)

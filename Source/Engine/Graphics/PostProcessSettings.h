@@ -59,9 +59,9 @@ API_ENUM() enum class ToneMappingMode
     AGX = 3,
 
     /// <summary>
-    /// The Smoothstep tonemapper.
+    /// The Medpole tonemapper. An analytic, in-gamut-by-construction rational tone curve with artist controls (toe, shoulder, saturation, path-to-white).
     /// </summary>
-    Smoothstep = 4,
+    Medpole = 4,
 };
 
 /// <summary>
@@ -665,9 +665,29 @@ API_ENUM(Attributes ="Flags") enum class ToneMappingSettingsOverride : int32
     Mode = 1 << 2,
 
     /// <summary>
+    /// Overrides <see cref="ToneMappingSettings.Toe"/> property.
+    /// </summary>
+    Toe = 1 << 3,
+
+    /// <summary>
+    /// Overrides <see cref="ToneMappingSettings.Shoulder"/> property.
+    /// </summary>
+    Shoulder = 1 << 4,
+
+    /// <summary>
+    /// Overrides <see cref="ToneMappingSettings.Saturation"/> property.
+    /// </summary>
+    Saturation = 1 << 5,
+
+    /// <summary>
+    /// Overrides <see cref="ToneMappingSettings.PathToWhite"/> property.
+    /// </summary>
+    PathToWhite = 1 << 6,
+
+    /// <summary>
     /// All properties.
     /// </summary>
-    All = WhiteTemperature | WhiteTint | Mode,
+    All = WhiteTemperature | WhiteTint | Mode | Toe | Shoulder | Saturation | PathToWhite,
 };
 
 /// <summary>
@@ -702,6 +722,30 @@ API_STRUCT() struct FLAXENGINE_API ToneMappingSettings : ISerializable
     /// </summary>
     API_FIELD(Attributes="EditorOrder(2), PostProcessSetting((int)ToneMappingSettingsOverride.Mode)")
     ToneMappingMode Mode = ToneMappingMode::ACES;
+
+    /// <summary>
+    /// Medpole tonemapper: shadow toe / contrast. 0 = Reinhard rolloff; increasing values crush shadows toward a quadratic toe. Only used when <see cref="Mode"/> is <see cref="ToneMappingMode.Medpole"/>.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 1, 0.001f), EditorOrder(3), PostProcessSetting((int)ToneMappingSettingsOverride.Toe), VisibleIf(nameof(ShowMedpoleSettings))")
+    float Toe = 0.0f;
+
+    /// <summary>
+    /// Medpole tonemapper: highlight rolloff. Adds a cubic term so highlights reach white sooner, concentrated at high brightness. Only used when <see cref="Mode"/> is <see cref="ToneMappingMode.Medpole"/>.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 1, 0.001f), EditorOrder(4), PostProcessSetting((int)ToneMappingSettingsOverride.Shoulder), VisibleIf(nameof(ShowMedpoleSettings))")
+    float Shoulder = 0.0f;
+
+    /// <summary>
+    /// Medpole tonemapper: saturation gain. Below 1 desaturates, 1 is native, above 1 boosts saturation up to the gamut hull (hue-locked, never channel-clipped). Only used when <see cref="Mode"/> is <see cref="ToneMappingMode.Medpole"/>.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 2, 0.001f), EditorOrder(5), PostProcessSetting((int)ToneMappingSettingsOverride.Saturation), VisibleIf(nameof(ShowMedpoleSettings))")
+    float Saturation = 1.0f;
+
+    /// <summary>
+    /// Medpole tonemapper: path-to-white strength. Controls how much highlights desaturate toward white as they compress. 1 is the validated neutral; 0 disables the path-to-white. Only used when <see cref="Mode"/> is <see cref="ToneMappingMode.Medpole"/>.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 1, 0.001f), EditorOrder(6), PostProcessSetting((int)ToneMappingSettingsOverride.PathToWhite), VisibleIf(nameof(ShowMedpoleSettings))")
+    float PathToWhite = 1.0f;
 
 public:
     /// <summary>
