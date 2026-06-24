@@ -37,6 +37,11 @@ GPU_CB_STRUCT(Data{
 
     float ColorVibrance;
     float LutWeight;
+    float ToneToe;
+    float ToneShoulder;
+
+    float ToneSaturation;
+    float TonePathToWhite;
     Float2 Dummy;
 
     void Init(const PostProcessSettings& settings, GPUTexture*& lut)
@@ -47,6 +52,11 @@ GPU_CB_STRUCT(Data{
         // White Balance
         WhiteTemp = toneMapping.WhiteTemperature;
         WhiteTint = toneMapping.WhiteTint;
+        // Tone Mapping (Medpole)
+        ToneToe = toneMapping.Toe;
+        ToneShoulder = toneMapping.Shoulder;
+        ToneSaturation = toneMapping.Saturation;
+        TonePathToWhite = toneMapping.PathToWhite;
         // Shadows
         ColorSaturationShadows = colorGrading.ColorSaturationShadows * colorGrading.ColorSaturation;
         ColorContrastShadows = colorGrading.ColorContrastShadows * colorGrading.ColorContrast;
