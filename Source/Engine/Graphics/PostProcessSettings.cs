@@ -21,4 +21,12 @@ namespace FlaxEngine
         /// </summary>
         public bool ShowTAASettings => (Mode == AntialiasingMode.TemporalAntialiasing);
     }
+
+    public partial struct ToneMappingSettings
+    {
+        /// <summary>
+        /// Whether or not to show the Medpole tonemapper settings.
+        /// </summary>
+        public bool ShowMedpoleSettings => (Mode == ToneMappingMode.Medpole);
+    }
 }

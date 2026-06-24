@@ -307,6 +307,20 @@ namespace FlaxEngine.Json
                 }
                 return true;
             }
+            // Types that serialize as an object but also implement IEnumerable (e.g. a [JsonObject]-marked
+            // collection-like type with extra fields) must be compared by their serialized members, not by
+            // enumeration. Otherwise non-enumerated members are ignored here and silently dropped from prefab
+            // diffs (the parent treats the object as "unchanged" whenever its enumerated items match).
+            if (objA is IEnumerable && Settings.ContractResolver.ResolveContract(objA.GetType()) is JsonObjectContract enumObjContract)
+            {
+                foreach (var property in enumObjContract.Properties)
+                {
+                    var valueProvider = property.ValueProvider;
+                    if (!ValueEquals(valueProvider.GetValue(objA), valueProvider.GetValue(objB)))
+                        return false;
+                }
+                return true;
+            }
             if (objA is IEnumerable aEnumerable && objB is IEnumerable bEnumerable)
             {
                 var aEnumerator = aEnumerable.GetEnumerator();

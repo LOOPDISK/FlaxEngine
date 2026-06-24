@@ -37,6 +37,11 @@ float WhiteTint;
 
 float ColorVibrance;
 float LutWeight;
+float ToneToe;
+float ToneShoulder;
+
+float ToneSaturation;
+float TonePathToWhite;
 float2 Dummy;
 META_CB_END
 
@@ -273,12 +278,26 @@ float3 TonemapAGX(float3 linearColor)
 }
 #endif
 
-#ifdef TONE_MAPPING_MODE_SMOOTHSTEP
+#ifdef TONE_MAPPING_MODE_MEDPOLE
 
-float3 TonemapSmoothstep(float3 linearColor)
+// MEDPOLE --  Brightness acts on
+// MAX(R,G,B) via a monotone rational tone curve. decompose -> desaturate-on-compression -> recompose
+// collapses to a branchless form that is IN-GAMUT BY CONSTRUCTION across the full knob range: 
+float3 TonemapMedpole(float3 color)
 {
-    float amount = 6.0f;
-    return (amount * linearColor * linearColor) / (amount * linearColor * linearColor + 1.0);
+    color = max(color, 0.0);                                           // kill negative inputs (the one load-bearing max)
+    float mx = max(color.r, max(color.g, color.b));
+    float mn = min(color.r, min(color.g, color.b));
+    float poly = (1.0 - ToneToe) + mx * (ToneToe + mx * ToneShoulder); // = (1-toe) + toe*mx + shoulder*mx^2, all coeffs >= 0
+    float N = mx * poly;                                              // c1*mx + c2*mx^2 + c3*mx^3, monotone up
+    float den = 1.0 + N;                                             // >= 1: the rational pole, never degenerate
+    float zp = N / den;                                             // tone curve in [0,1)
+    float scale = poly / den;                                      // = zp/mx, finite at mx=0 (-> 1-toe); also compression proxy
+    float roll = 1.0 - TonePathToWhite * (1.0 - scale);           // path-to-white: 1 (shadow) -> 1-pathToWhite (highlight)
+    float w = scale * ToneSaturation * roll;                     // per-pixel desaturation weight
+    float wcap = zp / max(mx - mn, 1e-6);                       // saturation ceiling: keeps the darkest channel >= 0
+    w = min(w, wcap);                                          // inert for sat<=1; pins the sat>1 boost to the gamut hull, hue-locked
+    return max(zp - w * (mx - color), 0.0);                  // recompose; out in [0, zp] -- the max() is now an inert fp guard
 }
 
 #endif
@@ -294,8 +313,8 @@ float3 Tonemap(float3 linearColor)
 	return TonemapACES(linearColor);
 #elif defined(TONE_MAPPING_MODE_AGX)
     return TonemapAGX(linearColor);
-#elif defined(TONE_MAPPING_MODE_SMOOTHSTEP)
-    return TonemapSmoothstep(linearColor);
+#elif defined(TONE_MAPPING_MODE_MEDPOLE)
+    return TonemapMedpole(linearColor);
 #else
 	return float3(0, 0, 0);
 #endif
@@ -390,7 +409,7 @@ META_PERMUTATION_1(TONE_MAPPING_MODE_NONE=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_NEUTRAL=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_ACES=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_AGX=1)
-META_PERMUTATION_1(TONE_MAPPING_MODE_SMOOTHSTEP=1)
+META_PERMUTATION_1(TONE_MAPPING_MODE_MEDPOLE=1)
 float4 PS_Lut2D(Quad_VS2PS input) : SV_Target
 {
 	return CombineLUTs(input.TexCoord, 0);
@@ -401,7 +420,7 @@ META_PERMUTATION_1(TONE_MAPPING_MODE_NONE=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_NEUTRAL=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_ACES=1)
 META_PERMUTATION_1(TONE_MAPPING_MODE_AGX=1)
-META_PERMUTATION_1(TONE_MAPPING_MODE_SMOOTHSTEP=1)
+META_PERMUTATION_1(TONE_MAPPING_MODE_MEDPOLE=1)
 float4 PS_Lut3D(Quad_GS2PS input) : SV_Target
 {
 	return CombineLUTs(input.Vertex.TexCoord, input.LayerIndex);

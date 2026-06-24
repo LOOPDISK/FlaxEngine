@@ -116,6 +116,9 @@ AnimatedModel::AnimatedModel(const SpawnParams& params)
 
 AnimatedModel::~AnimatedModel()
 {
+    // Cancel any pending prewarm: actors destroyed without EndPlay (e.g. scripts recompile, async model load
+    // outside play) would otherwise leave a dangling &_skinningData in the render thread's prewarm queue.
+    SkinningPass::Instance()->CancelPrewarm(&_skinningData);
     // Detach any sockets that didn't get OnParentChanged on destruction
     for (BoneSocket* socket : _sockets)
         socket->_parent = nullptr;
