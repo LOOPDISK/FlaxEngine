@@ -509,9 +509,18 @@ bool MeshData::GenerateNormals(float smoothingAngle)
 #if USE_MIKKTSPACE
 namespace
 {
+    // User data passed to MikkTSpace callbacks. Tangent frames are gathered per triangle-corner
+    // (not per-vertex) so that tangent-space discontinuities across UV seams/mirrors can be split later.
+    struct MikkTSpaceMesh
+    {
+        MeshData* Mesh;
+        Float3* CornerTangents;
+        float* CornerSigns;
+    };
+
     int GetNumFaces(const SMikkTSpaceContext* pContext)
     {
-        const auto meshData = (MeshData*)pContext->m_pUserData;
+        const auto meshData = ((MikkTSpaceMesh*)pContext->m_pUserData)->Mesh;
         return meshData->Indices.Count() / 3;
     }
 
@@ -522,7 +531,7 @@ namespace
 
     void GetPosition(const SMikkTSpaceContext* pContext, float fvPosOut[], const int iFace, const int iVert)
     {
-        const auto meshData = (MeshData*)pContext->m_pUserData;
+        const auto meshData = ((MikkTSpaceMesh*)pContext->m_pUserData)->Mesh;
         const auto e = meshData->Positions[meshData->Indices[iFace * 3 + iVert]];
         fvPosOut[0] = e.X;
         fvPosOut[1] = e.Y;
@@ -531,7 +540,7 @@ namespace
 
     void GetNormal(const SMikkTSpaceContext* pContext, float fvNormOut[], const int iFace, const int iVert)
     {
-        const auto meshData = (MeshData*)pContext->m_pUserData;
+        const auto meshData = ((MikkTSpaceMesh*)pContext->m_pUserData)->Mesh;
         const auto e = meshData->Normals[meshData->Indices[iFace * 3 + iVert]];
         fvNormOut[0] = e.X;
         fvNormOut[1] = e.Y;
@@ -540,7 +549,7 @@ namespace
 
     void GetTexCoord(const SMikkTSpaceContext* pContext, float fvTexcOut[], const int iFace, const int iVert)
     {
-        const auto meshData = (MeshData*)pContext->m_pUserData;
+        const auto meshData = ((MikkTSpaceMesh*)pContext->m_pUserData)->Mesh;
         const auto e = meshData->UVs[0][meshData->Indices[iFace * 3 + iVert]];
         fvTexcOut[0] = e.X;
         fvTexcOut[1] = e.Y;
@@ -548,10 +557,123 @@ namespace
 
     void SetTSpaceBasic(const SMikkTSpaceContext* pContext, const float fvTangent[], const float fSign, const int iFace, const int iVert)
     {
-        const auto meshData = (MeshData*)pContext->m_pUserData;
-        const auto v = meshData->Indices[iFace * 3 + iVert];
-        meshData->Tangents[v] = Float3(fvTangent);
-        meshData->BitangentSigns[v] = fSign;
+        // Store the tangent frame per triangle-corner. Corners that share a vertex but sit on opposite
+        // sides of a UV mirror seam receive different tangents/signs here and are split apart below.
+        const auto data = (MikkTSpaceMesh*)pContext->m_pUserData;
+        const int32 corner = iFace * 3 + iVert;
+        data->CornerTangents[corner] = Float3(fvTangent);
+        data->CornerSigns[corner] = fSign;
+    }
+
+    // Duplicates per-vertex buffer contents according to the new-to-old vertex index mapping.
+    template<typename T>
+    void DuplicateVertexBuffer(Array<T>& buffer, const Array<int32>& newToOld)
+    {
+        if (buffer.IsEmpty())
+            return;
+        Array<T> old;
+        old.Swap(buffer);
+        buffer.Resize(newToOld.Count(), false);
+        for (int32 i = 0; i < newToOld.Count(); i++)
+            buffer[i] = old[newToOld[i]];
+    }
+
+    // Rebuilds the mesh vertex/index buffers splitting vertices that are shared by corners with a
+    // different tangent frame (tangent direction or bitangent sign). Without this, a vertex on a UV
+    // mirror seam holds a single sign while being referenced by both +1 and -1 faces, so the per-vertex
+    // sign gets interpolated from +1 to -1 across the bridging triangles, passing through 0 and collapsing
+    // the reconstructed bitangent (cross(N,T)*sign) - which smears normal mapping along the seam.
+    void SplitMeshVerticesByTangentFrame(MeshData& mesh, const Array<Float3>& cornerTangents, const Array<float>& cornerSigns)
+    {
+        const int32 indexCount = mesh.Indices.Count();
+        const int32 vertexCount = mesh.Positions.Count();
+
+        Array<int32> newToOld;
+        newToOld.EnsureCapacity(vertexCount);
+        Array<Float3> newTangents;
+        newTangents.EnsureCapacity(vertexCount);
+        Array<float> newSigns;
+        newSigns.EnsureCapacity(vertexCount);
+
+        // Per original vertex, the list of already-created split variants (new vertex indices)
+        Array<Array<int32>> variantsByOld;
+        variantsByOld.Resize(vertexCount);
+
+        Array<uint32> newIndices;
+        newIndices.Resize(indexCount, false);
+
+        for (int32 c = 0; c < indexCount; c++)
+        {
+            const int32 oldV = (int32)mesh.Indices[c];
+            const Float3 tangent = cornerTangents[c];
+            const float sign = cornerSigns[c];
+
+            // Reuse an existing variant only when the tangent frame matches (same sign and near-equal tangent)
+            int32 newV = INVALID_INDEX;
+            for (int32 variant : variantsByOld[oldV])
+            {
+                if (newSigns[variant] == sign && Float3::Dot(newTangents[variant], tangent) > 0.9995f)
+                {
+                    newV = variant;
+                    break;
+                }
+            }
+            if (newV == INVALID_INDEX)
+            {
+                newV = newToOld.Count();
+                newToOld.Add(oldV);
+                newTangents.Add(tangent);
+                newSigns.Add(sign);
+                variantsByOld[oldV].Add(newV);
+            }
+            newIndices[c] = (uint32)newV;
+        }
+
+        // Fast path: no vertices needed splitting, just store the generated tangent frames
+        if (newToOld.Count() == vertexCount)
+        {
+            mesh.Tangents.Swap(newTangents);
+            mesh.BitangentSigns.Swap(newSigns);
+            return;
+        }
+
+        // Duplicate all per-vertex attribute buffers to match the split vertices
+        DuplicateVertexBuffer(mesh.Positions, newToOld);
+        DuplicateVertexBuffer(mesh.Normals, newToOld);
+        DuplicateVertexBuffer(mesh.Colors, newToOld);
+        DuplicateVertexBuffer(mesh.BlendIndices, newToOld);
+        DuplicateVertexBuffer(mesh.BlendWeights, newToOld);
+        for (auto& channel : mesh.UVs)
+            DuplicateVertexBuffer(channel, newToOld);
+        mesh.Tangents.Swap(newTangents);
+        mesh.BitangentSigns.Swap(newSigns);
+        mesh.Indices.Swap(newIndices);
+
+        // Remap blend shapes (a single source vertex may now map to several split vertices)
+        for (auto& blendShape : mesh.BlendShapes)
+        {
+            if (blendShape.Vertices.IsEmpty())
+                continue;
+            Array<BlendShapeVertex> oldVertices;
+            oldVertices.Swap(blendShape.Vertices);
+            blendShape.MinVertexIndex = MAX_uint32;
+            blendShape.MaxVertexIndex = 0;
+            for (const BlendShapeVertex& v : oldVertices)
+            {
+                if (v.VertexIndex >= (uint32)vertexCount)
+                    continue;
+                for (int32 splitV : variantsByOld[v.VertexIndex])
+                {
+                    BlendShapeVertex nv = v;
+                    nv.VertexIndex = (uint32)splitV;
+                    blendShape.Vertices.Add(nv);
+                    blendShape.MinVertexIndex = Math::Min(blendShape.MinVertexIndex, nv.VertexIndex);
+                    blendShape.MaxVertexIndex = Math::Max(blendShape.MaxVertexIndex, nv.VertexIndex);
+                }
+            }
+            if (blendShape.Vertices.IsEmpty())
+                blendShape.MinVertexIndex = 0;
+        }
     }
 }
 #endif
@@ -577,6 +699,15 @@ bool MeshData::GenerateTangents(float smoothingAngle)
     smoothingAngle = Math::Clamp(smoothingAngle, 0.0f, 45.0f);
 
 #if USE_MIKKTSPACE
+    // Gather tangent frames per triangle-corner so seam/mirror discontinuities can be resolved by splitting
+    Array<Float3> cornerTangents;
+    cornerTangents.Resize(indexCount, false);
+    Array<float> cornerSigns;
+    cornerSigns.Resize(indexCount, false);
+    MikkTSpaceMesh userData;
+    userData.Mesh = this;
+    userData.CornerTangents = cornerTangents.Get();
+    userData.CornerSigns = cornerSigns.Get();
     SMikkTSpaceInterface callbacks = {
         GetNumFaces,
         GetNumVerticesOfFace,
@@ -586,9 +717,15 @@ bool MeshData::GenerateTangents(float smoothingAngle)
         SetTSpaceBasic,
         nullptr
     };
-    const SMikkTSpaceContext context = { &callbacks, this };
-    BitangentSigns.Resize(vertexCount, false);
-    genTangSpace(&context, 180.0f - smoothingAngle);
+    const SMikkTSpaceContext context = { &callbacks, &userData };
+    if (!genTangSpace(&context, 180.0f - smoothingAngle))
+    {
+        LOG(Warning, "Failed to generate mesh tangents using MikkTSpace.");
+        return true;
+    }
+
+    // Split vertices whose corners have differing tangent frames (e.g. across UV mirror seams)
+    SplitMeshVerticesByTangentFrame(*this, cornerTangents, cornerSigns);
 #else
     const float angleEpsilon = 0.9999f;
     BitArray<> vertexDone;

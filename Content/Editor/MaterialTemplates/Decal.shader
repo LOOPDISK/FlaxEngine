@@ -250,12 +250,11 @@ void PS_Decal(
 	materialInput.SvPosition = SvPosition;
 	materialInput.TexCoord_DDX_DDY = CalculateTextureDerivatives(materialInput.SvPosition, materialInput.TexCoord);
 
-	// Calculate tangent-space
-	float3 ddxWp = ddx(positionWS);
-	float3 ddyWp = ddy(positionWS);
-	materialInput.TBN[0] = normalize(ddyWp);
-	materialInput.TBN[1] = normalize(ddxWp);
-	materialInput.TBN[2] = normalize(cross(ddxWp, ddyWp));
+	// Calculate tangent-space aligned to the decal projection UVs (view-independent), not screen space.
+	// Uses the same cotangent-frame method as surfaces without vertex tangents (CalcTangentBasis),
+	// so decal normal maps use the engine's standard tangent convention and don't swim with the camera.
+	float3 surfaceNormal = normalize(cross(ddx(positionWS), ddy(positionWS)));
+	materialInput.TBN = CalcTangentBasis(surfaceNormal, positionWS, decalUVs);
 
 	// Sample material
 	Material material = GetMaterialPS(materialInput);
