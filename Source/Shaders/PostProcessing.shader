@@ -702,6 +702,7 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     float2 texelSize = 1.0 / float2(width, height);
 
     float4 color = Input0.Sample(SamplerLinearClamp, input.TexCoord) * 4.0;
+    float4 previousMip = Input1.Sample(SamplerLinearClamp, input.TexCoord) * 4.0;
     float totalWeight = 4.0;
 
     const float2 offsets[8] =
@@ -717,13 +718,19 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     };
     const float weights[8] = { 2.0, 2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0 };
 
+    // The downsampled chain gets the same tent as the cascade: a raw bilinear tap of the
+    // critically-sampled mip K+1 would inject its lattice into half of every stored level -
+    // exactly the artifact the octave scheme exists to avoid.
     UNROLL
     for (int i = 0; i < 8; i++)
     {
-        color += Input0.Sample(SamplerLinearClamp, MirrorScreenUV(input.TexCoord + offsets[i] * texelSize)) * weights[i];
+        float2 uv = MirrorScreenUV(input.TexCoord + offsets[i] * texelSize);
+        color += Input0.Sample(SamplerLinearClamp, uv) * weights[i];
+        previousMip += Input1.Sample(SamplerLinearClamp, uv) * weights[i];
         totalWeight += weights[i];
     }
     color /= totalWeight;
+    previousMip /= totalWeight;
 
     // Blend with the downsampled chain (energy-preserving cascade)
     uint width1, height1;
@@ -731,7 +738,6 @@ float4 PS_DepthHazeDualFilterUpsample(Quad_VS2PS input) : SV_Target
     BRANCH
     if (width1 > 0)
     {
-        float4 previousMip = Input1.Sample(SamplerLinearClamp, input.TexCoord);
         color = lerp(previousMip, color, 0.5);
     }
 
