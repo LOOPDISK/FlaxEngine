@@ -595,9 +595,9 @@ API_STRUCT() struct FLAXENGINE_API DepthHazeSettings : ISerializable
     bool Enabled = false;
 
     /// <summary>
-    /// Overall depth haze effect strength. Higher values create a stronger haze effect.
+    /// Overall depth haze effect strength. Blend weight between the sharp scene and the fully hazed result (values above 1 would extrapolate and produce negative colors).
     /// </summary>
-    API_FIELD(Attributes="Limit(0, 100.0f, 0.001f), EditorOrder(1), PostProcessSetting((int)DepthHazeSettingsOverride.Intensity)")
+    API_FIELD(Attributes="Limit(0, 1.0f, 0.001f), EditorOrder(1), PostProcessSetting((int)DepthHazeSettingsOverride.Intensity)")
     float Intensity = 0.5f;
 
     /// <summary>
