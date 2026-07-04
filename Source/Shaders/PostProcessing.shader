@@ -279,6 +279,14 @@ float pnoise2D(in float2 p, in float time)
 	return n_xy;
 }
 
+// Mirror kernel taps that land off-screen back onto interior content. With plain clamp
+// addressing, off-screen taps clone the border pixel, so features at the screen edge get
+// "blurred" with copies of themselves and stay sharp - visible when the camera rotates.
+float2 MirrorScreenUV(float2 uv)
+{
+    return 1.0 - abs(1.0 - abs(uv));
+}
+
 // 2d coordinate orientation thing
 float2 coordRot(in float2 tc, in float angle)
 {
@@ -318,7 +326,7 @@ float4 PS_BloomBrightPass(Quad_VS2PS input) : SV_Target
     {
         float angle = i * (PI / 2.0);
         float2 offset = float2(cos(angle), sin(angle)) * texelSize;
-        float3 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
+        float3 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset).rgb;
 
         // Apply Karis average
         float sampleLuma = max(dot(sampleColor, float3(0.2126, 0.7152, 0.0722)), 0.0001);
@@ -390,44 +398,51 @@ float4 PS_BloomDownsample(Quad_VS2PS input) : SV_Target
     Input0.GetDimensions(width, height);
     float2 texelSize = 1.0 / float2(width, height);
 
-    // 9-tap tent filter with fixed weights
-    float3 color = 0;
-    float totalWeight = 0;
-
-    // Sample offsets (fixed)
-    const float2 offsets[9] =
+    // 13-tap Jimenez downsample (same kernel as the depth haze chain): 5 overlapping 2x2
+    // bilinear quads over a 6x6 source footprint. The old widened tent leaked aliasing
+    // energy at each 2x decimation, compounding across the chain into deep-mip twinkle
+    // under sub-texel camera motion.
+    const float2 offsets[13] =
     {
-        float2( 0,  0),    // Center
-        float2(-1, -1),    // Corners
+        float2(-1, -1),    // Inner quad (half the total weight)
         float2( 1, -1),
         float2(-1,  1),
         float2( 1,  1),
-        float2( 0, -1),    // Cross
-        float2(-1,  0),
-        float2( 1,  0),
-        float2( 0,  1)
+        float2( 0,  0),    // Center (shared by all 4 outer quads)
+        float2(-2,  0),    // Edge midpoints (each shared by 2 outer quads)
+        float2( 2,  0),
+        float2( 0, -2),
+        float2( 0,  2),
+        float2(-2, -2),    // Corners
+        float2( 2, -2),
+        float2(-2,  2),
+        float2( 2,  2)
+    };
+    const float weights[13] =
+    {
+        0.125,   // Inner quad
+        0.125,
+        0.125,
+        0.125,
+        0.125,   // Center
+        0.0625,  // Edge midpoints
+        0.0625,
+        0.0625,
+        0.0625,
+        0.03125, // Corners
+        0.03125,
+        0.03125,
+        0.03125
     };
 
-    // Sample weights (fixed)
-    const float weights[9] =
-    {
-        4.0,    // Center
-        1.0,    // Corners
-        1.0,
-        1.0,
-        1.0,
-        2.0,    // Cross
-        2.0,
-        2.0,
-        2.0
-    };
+    float3 color = 0;
+    float totalWeight = 0;
 
     UNROLL
-    for (int i = 0; i < 9; i++)
+    for (int i = 0; i < 13; i++)
     {
-        float2 offset = offsets[i] * texelSize * 2.0; // Fixed scale factor for stability
-        float4 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + offset);
-        color += sampleColor.rgb * weights[i];
+        float2 uv = MirrorScreenUV(input.TexCoord + offsets[i] * texelSize);
+        color += Input0.Sample(SamplerLinearClamp, uv).rgb * weights[i];
         totalWeight += weights[i];
     }
 
@@ -448,16 +463,22 @@ float4 PS_BloomDualFilterUpsample(Quad_VS2PS input) : SV_Target
     float3 color = 0;
     float totalWeight = 0;
 
+    // The downsampled chain gets the same tent as the cascade: a raw bilinear tap of the
+    // critically-sampled mip K+1 would inject its lattice into every accumulated level -
+    // the same fix as the depth haze upsample.
+    float3 previousMip = 0;
+
     // Center
     float4 center = Input0.Sample(SamplerLinearClamp, input.TexCoord);
     float centerWeight = 4.0;
     color += center.rgb * centerWeight;
+    previousMip += Input1.Sample(SamplerLinearClamp, input.TexCoord).rgb * centerWeight;
     totalWeight += centerWeight;
 
     // Cross - fixed distance samples
     float2 crossOffsets[4] = {
-        float2(offsetScale * anisotropy, 0),  
-        float2(-offsetScale * anisotropy, 0), 
+        float2(offsetScale * anisotropy, 0),
+        float2(-offsetScale * anisotropy, 0),
         float2(0, offsetScale),
         float2(0, -offsetScale)
     };
@@ -465,31 +486,34 @@ float4 PS_BloomDualFilterUpsample(Quad_VS2PS input) : SV_Target
     UNROLL
     for (int i = 0; i < 4; i++)
     {
-        float4 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + crossOffsets[i] * texelSize);
+        float2 uv = MirrorScreenUV(input.TexCoord + crossOffsets[i] * texelSize);
         float weight = 2.0;
-        color += sampleColor.rgb * weight;
+        color += Input0.Sample(SamplerLinearClamp, uv).rgb * weight;
+        previousMip += Input1.Sample(SamplerLinearClamp, uv).rgb * weight;
         totalWeight += weight;
     }
 
     // Corners - fixed distance samples
     float2 cornerOffsets[4] =
     {
-        float2(offsetScale * anisotropy, offsetScale), 
-        float2(-offsetScale * anisotropy, offsetScale), 
-        float2(offsetScale * anisotropy, -offsetScale), 
-        float2(-offsetScale * anisotropy, -offsetScale) 
+        float2(offsetScale * anisotropy, offsetScale),
+        float2(-offsetScale * anisotropy, offsetScale),
+        float2(offsetScale * anisotropy, -offsetScale),
+        float2(-offsetScale * anisotropy, -offsetScale)
     };
 
     UNROLL
     for (int j = 0; j < 4; j++)
     {
-        float4 sampleColor = Input0.Sample(SamplerLinearClamp, input.TexCoord + cornerOffsets[j] * texelSize);
+        float2 uv = MirrorScreenUV(input.TexCoord + cornerOffsets[j] * texelSize);
         float weight = 1.0;
-        color += sampleColor.rgb * weight;
+        color += Input0.Sample(SamplerLinearClamp, uv).rgb * weight;
+        previousMip += Input1.Sample(SamplerLinearClamp, uv).rgb * weight;
         totalWeight += weight;
     }
 
     color /= totalWeight;
+    previousMip /= totalWeight;
 
     uint width1, height1;
     Input1.GetDimensions(width1, height1);
@@ -511,7 +535,6 @@ float4 PS_BloomDualFilterUpsample(Quad_VS2PS input) : SV_Target
     BRANCH
     if (width1 > 0)
     {
-        float3 previousMip = Input1.Sample(SamplerLinearClamp, input.TexCoord).rgb;
         color += previousMip;
     }
 
@@ -545,14 +568,6 @@ float HazeMipThresholdDepth(float mip)
 float HazeParticipation(float linearDepth, float thresholdDepth)
 {
     return smoothstep(thresholdDepth * 0.8, thresholdDepth * 1.2, linearDepth);
-}
-
-// Mirror kernel taps that land off-screen back onto interior content. With plain clamp
-// addressing, off-screen taps clone the border pixel, so features at the screen edge get
-// "blurred" with copies of themselves and stay sharp - visible when the camera rotates.
-float2 MirrorScreenUV(float2 uv)
-{
-    return 1.0 - abs(1.0 - abs(uv));
 }
 
 // View-Z -> radial distance factor for this pixel's view ray (ViewInfo.xy = 1/Projection.M11/M22).
