@@ -806,7 +806,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         if ((!fogInjectList.IsEmpty() && fogInjectAnyConsumer) || fogInjectDebug)
         {
             PROFILE_GPU_CPU("Fog Inject");
-            // Quarter-res buffer (keep FOG_INJECT_DOWNSCALE in the FogInject.hlsl material template in sync)
+            // Quarter-res buffer
             const int32 injectWidth = Math::Max(1, renderContext.Buffers->GetWidth() / 4);
             const int32 injectHeight = Math::Max(1, renderContext.Buffers->GetHeight() / 4);
             const auto injectDesc = GPUTextureDescription::New2D(injectWidth, injectHeight, PixelFormat::R16G16B16A16_Float);
@@ -816,9 +816,13 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
             context->SetViewportAndScissors((float)injectWidth, (float)injectHeight);
             context->SetRenderTarget(fogInject->View());
             const DrawPass savedPass = renderContext.View.Pass;
+            const Float4 savedScreenSize = renderContext.View.ScreenSize;
             renderContext.View.Pass = DrawPass::FogInject;
+            // Screen-space UVs in material shaders (SvPosition.xy * ScreenSize.zw: depth fade, scene depth/color nodes, the FogInject occlusion) must match the low-res raster target, else they sample a magnified corner of the screen
+            renderContext.View.ScreenSize = Float4((float)injectWidth, (float)injectHeight, 1.0f / (float)injectWidth, 1.0f / (float)injectHeight);
             renderContext.List->ExecuteDrawCalls(renderContext, DrawCallsListType::FogInject);
             renderContext.View.Pass = savedPass;
+            renderContext.View.ScreenSize = savedScreenSize;
             context->ResetRenderTarget();
             context->SetViewportAndScissors(renderContext.Task->GetViewport());
             renderContext.List->Fog.FogInjectTexture = fogInject;

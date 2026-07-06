@@ -10,7 +10,7 @@
 /// <summary>
 /// Current materials shader version.
 /// </summary>
-#define MATERIAL_GRAPH_VERSION 185 // 184: particle FogInject pass, 185: FogInject push-only opacity
+#define MATERIAL_GRAPH_VERSION 186 // 184: particle FogInject pass, 185: FogInject push-only opacity, 186: FogInject low-res ScreenSize (no template downscale factor)
 
 class Material;
 class GPUShader;

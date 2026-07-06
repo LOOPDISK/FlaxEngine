@@ -1,7 +1,6 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
 @0// Fog Inject: Defines
-#define FOG_INJECT_DOWNSCALE 4.0 // Inject buffer resolution divisor - keep in sync with the buffer size in Renderer.cpp
 @1// Fog Inject: Includes
 @2// Fog Inject: Constants
 @3// Fog Inject: Resources
@@ -40,7 +39,9 @@ float4 PS_FogInject(PixelInput input) : SV_Target0
 	// Soft depth occlusion: particles behind geometry must not push fog. SvPosition.w holds the
 	// particle's linear view depth; the scene depth is linearized with the same ViewInfo terms as
 	// the fog/haze passes. Softness scales with distance (min 1m) to avoid pops at quarter res.
-	float2 depthUV = materialInput.SvPosition.xy * ScreenSize.zw * FOG_INJECT_DOWNSCALE;
+	// ScreenSize matches the low-res inject target during this pass (patched in Renderer.cpp) so
+	// screen-space UVs stay [0;1] here and in material graph nodes (depth fade, scene depth).
+	float2 depthUV = materialInput.SvPosition.xy * ScreenSize.zw;
 	float deviceDepth = FogInjectSceneDepth.SampleLevel(SamplerPointClamp, depthUV, 0).r;
 	float sceneDepth = (ViewInfo.w * ViewFar) / (deviceDepth - ViewInfo.z);
 	float particleDepth = materialInput.SvPosition.w;
