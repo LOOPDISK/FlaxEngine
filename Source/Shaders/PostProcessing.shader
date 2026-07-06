@@ -1232,16 +1232,23 @@ float4 SampleHazeSmooth(float2 uv, float mip)
 }
 
 // Sample the premultiplied haze chain at the given mip. Where support is thin (a far surface
-// seen through a small gap between near occluders), fall back toward a lower mip which has
-// denser local support.
+// seen through a small gap between near occluders), descend one octave at a time until a level
+// with dense enough local support is found. Blending only ever mixes adjacent blur levels, so
+// support fluctuation under camera motion nudges the result instead of snapping it across
+// several octaves (the old single jump to mip*0.5 shimmered inside holes in far meshes).
+// Each step is continuous at its boundary: when alpha reaches the floor the lerp weight
+// reaches 1 and the lower level's contribution fades to zero.
 float4 SampleHazePremult(float2 uv, float mip)
 {
     const float ALPHA_FLOOR = 0.05;
     float4 s = SampleHazeSmooth(uv, mip);
-    BRANCH
-    if (s.a < ALPHA_FLOOR)
+    LOOP
+    for (int i = 0; i < 3; i++)
     {
-        float4 lower = SampleHazeSmooth(uv, mip * 0.5);
+        if (s.a >= ALPHA_FLOOR || mip <= 0.0)
+            break;
+        mip = max(mip - 1.0, 0.0);
+        float4 lower = SampleHazeSmooth(uv, mip);
         s = lerp(lower, s, saturate(s.a / ALPHA_FLOOR));
     }
     return s;

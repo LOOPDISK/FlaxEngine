@@ -350,8 +350,10 @@ public:
             }
             break;
         }
-        // Turbulence
+        // Turbulence, Vortex Force, Curl Noise
         case GRAPH_NODE_MAKE_TYPE(15, 311):
+        case GRAPH_NODE_MAKE_TYPE(15, 313):
+        case GRAPH_NODE_MAKE_TYPE(15, 314):
         {
             USE_ATTRIBUTE(Position, Float3, 0);
             USE_ATTRIBUTE(Velocity, Float3, 1);
@@ -426,9 +428,10 @@ public:
             USE_ATTRIBUTE(Mass, Float, 2);
             break;
         }
-        // Kill (sphere/box)
+        // Kill (sphere/box), Wrap Position (box)
         case GRAPH_NODE_MAKE_TYPE(15, 306):
         case GRAPH_NODE_MAKE_TYPE(15, 307):
+        case GRAPH_NODE_MAKE_TYPE(15, 312):
         {
             USE_ATTRIBUTE(Position, Float3, 0);
             break;

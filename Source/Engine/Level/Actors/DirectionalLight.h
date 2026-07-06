@@ -60,12 +60,6 @@ public:
     API_FIELD(Attributes="EditorOrder(70), DefaultValue(true), EditorDisplay(\"Shadow\", \"Dynamic Shadows\")")
     bool DynamicShadows = true;
 
-    /// <summary>
-    /// World-space extent (in cm) for an additional clipmap level beyond the CSM range. Set to 0 to disable. Provides low-cost distant static shadows.
-    /// </summary>
-    API_FIELD(Attributes="EditorOrder(71), DefaultValue(0.0f), Limit(0, 100000000, 100000), EditorDisplay(\"Shadow\", \"Static Shadow Beyond CSM Extent\")")
-    float StaticShadowBeyondCSMExtent = 0.0f;
-
 public:
     // [LightWithShadow]
     void Draw(RenderContext& renderContext) override;

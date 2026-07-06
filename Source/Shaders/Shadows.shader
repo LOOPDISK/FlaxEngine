@@ -17,10 +17,6 @@ float Dummy0;
 float TemporalTime;
 float ContactShadowsDistance;
 float ContactShadowsLength;
-float4 ClipmapSunDir;          // xyz=sunDir, w=levelCount
-float4 ClipmapLightRight;      // xyz=lightRight, w=bias
-float4 ClipmapLightUp;         // xyz=lightUp, w=unused
-float4 ClipmapParams[4]; // xy=center, z=extent, w=depthRange (MAX_CSM_CASCADES)
 META_CB_END
 
 Buffer<float4> ShadowsBuffer : register(t5);

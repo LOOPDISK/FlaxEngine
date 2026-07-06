@@ -251,6 +251,11 @@ void SceneRendering::CollectPostFxVolumes(RenderContext& renderContext)
 
 void SceneRendering::Clear()
 {
+    // Drop any HZB occlusion-cull slots keyed by this SceneRendering across all pyramids. Slots are
+    // keyed by the raw `this` pointer; a later scene reusing this recycled allocation would otherwise
+    // inherit our stale visibility verdicts and cull its geometry (the "meshes vanish until replay" bug).
+    HierarchialZBufferPass::ReleaseConsumer(this);
+
     ScopeWriteLock lock(Locker);
     for (auto* listener : _listeners)
     {

@@ -144,9 +144,31 @@ void ParticleEmitterGPUGenerator::ProcessModule(Node* node)
                 "			collision = any(absDir >= size);\n"
                 "		else\n"
                 "			collision = all(absDir <= size);\n"
-                "		kill = kill || collision\n"
+                "		kill = kill || collision;\n"
                 "	}}\n"
             ), position.Value, boxCenter.Value, boxSize.Value, invert);
+        break;
+    }
+    // Wrap Position (box)
+    case 312:
+    {
+        auto position = AccessParticleAttribute(node, nodeGpu->Attributes[0], AccessMode::ReadWrite);
+
+        auto boxCenterBox = node->GetBox(0);
+        auto boxSizeBox = node->GetBox(1);
+
+        const Value boxCenter = GetValue(boxCenterBox, 2).AsFloat3();
+        const Value boxSize = GetValue(boxSizeBox, 3).AsFloat3();
+
+        _writer.Write(
+            TEXT(
+                "	{{\n"
+                "		// Wrap Position (box)\n"
+                "		float3 size = max({2}, 0.0001f);\n"
+                "		float3 dir = {0} - {1} + size * 0.5f;\n"
+                "		{0} = {1} + dir - size * (floor(dir / size) + 0.5f);\n"
+                "	}}\n"
+            ), position.Value, boxCenter.Value, boxSize.Value);
         break;
     }
     // Kill (custom)
@@ -192,6 +214,99 @@ void ParticleEmitterGPUGenerator::ProcessModule(Node* node)
                     "		{0} *= max(0.0f, 1.0f - (drag * DeltaTime) / max({1}, PARTICLE_THRESHOLD));\n"
                     "	}}\n"
                 ), velocity.Value, mass.Value, drag.Value);
+        }
+        break;
+    }
+    // Vortex Force
+    case 313:
+    {
+        auto position = AccessParticleAttribute(node, nodeGpu->Attributes[0], AccessMode::Read);
+        auto velocity = AccessParticleAttribute(node, nodeGpu->Attributes[1], AccessMode::ReadWrite);
+        auto mass = AccessParticleAttribute(node, nodeGpu->Attributes[2], AccessMode::Read);
+        auto center = tryGetValue(node->GetBox(0), 2, Value::Zero).AsFloat3();
+        auto axis = tryGetValue(node->GetBox(1), 3, Value::Zero).AsFloat3();
+        auto radius = tryGetValue(node->GetBox(2), 4, Value::Zero).AsFloat();
+        auto tangential = tryGetValue(node->GetBox(3), 5, Value::Zero).AsFloat();
+        auto radialPull = tryGetValue(node->GetBox(4), 6, Value::Zero).AsFloat();
+        auto axialLift = tryGetValue(node->GetBox(5), 7, Value::Zero).AsFloat();
+        _writer.Write(
+            TEXT(
+                "	{{\n"
+                "		// Vortex Force\n"
+                "		float3 vortexAxis = {4};\n"
+                "		float vortexAxisLength = length(vortexAxis);\n"
+                "		vortexAxis = vortexAxisLength > 0.0001f ? vortexAxis / vortexAxisLength : float3(0.0f, 1.0f, 0.0f);\n"
+                "		float3 toParticle = {0} - {3};\n"
+                "		float3 radialVec = toParticle - vortexAxis * dot(toParticle, vortexAxis);\n"
+                "		float radialDist = length(radialVec);\n"
+                "		float3 radialDir = radialDist > 0.0001f ? radialVec / radialDist : float3(0.0f, 0.0f, 0.0f);\n"
+                "		float falloff = saturate(1.0f - radialDist / max({5}, 0.0001f));\n"
+                "		falloff *= falloff;\n"
+                "		float3 force = (cross(vortexAxis, radialDir) * {6} - radialDir * {7} + vortexAxis * {8}) * falloff;\n"
+                "		{1} += force * (DeltaTime / max({2}, PARTICLE_THRESHOLD));\n"
+                "	}}\n"
+            ), position.Value, velocity.Value, mass.Value, center.Value, axis.Value, radius.Value, tangential.Value, radialPull.Value, axialLift.Value);
+        break;
+    }
+    // Curl Noise
+    case 314:
+    {
+        const int32 mode = node->Values[8].AsInt;
+        auto position = AccessParticleAttribute(node, nodeGpu->Attributes[0], mode == 1 ? AccessMode::ReadWrite : AccessMode::Read);
+        Value velocity, mass, blend;
+        if (mode == 2)
+        {
+            velocity = AccessParticleAttribute(node, nodeGpu->Attributes[1], AccessMode::ReadWrite);
+            blend = tryGetValue(node->GetBox(6), 9, Value::Zero).AsFloat();
+        }
+        else if (mode != 1)
+        {
+            velocity = AccessParticleAttribute(node, nodeGpu->Attributes[1], AccessMode::ReadWrite);
+            mass = AccessParticleAttribute(node, nodeGpu->Attributes[2], AccessMode::Read);
+        }
+        auto fieldPosition = tryGetValue(node->GetBox(0), 2, Value::Zero).AsFloat3();
+        auto fieldRotation = tryGetValue(node->GetBox(1), 3, Value::Zero).AsFloat3();
+        auto fieldScale = tryGetValue(node->GetBox(2), 4, Value::One).AsFloat3();
+        auto roughness = tryGetValue(node->GetBox(3), 5, Value::Zero).AsFloat();
+        auto intensity = tryGetValue(node->GetBox(4), 6, Value::Zero).AsFloat();
+        auto octavesCount = tryGetValue(node->GetBox(5), 7, Value::Zero).AsInt();
+        _includes.Add(TEXT("./Flax/Noise.hlsl"));
+        _writer.Write(
+            TEXT(
+                "	{{\n"
+                "		// Curl Noise\n"
+                "		float3x3 rotationMatrix = EulerMatrix(radians({1}));\n"
+                "		float4x4 scaleMatrix = float4x4(float4({2}.x, 0.0f, 0.0f, 0.0f), float4(0.0f, {2}.y, 0.0f, 0.0f), float4(0.0f, 0.0f, {2}.z, 0.0f), float4(0.0f, 0.0f, 0.0f, 1.0f));\n"
+                "		float4x4 fieldTransformMatrix = float4x4(float4(rotationMatrix[0], {0}.x), float4(rotationMatrix[1], {0}.y), float4(rotationMatrix[2], {0}.z), float4(0.0f, 0.0f, 0.0f, 1.0f));\n"
+                "		fieldTransformMatrix = mul(fieldTransformMatrix, scaleMatrix);\n"
+                "		float4x4 invFieldTransformMatrix = Inverse(fieldTransformMatrix);\n"
+                "		float3 fieldUVW = mul(invFieldTransformMatrix, float4({3}, 1.0f)).xyz;\n"
+                "		float3 flow = CurlNoise3D(fieldUVW + 0.5f, {4}, {5});\n"
+                "		flow = mul(fieldTransformMatrix, float4(flow, 0.0f)).xyz * {6};\n"
+            ), fieldPosition.Value, fieldRotation.Value, fieldScale.Value, position.Value, octavesCount.Value, roughness.Value, intensity.Value);
+        if (mode == 1)
+        {
+            _writer.Write(
+                TEXT(
+                    "		{0} += flow * DeltaTime;\n"
+                    "	}}\n"
+                ), position.Value);
+        }
+        else if (mode == 2)
+        {
+            _writer.Write(
+                TEXT(
+                    "		{0} = lerp({0}, flow, saturate({1} * DeltaTime));\n"
+                    "	}}\n"
+                ), velocity.Value, blend.Value);
+        }
+        else
+        {
+            _writer.Write(
+                TEXT(
+                    "		{0} += flow * (DeltaTime / max({1}, PARTICLE_THRESHOLD));\n"
+                    "	}}\n"
+                ), velocity.Value, mass.Value);
         }
         break;
     }

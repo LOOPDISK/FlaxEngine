@@ -70,4 +70,20 @@ public:
     /// <param name="roughness">Noise roughness (in range 0-1).</param>
     /// <returns>Noise result.</returns>
     API_FUNCTION() static Float3 CustomNoise3D(const Float3& p, int32 octaves, float roughness);
+
+    /// <summary>
+    /// Curl noise function (3D -> 3D). Divergence-free swirling vector field with varying magnitude (eddies and calm zones), computed as the curl of a noise-based vector potential.
+    /// </summary>
+    /// <param name="p">Point on a 3D grid to sample noise at.</param>
+    /// <returns>Noise result.</returns>
+    API_FUNCTION() static Float3 CurlNoise3D(const Float3& p);
+
+    /// <summary>
+    /// Curl noise function for flow fields (with octaves).
+    /// </summary>
+    /// <param name="p">Point on a 3D grid to sample noise at.</param>
+    /// <param name="octaves">Noise octaves count.</param>
+    /// <param name="roughness">Noise roughness (in range 0-1).</param>
+    /// <returns>Noise result.</returns>
+    API_FUNCTION() static Float3 CurlNoise3D(const Float3& p, int32 octaves, float roughness);
 };

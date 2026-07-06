@@ -63,6 +63,14 @@ public:
     /// </summary>
     void FlushPendingCulls(GPUContext* context);
 
+    /// <summary>
+    /// Releases all HZB cull slots owned by the given consumer across every active pyramid. Call on
+    /// consumer teardown (scene clear, foliage disable/destroy) so a recycled allocation reusing the
+    /// same pointer can't inherit the dead consumer's stale occlusion verdicts. Thread-safe; a no-op
+    /// if the pass or its pyramids aren't alive.
+    /// </summary>
+    static void ReleaseConsumer(void* owner);
+
 protected:
     // [RendererPass]
     bool setupResources() override;
@@ -78,6 +86,9 @@ private:
     GPUPipelineState* _psDebug = nullptr;
     GPUShaderProgramCS* _csCull = nullptr;
     Array<HZBData*> _info;
+    // Guards _info: the render thread appends via GetOrCreateInfo while main-thread consumer
+    // teardown (ReleaseConsumer) sweeps it. Rendering itself walks _info single-threaded.
+    CriticalSection _infoLock;
 
 #if COMPILE_WITH_DEV_ENV
     void OnShaderReloading(Asset* obj);
@@ -130,6 +141,14 @@ public:
     /// </summary>
     void ReleaseConsumersOf(void* owner);
 
+    /// <summary>
+    /// If this pyramid's outstanding async readback has completed, copy every participating slot's
+    /// verdict slice into its VisBits immediately. Called early in the frame (pyramid build) so the
+    /// verdict is live for THIS frame's draw collection rather than waiting for each slot's next
+    /// Dispatch (which is a frame later). Thread-safe.
+    /// </summary>
+    void PromoteCompletedReadbacks();
+
     // Per-frame batched cull state. Slot::Dispatch enqueues into _pendingDispatches and copies the
     // caller's CPU bounds into _boundsStaging; FlushPendingCulls then runs a single CS dispatch per
     // pyramid against a shared bounds buffer, with a single readback to _batchBytes. Slots promote
@@ -159,16 +178,26 @@ private:
     GPUTexture* _depthTexture = nullptr;
     GPUTexture* _hzbTexture = nullptr;
 
-    // Camera state captured at pyramid build time, used by FlushPendingCulls.
+    // Camera state captured at pyramid build time, used by FlushPendingCulls. The pyramid is built
+    // from the PRIOR frame's depth buffer, so _vp/_viewOrigin are that frame's view-projection and
+    // origin - projecting current-frame bounds through the current VP against last-frame depth pops
+    // geometry in/out under camera rotation.
     Matrix _vp;
     Float3 _viewForward = Float3::Forward;
     float _viewNear = 0.0f;
     Float2 _pyramidBase = Float2::Zero;
     uint32 _maxLevel = 0;
 
-    // World-space view origin captured at pyramid build time. The cull CS subtracts this from
-    // world-space bound centers before projecting via _vp.
+    // World-space view origin captured at pyramid build time (prior frame's). The cull CS subtracts
+    // this from world-space bound centers before projecting via _vp.
     Float3 _viewOrigin = Float3::Zero;
+
+    // Absolute camera world position at the last pyramid build, and the camera translation between
+    // the pyramid's capture frame and the current frame. Test-sphere radii are dilated by this so a
+    // bound the camera has moved toward isn't wrongly culled against the now-stale depth pyramid.
+    Vector3 _camWorldPos = Vector3::Zero;
+    bool _camWorldPosValid = false;
+    float _boundsInflate = 0.0f;
 
     // Batch state populated by HZBCullSlot::Dispatch each frame; drained by FlushPendingCulls.
     // _boundsStaging accumulates each slot's CPU bounds via memcpy in Dispatch(); FlushPendingCulls
@@ -272,6 +301,12 @@ private:
     uint32 _batchOffsetWords = 0;
     int32 _batchCount = 0;
     uint64 _batchFrame = 0;
+
+    // Frame of the most recent successful verdict promotion. If a readback wedges (chain never ends)
+    // the slot would hold its last verdict forever and permanently cull whatever it last marked
+    // occluded. When promotion stalls for too many frames we drop the verdict (VisBitsCount=0) so
+    // TestVisibility fails open until a fresh readback lands.
+    uint64 _lastPromoteFrame = 0;
 
     // Owner pointer carried only so HZBData::ReleaseConsumersOf can sweep by owner.
     // Otherwise unused by the slot itself.

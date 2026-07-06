@@ -1140,6 +1140,27 @@ namespace FlaxEditor.Surface.Archetypes
             },
             new NodeArchetype
             {
+                TypeID = 312,
+                Create = CreateParticleModuleNode,
+                Title = "Wrap Position (box)",
+                Description = "Wraps particle positions to loop within the axis-aligned box (toroidal wrapping). Use with World simulation space and Effect Position as the box center for looping ambient effects (eg. dust motes around the player).",
+                Flags = DefaultModuleFlags,
+                Size = new Float2(200, 2 * Surface.Constants.LayoutOffsetY),
+                DefaultValues = new object[]
+                {
+                    true,
+                    (int)ModuleType.Update,
+                    Float3.Zero,
+                    new Float3(1000.0f),
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Input(-0.5f, "Box Center", true, typeof(Float3), 0, 2),
+                    NodeElementArchetype.Factory.Input(-0.5f + 1.0f, "Box Size", true, typeof(Float3), 1, 3),
+                },
+            },
+            new NodeArchetype
+            {
                 TypeID = 308,
                 Create = CreateParticleModuleNode,
                 Title = "Kill (custom)",
@@ -1259,6 +1280,68 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(-0.5f + 3, "Roughness", true, typeof(float), 3, 5),
                     NodeElementArchetype.Factory.Input(-0.5f + 4, "Intensity", true, typeof(float), 4, 6),
                     NodeElementArchetype.Factory.Input(-0.5f + 5, "Octaves Count", true, typeof(int), 5, 7),
+                },
+            },
+            new NodeArchetype
+            {
+                TypeID = 313,
+                Create = CreateParticleModuleNode,
+                Title = "Vortex Force",
+                Description = "Applies a swirling force around an axis to particle velocity. Combine tangential strength with radial pull and axial lift for tornado-like motion",
+                Flags = DefaultModuleFlags,
+                Size = new Float2(220, 6 * Surface.Constants.LayoutOffsetY),
+                DefaultValues = new object[]
+                {
+                    true,
+                    (int)ModuleType.Update,
+                    Float3.Zero, // Center
+                    Float3.Up, // Axis
+                    500.0f, // Radius
+                    100.0f, // Tangential Strength
+                    0.0f, // Radial Pull
+                    0.0f, // Axial Lift
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Input(-0.5f + 0, "Center", true, typeof(Float3), 0, 2),
+                    NodeElementArchetype.Factory.Input(-0.5f + 1, "Axis", true, typeof(Float3), 1, 3),
+                    NodeElementArchetype.Factory.Input(-0.5f + 2, "Radius", true, typeof(float), 2, 4),
+                    NodeElementArchetype.Factory.Input(-0.5f + 3, "Tangential Strength", true, typeof(float), 3, 5),
+                    NodeElementArchetype.Factory.Input(-0.5f + 4, "Radial Pull", true, typeof(float), 4, 6),
+                    NodeElementArchetype.Factory.Input(-0.5f + 5, "Axial Lift", true, typeof(float), 5, 7),
+                },
+            },
+            new NodeArchetype
+            {
+                TypeID = 314,
+                Create = CreateParticleModuleNode,
+                Title = "Curl Noise",
+                Description = "Moves particles with a divergence-free curl noise flow field (swirling eddies with calm zones). Force mode integrates a force like Turbulence, Advect Position moves particles directly along the flow, Blend Velocity steers velocity towards the flow at the Blend rate",
+                Flags = DefaultModuleFlags,
+                Size = new Float2(220, 8 * Surface.Constants.LayoutOffsetY),
+                DefaultValues = new object[]
+                {
+                    true,
+                    (int)ModuleType.Update,
+                    Float3.Zero, // Field Position
+                    Float3.Zero, // Field Rotation
+                    Float3.One, // Field Scale
+                    0.4f, // Roughness
+                    10.0f, // Intensity
+                    1, // Octaves Count
+                    0, // Mode
+                    5.0f, // Blend
+                },
+                Elements = new[]
+                {
+                    NodeElementArchetype.Factory.Input(-0.5f + 0, "Field Position", true, typeof(Float3), 0, 2),
+                    NodeElementArchetype.Factory.Input(-0.5f + 1, "Field Rotation", true, typeof(Float3), 1, 3),
+                    NodeElementArchetype.Factory.Input(-0.5f + 2, "Field Scale", true, typeof(Float3), 2, 4),
+                    NodeElementArchetype.Factory.Input(-0.5f + 3, "Roughness", true, typeof(float), 3, 5),
+                    NodeElementArchetype.Factory.Input(-0.5f + 4, "Intensity", true, typeof(float), 4, 6),
+                    NodeElementArchetype.Factory.Input(-0.5f + 5, "Octaves Count", true, typeof(int), 5, 7),
+                    NodeElementArchetype.Factory.Input(-0.5f + 6, "Blend", true, typeof(float), 6, 9),
+                    NodeElementArchetype.Factory.ComboBox(0, (-0.5f + 7) * Surface.Constants.LayoutOffsetY, 160.0f, 8, new[] { "Force", "Advect Position", "Blend Velocity" }),
                 },
             },
             new NodeArchetype

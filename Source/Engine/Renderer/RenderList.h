@@ -79,7 +79,6 @@ struct RenderDirectionalLightData : RenderLightData
 
     bool StaticShadows;
     bool DynamicShadows;
-    float StaticShadowBeyondCSMExtent;
 
     RenderDirectionalLightData()
     {

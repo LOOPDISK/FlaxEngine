@@ -79,6 +79,17 @@ float CalculateSubsurfaceOcclusion(float opacity, float sceneDepth, float shadow
     return shadowMapDepth > 0.99f ? 1 : occlusion;
 }
 
+// World-space thickness variant (directional cascades). The legacy function above measures thickness
+// in normalized shadow depth, whose world size is the cascade depth range - that range tracks camera
+// FOV and jumps per cascade, so transmission strength did too. Caller converts the depth delta to
+// world units; the 6000 divisor maps the legacy tuning at a ~60m cascade depth range onto world
+// units (cm), so default content keeps its look but stays invariant to cascade extent and FOV.
+float CalculateSubsurfaceOcclusionWorld(float opacity, float worldThickness, float shadowMapDepth)
+{
+    float occlusion = 1 - saturate(worldThickness * lerp(1.0f, 100.0f, opacity) * (1.0f / 6000.0f));
+    return shadowMapDepth > 0.99f ? 1 : occlusion;
+}
+
 float PostProcessShadow(ShadowData lightShadow, float shadow)
 {
     // Apply shadow fade and sharpness

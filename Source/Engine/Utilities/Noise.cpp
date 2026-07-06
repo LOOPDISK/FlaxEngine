@@ -314,3 +314,37 @@ Float3 Noise::CustomNoise3D(const Float3& p, int32 octaves, float roughness)
     }
     return noise / Math::Max(weight, ZeroTolerance);
 }
+
+Float3 Noise::CurlNoise3D(const Float3& p)
+{
+    constexpr float e = 0.05f;
+    const Float3 dx(e, 0.0f, 0.0f);
+    const Float3 dy(0.0f, e, 0.0f);
+    const Float3 dz(0.0f, 0.0f, e);
+    const Float3 pB = p + Float3(31.416f, -47.853f, 12.793f);
+    const Float3 pC = p + Float3(-233.145f, 113.021f, -52.774f);
+
+    const float dAdy = CustomNoise(p + dy) - CustomNoise(p - dy);
+    const float dAdz = CustomNoise(p + dz) - CustomNoise(p - dz);
+    const float dBdx = CustomNoise(pB + dx) - CustomNoise(pB - dx);
+    const float dBdz = CustomNoise(pB + dz) - CustomNoise(pB - dz);
+    const float dCdx = CustomNoise(pC + dx) - CustomNoise(pC - dx);
+    const float dCdy = CustomNoise(pC + dy) - CustomNoise(pC - dy);
+
+    return Float3(dCdy - dBdz, dAdz - dCdx, dBdx - dAdy) / (2.0f * e);
+}
+
+Float3 Noise::CurlNoise3D(const Float3& p, int32 octaves, float roughness)
+{
+    float weight = 0.0f;
+    Float3 noise = Float3::Zero;
+    float scale = 1.0f;
+    for (int32 i = 0; i < octaves; i++)
+    {
+        const float curWeight = Math::Pow(1.0f - (float)i / (float)octaves, Math::Lerp(2.0f, 0.2f, roughness));
+        noise += CurlNoise3D(p * scale) * curWeight;
+        weight += curWeight;
+        scale *= 1.72531f;
+    }
+    return noise / Math::Max(weight, ZeroTolerance);
+}

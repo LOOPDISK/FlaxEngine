@@ -20,6 +20,7 @@
 #include "Engine/Level/SceneQuery.h"
 #include "Engine/Profiler/ProfilerCPU.h"
 #include "Engine/Renderer/RenderList.h"
+#include "Engine/Renderer/HierarchialZBufferPass.h"
 #include "Engine/Renderer/GlobalSignDistanceFieldPass.h"
 #include "Engine/Renderer/GI/GlobalSurfaceAtlasPass.h"
 #include "Engine/Serialization/Serialization.h"
@@ -1867,6 +1868,10 @@ void Foliage::RebuildAndDispatchType(int32 typeIdx, HZBCullSlot* slot, HZBData* 
 
 void Foliage::ReleaseHzbResources()
 {
+    // Drop this foliage's HZB cull slots (keyed by `this` per type index) from every pyramid, so a
+    // recycled Foliage allocation can't inherit stale occlusion verdicts. Runs on deserialize,
+    // disable and destroy - all off the render path.
+    HierarchialZBufferPass::ReleaseConsumer(this);
     _hzbState.Clear();
 }
 

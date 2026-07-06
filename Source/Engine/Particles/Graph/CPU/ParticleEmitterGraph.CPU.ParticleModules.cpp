@@ -403,6 +403,47 @@ void ParticleEmitterGraphCPUExecutor::ProcessModule(ParticleEmitterGraphCPUNode*
 #undef LOGIC
         break;
     }
+    // Wrap Position (box)
+    case 312:
+    {
+        PARTICLE_EMITTER_MODULE("Wrap Position (box)");
+        auto& position = context.Data->Buffer->Layout->Attributes[node->Attributes[0]];
+
+        byte* positionPtr = start + position.Offset;
+
+        auto boxCenterBox = node->GetBox(0);
+        auto boxSizeBox = node->GetBox(1);
+
+#define INPUTS_FETCH() \
+	const Float3 boxCenter = (Float3)GetValue(boxCenterBox, 2); \
+	const Float3 boxSize = Float3::Max((Float3)GetValue(boxSizeBox, 3), Float3(ZeroTolerance))
+#define LOGIC() \
+	Float3 dir = *(Float3*)positionPtr - boxCenter + boxSize * 0.5f; \
+	dir -= boxSize * Float3::Floor(dir / boxSize); \
+	*(Float3*)positionPtr = dir + boxCenter - boxSize * 0.5f; \
+	positionPtr += stride
+
+        if (node->UsePerParticleDataResolve())
+        {
+            for (int32 particleIndex = particlesStart; particleIndex < particlesEnd; particleIndex++)
+            {
+                context.ParticleIndex = particleIndex;
+                INPUTS_FETCH();
+                LOGIC();
+            }
+        }
+        else
+        {
+            INPUTS_FETCH();
+            for (int32 particleIndex = particlesStart; particleIndex < particlesEnd; particleIndex++)
+            {
+                LOGIC();
+            }
+        }
+#undef INPUTS_FETCH
+#undef LOGIC
+        break;
+    }
     // Kill (custom)
     case 308:
     {
@@ -487,6 +528,137 @@ void ParticleEmitterGraphCPUExecutor::ProcessModule(ParticleEmitterGraphCPUNode*
 #undef LOGIC
         break;
     }
+    // Vortex Force
+    case 313:
+    {
+        PARTICLE_EMITTER_MODULE("Vortex Force");
+        auto& position = context.Data->Buffer->Layout->Attributes[node->Attributes[0]];
+        auto& velocity = context.Data->Buffer->Layout->Attributes[node->Attributes[1]];
+        auto& mass = context.Data->Buffer->Layout->Attributes[node->Attributes[2]];
+
+        byte* positionPtr = start + position.Offset;
+        byte* velocityPtr = start + velocity.Offset;
+        byte* massPtr = start + mass.Offset;
+
+        auto centerBox = node->GetBox(0);
+        auto axisBox = node->GetBox(1);
+        auto radiusBox = node->GetBox(2);
+        auto tangentialBox = node->GetBox(3);
+        auto radialBox = node->GetBox(4);
+        auto axialBox = node->GetBox(5);
+
+#define INPUTS_FETCH() \
+	const Float3 center = (Float3)GetValue(centerBox, 2); \
+	Float3 axis = (Float3)GetValue(axisBox, 3); \
+	const float axisLength = axis.Length(); \
+	axis = axisLength > ZeroTolerance ? axis / axisLength : Float3::Up; \
+	const float radius = Math::Max((float)GetValue(radiusBox, 4), ZeroTolerance); \
+	const float tangential = (float)GetValue(tangentialBox, 5); \
+	const float radialPull = (float)GetValue(radialBox, 6); \
+	const float axialLift = (float)GetValue(axialBox, 7)
+#define LOGIC() \
+	Float3 toParticle = *(Float3*)positionPtr - center; \
+	Float3 radialVec = toParticle - axis * Float3::Dot(toParticle, axis); \
+	const float dist = radialVec.Length(); \
+	Float3 radialDir = dist > ZeroTolerance ? radialVec / dist : Float3::Zero; \
+	float falloff = Math::Saturate(1.0f - dist / radius); \
+	falloff *= falloff; \
+	Float3 force = (Float3::Cross(axis, radialDir) * tangential - radialDir * radialPull + axis * axialLift) * falloff; \
+	*(Float3*)velocityPtr += force * (context.DeltaTime / Math::Max(*(float*)massPtr, ZeroTolerance)); \
+	positionPtr += stride; \
+	velocityPtr += stride; \
+	massPtr += stride
+
+        if (node->UsePerParticleDataResolve())
+        {
+            for (int32 particleIndex = particlesStart; particleIndex < particlesEnd; particleIndex++)
+            {
+                context.ParticleIndex = particleIndex;
+                INPUTS_FETCH();
+                LOGIC();
+            }
+        }
+        else
+        {
+            INPUTS_FETCH();
+            for (int32 particleIndex = particlesStart; particleIndex < particlesEnd; particleIndex++)
+            {
+                LOGIC();
+            }
+        }
+#undef INPUTS_FETCH
+#undef LOGIC
+        break;
+    }
+    // Curl Noise
+    case 314:
+    {
+        PARTICLE_EMITTER_MODULE("Curl Noise");
+        auto& position = context.Data->Buffer->Layout->Attributes[node->Attributes[0]];
+        auto& velocity = context.Data->Buffer->Layout->Attributes[node->Attributes[1]];
+        auto& mass = context.Data->Buffer->Layout->Attributes[node->Attributes[2]];
+
+        byte* positionPtr = start + position.Offset;
+        byte* velocityPtr = start + velocity.Offset;
+        byte* massPtr = start + mass.Offset;
+
+        auto roughnessBox = node->GetBox(3);
+        auto intensityBox = node->GetBox(4);
+        auto octavesCountBox = node->GetBox(5);
+        auto blendBox = node->GetBox(6);
+        const int32 mode = node->Values[8].AsInt;
+
+        const Float3 fieldPosition = (Float3)GetValue(node->GetBox(0), 2);
+        const Float3 fieldRotation = (Float3)GetValue(node->GetBox(1), 3);
+        const Float3 fieldScale = (Float3)GetValue(node->GetBox(2), 4);
+
+        // Note: no support for per-particle transformation
+        Matrix fieldTransformMatrix, invFieldTransformMatrix;
+        Transform fieldTransform(fieldPosition, Quaternion::Euler(fieldRotation), fieldScale);
+        fieldTransform.GetWorld(fieldTransformMatrix);
+        Matrix::Invert(fieldTransformMatrix, invFieldTransformMatrix);
+
+#define INPUTS_FETCH() \
+	const float roughness = (float)GetValue(roughnessBox, 5); \
+	const float intensity = (float)GetValue(intensityBox, 6); \
+	const int32 octavesCount = (int)GetValue(octavesCountBox, 7); \
+	const float blend = (float)GetValue(blendBox, 9)
+#define LOGIC() \
+	Float3 fieldUVW = Float3::Transform(*(Float3*)positionPtr, invFieldTransformMatrix); \
+	Float3 flow = Noise::CurlNoise3D(fieldUVW + 0.5f, octavesCount, roughness); \
+	Float3::TransformNormal(flow, fieldTransformMatrix, flow); \
+	flow *= intensity; \
+	if (mode == 1) \
+		*(Float3*)positionPtr += flow * context.DeltaTime; \
+	else if (mode == 2) \
+		*(Float3*)velocityPtr = Float3::Lerp(*(Float3*)velocityPtr, flow, Math::Saturate(blend * context.DeltaTime)); \
+	else \
+		*(Float3*)velocityPtr += flow * (context.DeltaTime / Math::Max(*(float*)massPtr, ZeroTolerance)); \
+	positionPtr += stride; \
+	velocityPtr += stride; \
+	massPtr += stride
+
+        if (node->UsePerParticleDataResolve())
+        {
+            for (int32 particleIndex = particlesStart; particleIndex < particlesEnd; particleIndex++)
+            {
+                context.ParticleIndex = particleIndex;
+                INPUTS_FETCH();
+                LOGIC();
+            }
+        }
+        else
+        {
+            INPUTS_FETCH();
+            for (int32 particleIndex = particlesStart; particleIndex < particlesEnd; particleIndex++)
+            {
+                LOGIC();
+            }
+        }
+#undef INPUTS_FETCH
+#undef LOGIC
+        break;
+    }
     // Turbulence
     case 311:
     {
@@ -520,7 +692,8 @@ void ParticleEmitterGraphCPUExecutor::ProcessModule(ParticleEmitterGraphCPUNode*
 #define LOGIC() \
 	Float3 vectorFieldUVW = Float3::Transform(*((Float3*)positionPtr), invFieldTransformMatrix); \
 	Float3 force = Noise::CustomNoise3D(vectorFieldUVW + 0.5f, octavesCount, roughness); \
-    force = Float3::Transform(force, fieldTransformMatrix) * intensity; \
+    Float3::TransformNormal(force, fieldTransformMatrix, force); \
+    force *= intensity; \
     *((Float3*)velocityPtr) += force * (context.DeltaTime / Math::Max(*(float*)massPtr, ZeroTolerance)); \
     positionPtr += stride; \
     velocityPtr += stride; \

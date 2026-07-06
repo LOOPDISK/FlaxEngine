@@ -353,4 +353,40 @@ float3 CustomNoise3D(float3 position, int octaves, float roughness)
 	return noise / max(weight, 0.0001f);
 }
 
+// Curl noise (3D -> 3D). Divergence-free swirling vector field with varying magnitude (eddies and calm zones), computed as the curl of a noise-based vector potential.
+float3 CurlNoise3D(float3 p)
+{
+    const float e = 0.05f;
+    const float3 dx = float3(e, 0.0f, 0.0f);
+    const float3 dy = float3(0.0f, e, 0.0f);
+    const float3 dz = float3(0.0f, 0.0f, e);
+    float3 pB = p + float3(31.416f, -47.853f, 12.793f);
+    float3 pC = p + float3(-233.145f, 113.021f, -52.774f);
+
+    float dAdy = CustomNoise(p + dy) - CustomNoise(p - dy);
+    float dAdz = CustomNoise(p + dz) - CustomNoise(p - dz);
+    float dBdx = CustomNoise(pB + dx) - CustomNoise(pB - dx);
+    float dBdz = CustomNoise(pB + dz) - CustomNoise(pB - dz);
+    float dCdx = CustomNoise(pC + dx) - CustomNoise(pC - dx);
+    float dCdy = CustomNoise(pC + dy) - CustomNoise(pC - dy);
+
+    return float3(dCdy - dBdz, dAdz - dCdx, dBdx - dAdy) / (2.0f * e);
+}
+
+float3 CurlNoise3D(float3 position, int octaves, float roughness)
+{
+	float weight = 0.0f;
+	float3 noise = float3(0.0f, 0.0f, 0.0f);
+	float scale = 1.0f;
+    roughness = lerp(2.0f, 0.2f, roughness);
+	for (int i = 0; i < octaves; i++)
+	{
+		float curWeight = pow((1.0f - ((float)i / (float)octaves)), roughness);
+		noise += CurlNoise3D(position * scale) * curWeight;
+		weight += curWeight;
+		scale *= 1.72531f;
+	}
+	return noise / max(weight, 0.0001f);
+}
+
 #endif

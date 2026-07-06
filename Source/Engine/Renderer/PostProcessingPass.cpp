@@ -312,18 +312,8 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
 
     PostProcessSettings& settings = renderContext.List->Settings;
 
-    //// TEMPORARY FIX: Force enable DepthHaze ViewFlag if missing
-    //if ((view.Flags & ViewFlags::DepthHaze) == ViewFlags::None)
-    //{
-    //    LOG(Info, "DepthHaze DEBUG - FIXING: Adding missing DepthHaze ViewFlag");
-    //    const_cast<RenderView&>(view).Flags |= ViewFlags::DepthHaze;
-    //}
-
     bool useDepthHaze = EnumHasAnyFlags(view.Flags, ViewFlags::DepthHaze) && settings.DepthHaze.Enabled && settings.DepthHaze.Intensity > 0.0f;
     bool useBloom = EnumHasAnyFlags(view.Flags, ViewFlags::Bloom) && settings.Bloom.Enabled && settings.Bloom.Intensity > 0.0f;
-
-    // DEBUG: Log final useDepthHaze result
-
     bool useToneMapping = EnumHasAnyFlags(view.Flags, ViewFlags::ToneMapping) && settings.ToneMapping.Mode != ToneMappingMode::None;
     bool useCameraArtifacts = EnumHasAnyFlags(view.Flags, ViewFlags::CameraArtifacts) && (settings.CameraArtifacts.VignetteIntensity > 0.0f || settings.CameraArtifacts.GrainAmount > 0.0f || settings.CameraArtifacts.ChromaticDistortion > 0.0f || settings.CameraArtifacts.ScreenFadeColor.A > 0.0f);
     bool useLensFlares = EnumHasAnyFlags(view.Flags, ViewFlags::LensFlares) && settings.LensFlares.Intensity > 0.0f && useBloom;

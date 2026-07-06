@@ -15,7 +15,7 @@ uint TotalBounds;            // total bound entries across all slots (== dispatc
 uint MaxLevel;               // total number of pyramid levels
 float3 ViewOrigin;           // pyramid's captured world-space view origin
 uint NumSlots;               // size of SlotTable, for binary search bound
-uint _hzbCullPad0;
+float BoundsInflate;         // camera translation since pyramid capture; added to each test radius
 uint _hzbCullPad1;
 uint _hzbCullPad2;
 uint _hzbCullPad3;
@@ -90,6 +90,10 @@ void CS_HZBCull(uint3 dispatchId : SV_DispatchThreadID)
         Visibility.InterlockedOr((slot.z + (i >> 5u)) * 4u, 1u << (i & 31u));
         return;
     }
+
+    // Dilate the test sphere by the camera's travel since the (last-frame) depth pyramid was built,
+    // so a bound the camera has moved toward isn't culled against a now-stale occluder edge.
+    radius += BoundsInflate;
 
     float3 centerVS = sphere.xyz - ViewOrigin;
 

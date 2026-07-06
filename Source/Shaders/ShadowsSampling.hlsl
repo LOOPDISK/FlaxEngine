@@ -68,12 +68,31 @@ uint GetCubeFaceIndex(float3 direction)
     return cubeFaceIndex;
 }
 
+// World-space units per one shadow-projection depth unit for the tile, recovered from the depth
+// column magnitude of the world-to-shadow matrix. For directional cascades the ortho maps the full
+// cascade depth range (2 * cascadeRadius) into [0,1], so this returns that range in world units.
+float GetShadowTileWorldPerDepthUnit(ShadowTileData tile)
+{
+    float3 depthColumn = float3(tile.WorldToShadow[0].z, tile.WorldToShadow[1].z, tile.WorldToShadow[2].z);
+    return 1.0f / max(length(depthColumn), 1e-9f);
+}
+
+// World-space size of one shadow map texel for the tile (directional cascades only - perspective
+// tiles have no single texel size). The UV column magnitude is 1/(cascade world extent).
+float GetShadowTileTexelWorldSize(ShadowTileData tile, float atlasResolution)
+{
+    float3 uvColumn = float3(tile.WorldToShadow[0].x, tile.WorldToShadow[1].x, tile.WorldToShadow[2].x);
+    float worldPerUV = 1.0f / max(length(uvColumn), 1e-9f);
+    float tileResolution = max(tile.ShadowToAtlas.x * atlasResolution, 1.0f);
+    return worldPerUV / tileResolution;
+}
+
 float2 GetLightShadowAtlasUV(ShadowData shadow, ShadowTileData shadowTile, float3 samplePosition, out float4 shadowPosition)
 {
     // Project into shadow space (WorldToShadow is pre-multiplied to convert Clip Space to UV Space)
     shadowPosition = mul(float4(samplePosition, 1.0f), shadowTile.WorldToShadow);
-    // Bias is now applied per-pixel via receiver plane bias in directional light sampling
-    // For local lights, still apply constant bias as fallback
+    // Flat bias only (no gradient context here): tiny quantization epsilon for directional lights,
+    // legacy authored constant for local lights (pre-divide, matching existing content tuning).
     shadowPosition.z -= shadow.Bias;
     shadowPosition.xyz /= shadowPosition.w;
 
@@ -94,30 +113,69 @@ float ComputeSlopeScaledBias(float authoredBias, float NoL)
     return authoredBias * 0.5 * (1.0 + tanTheta);
 }
 
+// Exact receiver-plane depth gradient dz/d(uv) in shadow projection space (Isidoro, "Shadow Mapping:
+// GPU-based Tips and Techniques"), from the full inverse-Jacobian of the shadow-space position's
+// screen derivatives. Purely geometric: exact for planar receivers under any projective tile matrix
+// (ortho cascade or perspective spot) and immune to normal maps. Returns 0 when the pixel quad
+// straddles a silhouette (degenerate Jacobian) - callers then rely on the flat epsilon alone.
+float2 ComputeReceiverPlaneDepthGradient(float3 shadowPosDDX, float3 shadowPosDDY)
+{
+    float det = shadowPosDDX.x * shadowPosDDY.y - shadowPosDDX.y * shadowPosDDY.x;
+    if (abs(det) < 1e-12f)
+        return float2(0, 0);
+    float2 gradient;
+    gradient.x = shadowPosDDY.y * shadowPosDDX.z - shadowPosDDX.y * shadowPosDDY.z;
+    gradient.y = shadowPosDDX.x * shadowPosDDY.z - shadowPosDDY.x * shadowPosDDX.z;
+    // Clamp the slope (units: depth per tile UV; 8 = receiver at ~83deg to the light) so silhouette
+    // misestimates can't push tap references through nearby occluders (light leaks).
+    return clamp(gradient / det, -8.0f, 8.0f);
+}
+
 float2 GetLightShadowAtlasUVWithReceiverBias(ShadowData shadow, ShadowTileData shadowTile, float3 samplePosition, float NoL, out float4 shadowPosition, out float2 receiverPlaneDepthBias)
 {
     // Project into shadow space (WorldToShadow is pre-multiplied to convert Clip Space to UV Space)
     shadowPosition = mul(float4(samplePosition, 1.0f), shadowTile.WorldToShadow);
     shadowPosition.xyz /= shadowPosition.w;
 
-    // Receiver plane depth bias from shadow-space gradient. The formula is approximate
-    // (uses raw ddx/ddy(z) instead of the full inverse-Jacobian) and only contributes a
-    // small adjustment to PCF taps; the tight clamp here is what keeps glancing-angle edge
-    // pixels from poisoning the kernel. Derivatives are pixel-shader only - compute callers
-    // (SHADOWS_USE_RECEIVER_PLANE_BIAS 0) get zero bias and rely on the slope-scaled term below.
-#if SHADOWS_USE_RECEIVER_PLANE_BIAS
+#if SHADOWS_USE_RECEIVER_PLANE_BIAS && SHADOWS_QUALITY != 0
+    // Exact plane gradient, converted from tile-UV to atlas-UV units (PCF taps offset in atlas UV):
+    // atlasUV = tileUV * ShadowToAtlas.xy + zw, so dz/d(atlasUV) = dz/d(tileUV) / ShadowToAtlas.xy.
     float3 shadowPosDDX = ddx(shadowPosition.xyz);
     float3 shadowPosDDY = ddy(shadowPosition.xyz);
-    receiverPlaneDepthBias = float2(shadowPosDDX.z, shadowPosDDY.z);
-    receiverPlaneDepthBias = clamp(receiverPlaneDepthBias, -0.05, 0.05);
+    receiverPlaneDepthBias = ComputeReceiverPlaneDepthGradient(shadowPosDDX, shadowPosDDY) / shadowTile.ShadowToAtlas.xy;
+
+    // The plane gradient replaces the authored slope-scaled bias: the comparison reference follows
+    // the receiver surface per tap, so only the flat epsilon remains (depth-format quantization,
+    // folded into Bias on the CPU, plus any authored extra for LOD-mismatched or masked casters).
+    shadowPosition.z -= shadow.Bias;
+#else
+    // No derivatives (compute shaders) or single-tap quality that ignores the gradient: flat
+    // reference with the legacy slope-scaled authored bias.
+    receiverPlaneDepthBias = float2(0.0, 0.0);
+    shadowPosition.z -= ComputeSlopeScaledBias(shadow.Bias, NoL);
+#endif
+
+    // UV Space -> Atlas Tile UV Space
+    float2 shadowMapUV = saturate(shadowPosition.xy);
+    shadowMapUV = shadowMapUV * shadowTile.ShadowToAtlas.xy + shadowTile.ShadowToAtlas.zw;
+    return shadowMapUV;
+}
+
+// Local-light variant: keeps the legacy constant bias applied before the perspective divide
+// (existing content is tuned against that behavior) but adds the exact receiver-plane gradient
+// so the PCF taps follow the receiver surface instead of a flat reference.
+float2 GetLightShadowAtlasUVLocalWithReceiverBias(ShadowData shadow, ShadowTileData shadowTile, float3 samplePosition, out float4 shadowPosition, out float2 receiverPlaneDepthBias)
+{
+    shadowPosition = mul(float4(samplePosition, 1.0f), shadowTile.WorldToShadow);
+    shadowPosition.z -= shadow.Bias;
+    shadowPosition.xyz /= shadowPosition.w;
+#if SHADOWS_USE_RECEIVER_PLANE_BIAS && SHADOWS_QUALITY != 0
+    float3 shadowPosDDX = ddx(shadowPosition.xyz);
+    float3 shadowPosDDY = ddy(shadowPosition.xyz);
+    receiverPlaneDepthBias = ComputeReceiverPlaneDepthGradient(shadowPosDDX, shadowPosDDY) / shadowTile.ShadowToAtlas.xy;
 #else
     receiverPlaneDepthBias = float2(0.0, 0.0);
 #endif
-
-    // Constant slope-scaled depth bias for the comparison reference.
-    shadowPosition.z -= ComputeSlopeScaledBias(shadow.Bias, NoL);
-
-    // UV Space -> Atlas Tile UV Space
     float2 shadowMapUV = saturate(shadowPosition.xy);
     shadowMapUV = shadowMapUV * shadowTile.ShadowToAtlas.xy + shadowTile.ShadowToAtlas.zw;
     return shadowMapUV;
@@ -178,6 +236,12 @@ float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV
     float t = (uv.y + 0.5 - baseUV.y);
     baseUV -= float2(0.5, 0.5);
     baseUV *= shadowMapSizeInv;
+
+    // Re-anchor the plane reference from the pixel's exact UV to the snapped (+ jittered) kernel
+    // origin, then pad by the half-texel slope a shared bilinear comparison reference can't resolve
+    // (hardware PCF compares 4 texels against one reference). No-op when the gradient is zero.
+    sceneDepth += dot(baseUV - shadowMapUV, receiverPlaneBias);
+    sceneDepth -= 0.5f * dot(abs(receiverPlaneBias), shadowMapSizeInv);
 
     float sum = 0;
 #endif
@@ -302,16 +366,19 @@ static const float2 PoissonDisk16[16] =
 
 // PCSS blocker search. Returns average blocker depth in shadow-NDC, or -1 if no blockers found.
 // searchRadiusAtlasUV is the search disk radius expressed in atlas-UV units (already tile-scaled).
-float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, float receiverDepth, float searchRadiusAtlasUV, float bias)
+// Each tap compares against the receiver PLANE (receiverDepth extrapolated along the gradient), so
+// a sloped receiver's own surface doesn't register as a blocker across the disk. Depth is point-
+// sampled: linear-filtering raw depth across discontinuities corrupts the blocker average.
+float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, float receiverDepth, float searchRadiusAtlasUV, float2 receiverPlaneBias)
 {
     float blockerSum = 0.0;
     float blockerCount = 0.0;
     UNROLL
     for (int i = 0; i < 16; i++)
     {
-        float2 uv = atlasUV + PoissonDisk16[i] * searchRadiusAtlasUV;
-        float d = shadowMap.SampleLevel(SamplerLinearClamp, uv, 0).r;
-        if (d < receiverDepth - bias)
+        float2 offset = PoissonDisk16[i] * searchRadiusAtlasUV;
+        float d = shadowMap.SampleLevel(SamplerPointClamp, atlasUV + offset, 0).r;
+        if (d < receiverDepth + dot(offset, receiverPlaneBias))
         {
             blockerSum += d;
             blockerCount += 1.0;
@@ -321,14 +388,15 @@ float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, f
 }
 
 // Variable-radius Poisson PCF in atlas UV. Radius is the disk radius (atlas-UV units).
-float SamplePCF_Poisson16(Texture2D<float> shadowMap, float2 atlasUV, float sceneDepth, float radiusAtlasUV)
+// Per-tap references follow the receiver plane along the gradient.
+float SamplePCF_Poisson16(Texture2D<float> shadowMap, float2 atlasUV, float sceneDepth, float radiusAtlasUV, float2 receiverPlaneBias = float2(0, 0))
 {
     float sum = 0.0;
     UNROLL
     for (int i = 0; i < 16; i++)
     {
-        float2 uv = atlasUV + PoissonDisk16[i] * radiusAtlasUV;
-        sum += SAMPLE_SHADOW_MAP(shadowMap, uv, sceneDepth);
+        float2 offset = PoissonDisk16[i] * radiusAtlasUV;
+        sum += SAMPLE_SHADOW_MAP(shadowMap, atlasUV + offset, sceneDepth + dot(offset, receiverPlaneBias));
     }
     return sum * (1.0 / 16.0);
 }
@@ -336,13 +404,14 @@ float SamplePCF_Poisson16(Texture2D<float> shadowMap, float2 atlasUV, float scen
 // PCSS for directional light: blocker search -> penumbra estimate -> variable-radius PCF.
 // lightSize is in cascade-UV space (a fraction of the cascade's coverage). Converted to atlas UV
 // via the tile's UV scale so the search/filter disk stays the right physical size per cascade.
-float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, float2 atlasUV, float receiverDepth, float lightSize, float bias)
+// receiverDepth must already include the flat epsilon; slope handling comes from the plane gradient.
+float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, float2 atlasUV, float receiverDepth, float lightSize, float2 receiverPlaneBias)
 {
     // Same scale on X and Y (tiles are square)
     float tileScale = tile.ShadowToAtlas.x;
 
     float searchRadiusAtlasUV = lightSize * tileScale;
-    float avgBlocker = FindBlockerDepth_Directional(shadowMap, atlasUV, receiverDepth, searchRadiusAtlasUV, bias);
+    float avgBlocker = FindBlockerDepth_Directional(shadowMap, atlasUV, receiverDepth, searchRadiusAtlasUV, receiverPlaneBias);
     if (avgBlocker < 0.0)
         return 1.0; // No blockers in search disk -> fully lit
 
@@ -356,7 +425,7 @@ float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, fl
     float filterRadiusCascadeUV = max(penumbraCascadeUV, minRadiusCascadeUV);
     float filterRadiusAtlasUV = filterRadiusCascadeUV * tileScale;
 
-    return SamplePCF_Poisson16(shadowMap, atlasUV, receiverDepth - bias, filterRadiusAtlasUV);
+    return SamplePCF_Poisson16(shadowMap, atlasUV, receiverDepth, filterRadiusAtlasUV, receiverPlaneBias);
 }
 
 // Samples the shadow cascade for the given directional light on the material surface (supports subsurface shadowing)
@@ -373,8 +442,8 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
     BRANCH
     if (shadow.Softness > 0.0)
     {
-        // PCSS contact-hardening. Bias is folded in via the comparison reference.
-        result.SurfaceShadow = SamplePCSS_Directional(shadowMap, shadowTile, shadowMapUV, shadowPosition.z, shadow.Softness, 0.0);
+        // PCSS contact-hardening. Flat epsilon is folded into the reference; taps follow the plane.
+        result.SurfaceShadow = SamplePCSS_Directional(shadowMap, shadowTile, shadowMapUV, shadowPosition.z, shadow.Softness, receiverPlaneBias);
     }
     else
     {
@@ -384,7 +453,7 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
 
     // Increase the sharpness for higher cascades to match the filter radius
     const float SharpnessScale[MaxNumCascades] = { 1.0f, 1.5f, 3.0f, 3.5f };
-    shadow.Sharpness *= SharpnessScale[cascadeIndex];
+    shadow.Sharpness *= SharpnessScale[min(cascadeIndex, (uint)MaxNumCascades - 1)];
 
     result.TransmissionShadow = 1;
 #if defined(USE_GBUFFER_CUSTOM_DATA)
@@ -395,7 +464,10 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
 		float opacity = gBuffer.CustomData.a;
         shadowMapUV = GetLightShadowAtlasUV(shadow, shadowTile, gBuffer.WorldPos, shadowPosition);
 		float shadowMapDepth = LOAD_SHADOW_MAP(shadowMap, shadowMapUV);
-		result.TransmissionShadow = CalculateSubsurfaceOcclusion(opacity, shadowPosition.z, shadowMapDepth);
+        // Depth delta is in cascade-normalized units (1 = the cascade's depth range, which tracks
+        // camera FOV); convert to world units so transmission doesn't vary per cascade or with FOV.
+        float thicknessWorld = max(shadowPosition.z - shadowMapDepth, 0.0f) * GetShadowTileWorldPerDepthUnit(shadowTile);
+		result.TransmissionShadow = CalculateSubsurfaceOcclusionWorld(opacity, thicknessWorld, shadowMapDepth);
         result.TransmissionShadow = PostProcessShadow(shadow, result.TransmissionShadow);
 	}
 #else
@@ -507,8 +579,14 @@ ShadowSample SampleDirectionalLightShadow(LightData light, Buffer<float4> shadow
     // Sample cascade
     float3 samplePosition = gBuffer.WorldPos;
 #if !LIGHTING_NO_DIRECTIONAL
-    // Apply normal offset bias
-    samplePosition += GetShadowPositionOffset(shadow.NormalOffsetScale, NoL, gBuffer.Normal);
+    // Apply normal offset bias. NormalOffsetScale is authored in texel units (10 = 1 texel) and
+    // converted with this cascade's world texel size, so the offset tracks the cascade extent,
+    // atlas resolution and camera FOV (a fixed world offset cannot suit more than one projection).
+    float2 shadowAtlasSize;
+    shadowMap.GetDimensions(shadowAtlasSize.x, shadowAtlasSize.y);
+    ShadowTileData offsetTile = LoadShadowsBufferTile(shadowsBuffer, light.ShadowsBufferAddress, cascadeIndex);
+    float texelWorldSize = GetShadowTileTexelWorldSize(offsetTile, shadowAtlasSize.x);
+    samplePosition += GetShadowPositionOffset(shadow.NormalOffsetScale * texelWorldSize, NoL, gBuffer.Normal);
 #endif
     // Use view position for screen-space noise (available in all contexts)
     float2 screenPos = gBuffer.ViewPos.xy;
@@ -571,12 +649,13 @@ ShadowSample SampleLocalLightShadow(LightData light, Buffer<float4> shadowsBuffe
     samplePosition += GetShadowPositionOffset(shadow.NormalOffsetScale, NoL, gBuffer.Normal);
 #endif
 
-    // Project position into shadow atlas UV
+    // Project position into shadow atlas UV, with the exact receiver-plane gradient for PCF taps
     float4 shadowPosition;
-    float2 shadowMapUV = GetLightShadowAtlasUV(shadow, shadowTile, samplePosition, shadowPosition);
+    float2 receiverPlaneBias;
+    float2 shadowMapUV = GetLightShadowAtlasUVLocalWithReceiverBias(shadow, shadowTile, samplePosition, shadowPosition, receiverPlaneBias);
 
     // Sample shadow map
-    result.SurfaceShadow = SampleShadowMapOptimizedPCF(shadowMap, shadowMapUV, shadowPosition.z);
+    result.SurfaceShadow = SampleShadowMapOptimizedPCF(shadowMap, shadowMapUV, shadowPosition.z, float2(0, 0), receiverPlaneBias);
 
 #if defined(USE_GBUFFER_CUSTOM_DATA)
 	// Subsurface shadowing

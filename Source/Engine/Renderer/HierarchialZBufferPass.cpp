@@ -115,12 +115,15 @@ void HierarchialZBufferPass::Dispose()
     SAFE_DELETE_GPU_RESOURCE(_psDebug);
     _csCull = nullptr;
 
-    for (int i = 0; i < _info.Count(); i++)
     {
-        _info[i]->Dispose();
-        Delete(_info[i]);
+        ScopeLock lock(_infoLock);
+        for (int i = 0; i < _info.Count(); i++)
+        {
+            _info[i]->Dispose();
+            Delete(_info[i]);
+        }
+        _info.Clear();
     }
-    _info.Clear();
     _shader = nullptr;
     _shaderCull = nullptr;
 }
@@ -132,6 +135,7 @@ HZBData* HierarchialZBufferPass::GetOrCreateInfo(RenderContext& renderContext)
     {
         info = New<HZBData>();
         renderContext.Task->OcclusionInfo = info;
+        ScopeLock lock(_infoLock);
         _info.Add(info);
     }
     return info;
@@ -166,7 +170,7 @@ GPU_CB_STRUCT(HZBCullCBData {
     uint32 MaxLevel;
     Float3 ViewOrigin;
     uint32 NumSlots;
-    uint32 Pad0;
+    float BoundsInflate;
     uint32 Pad1;
     uint32 Pad2;
     uint32 Pad3;
@@ -213,6 +217,10 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
     if (info->CheckSkip())
         return;
 
+    // Promote any completed occlusion readback into its slots now, before this frame's draw
+    // collection samples them - saves the frame of latency the per-Dispatch promotion path costs.
+    info->PromoteCompletedReadbacks();
+
     PROFILE_GPU_CPU("HZB Build");
 
     Viewport viewport = renderContext.Task->GetOutputViewport();
@@ -233,13 +241,25 @@ void HierarchialZBufferPass::Render(GPUContext* context, RenderContext& renderCo
     }
     info->_resolution = resolution;
 
-    // Capture camera state for subsequent cull dispatches this frame.
-    info->_vp = renderContext.View.ViewProjection();
+    // Capture camera state for subsequent cull dispatches this frame. The pyramid is built from the
+    // PRIOR frame's depth buffer (GBuffer clears the depth later this frame), so we must project cull
+    // bounds through the PRIOR frame's view-projection + origin to match that depth - using the
+    // current VP pops geometry as the camera rotates. PrevViewProjection/PrevOrigin were latched at
+    // the end of last frame (SceneRenderTask::OnEnd) and correspond exactly to that depth.
+    info->_vp = renderContext.View.PrevViewProjection;
     info->_viewForward = renderContext.View.Direction;
     info->_viewNear = renderContext.View.Near;
     info->_pyramidBase = Float2((float)(sizeX / 2), (float)(sizeY / 2));
     info->_maxLevel = (uint32)depth;
-    info->_viewOrigin = renderContext.View.Origin;
+    info->_viewOrigin = renderContext.View.PrevOrigin;
+
+    // Camera translation since the pyramid's capture frame. Bounds tested this frame are current-
+    // frame positions but the depth is from last frame, so a bound the camera has advanced toward
+    // can fall behind a stale occluder edge; dilating the test radius by the travel keeps it visible.
+    const Vector3 curCamWorld = renderContext.View.Origin + (Vector3)renderContext.View.Position;
+    info->_boundsInflate = info->_camWorldPosValid ? (float)Vector3::Distance(curCamWorld, info->_camWorldPos) : 0.0f;
+    info->_camWorldPos = curCamWorld;
+    info->_camWorldPosValid = true;
 
     Float2 depthDimensions = renderContext.Buffers->DepthBuffer->Size();
     int currWidth = sizeX / 2;
@@ -415,7 +435,7 @@ void HierarchialZBufferPass::FlushPendingCulls(GPUContext* context)
         cb.MaxLevel = pyramid->_maxLevel;
         cb.ViewOrigin = pyramid->_viewOrigin;
         cb.NumSlots = (uint32)numEntries;
-        cb.Pad0 = 0;
+        cb.BoundsInflate = pyramid->_boundsInflate;
         cb.Pad1 = 0;
         cb.Pad2 = 0;
         cb.Pad3 = 0;
@@ -574,6 +594,21 @@ HZBCullSlot* HZBData::GetOrCreateConsumer(void* owner, int32 subId)
     return slot;
 }
 
+void HierarchialZBufferPass::ReleaseConsumer(void* owner)
+{
+    if (!owner)
+        return;
+    HierarchialZBufferPass* pass = HierarchialZBufferPass::Instance();
+    if (!pass)
+        return;
+    ScopeLock lock(pass->_infoLock);
+    for (HZBData* pyramid : pass->_info)
+    {
+        if (pyramid)
+            pyramid->ReleaseConsumersOf(owner);
+    }
+}
+
 void HZBData::ReleaseConsumersOf(void* owner)
 {
     ScopeLock lock(_consumersLock);
@@ -593,6 +628,34 @@ void HZBData::ReleaseConsumersOf(void* owner)
     }
     for (uint64 k : toRemove)
         _consumers.Remove(k);
+}
+
+void HZBData::PromoteCompletedReadbacks()
+{
+    if (!_batchReadback || !_batchReadback->IsChainEnded() || _batchReadbackFrame == 0)
+        return;
+    const uint64 frame = Engine::FrameCount;
+    ScopeLock lock(_consumersLock);
+    for (auto& kv : _consumers)
+    {
+        HZBCullSlot* slot = kv.Value;
+        if (!slot || slot->_batchCount <= 0)
+            continue;
+        // Only promote slots that were part of the most recent kicked batch (its frame is stamped
+        // on the slot); a stale _batchFrame means the slot missed that flush (skipped/scrubbed).
+        if (slot->_batchFrame == 0 || slot->_batchFrame != _batchReadbackFrame)
+            continue;
+        const int32 wordsSlot = (slot->_batchCount + 31) / 32;
+        const int32 byteOffset = (int32)slot->_batchOffsetWords * 4;
+        const int32 byteLen = wordsSlot * 4;
+        if (_batchBytes.Length() >= byteOffset + byteLen)
+        {
+            slot->VisBits.Allocate(byteLen);
+            Platform::MemoryCopy(slot->VisBits.Get(), _batchBytes.Get() + byteOffset, byteLen);
+            slot->VisBitsCount = slot->_batchCount;
+            slot->_lastPromoteFrame = frame;
+        }
+    }
 }
 
 int32 HZBCullSlot::CountVisible() const
@@ -651,6 +714,7 @@ void HZBCullSlot::Dispatch(HZBData* pyramid, const Float4* worldBoundsCpu, uint3
     // (1) Promote: if the pyramid's last-kicked readback included this slot AND has now drained,
     // copy our slice out of pyramid->_batchBytes into our own VisBits. _batchFrame is stamped by
     // FlushPendingCulls only when it actually kicked, so a stale _batchFrame survives skip frames.
+    const uint64 frame = Engine::FrameCount;
     if (pyramid->_batchReadback && pyramid->_batchReadback->IsChainEnded() &&
         _batchFrame != 0 && _batchFrame == pyramid->_batchReadbackFrame && _batchCount > 0)
     {
@@ -662,8 +726,15 @@ void HZBCullSlot::Dispatch(HZBData* pyramid, const Float4* worldBoundsCpu, uint3
             VisBits.Allocate(byteLen);
             Platform::MemoryCopy(VisBits.Get(), pyramid->_batchBytes.Get() + byteOffset, byteLen);
             VisBitsCount = _batchCount;
+            _lastPromoteFrame = frame;
         }
     }
+
+    // Age-out: if we hold a verdict but promotion has stalled (wedged readback, skipped flushes),
+    // drop it so TestVisibility fails open rather than culling on an ever-staler mask. 8 frames is
+    // well beyond the normal 1-2 frame promote latency.
+    if (VisBitsCount > 0 && _lastPromoteFrame != 0 && frame - _lastPromoteFrame > 8)
+        VisBitsCount = 0;
 
     if (!pyramid->IsReady() || boundsCount == 0 || !worldBoundsCpu)
         return;
