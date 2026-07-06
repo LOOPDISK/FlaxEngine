@@ -542,7 +542,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
     {
         PROFILE_CPU_NAMED("Collect Draw Calls");
 
-        view.Pass = DrawPass::GBuffer | DrawPass::Forward | DrawPass::Distortion | DrawPass::StylizedCloud;
+        view.Pass = DrawPass::GBuffer | DrawPass::Forward | DrawPass::Distortion | DrawPass::StylizedCloud | DrawPass::FogInject;
         if (setup.UseMotionVectors)
             view.Pass |= DrawPass::MotionVectors;
         renderContextBatch.GetMainContext() = renderContext; // Sync render context in batch with the current value
@@ -606,7 +606,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         struct DrawCallsProcessor
         {
             RenderContextBatch& RenderContextBatch;
-            Pair<DrawCallsListType, bool> MainContextSorting[5] =
+            Pair<DrawCallsListType, bool> MainContextSorting[6] =
             {
                 // Draw List + Reverse Distance sorting
                 ToPair(DrawCallsListType::GBuffer, false),
@@ -614,6 +614,7 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
                 ToPair(DrawCallsListType::Forward, true),
                 ToPair(DrawCallsListType::Distortion, false),
                 ToPair(DrawCallsListType::MotionVectors, false),
+                ToPair(DrawCallsListType::FogInject, false), // Additive signed density accumulation (order-independent)
             };
 
             void BuildObjectsBufferJob(int32 index)
@@ -792,6 +793,53 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
 
     // Render fog
     context->ResetSR();
+    bool useDepthHaze = EnumHasAnyFlags(renderContext.View.Flags, ViewFlags::DepthHaze) &&
+                        renderContext.List->Settings.DepthHaze.Enabled &&
+                        renderContext.List->Settings.DepthHaze.Intensity > 0.0f;
+
+    // Particle fog inject: accumulate signed particle density into a low-res buffer that the distance fog and depth haze read to push density organically
+    GPUTexture* fogInject = nullptr;
+    {
+        auto& fogInjectList = renderContext.List->DrawCallsLists[(int32)DrawCallsListType::FogInject];
+        const bool fogInjectDebug = renderContext.View.Mode == ViewMode::FogInject; // Force the buffer (even if empty) so the debug view shows the cleared buffer instead of falling through
+        const bool fogInjectAnyConsumer = renderContext.List->Fog.Renderer != nullptr || useDepthHaze;
+        if ((!fogInjectList.IsEmpty() && fogInjectAnyConsumer) || fogInjectDebug)
+        {
+            PROFILE_GPU_CPU("Fog Inject");
+            // Quarter-res buffer (keep FOG_INJECT_DOWNSCALE in the FogInject.hlsl material template in sync)
+            const int32 injectWidth = Math::Max(1, renderContext.Buffers->GetWidth() / 4);
+            const int32 injectHeight = Math::Max(1, renderContext.Buffers->GetHeight() / 4);
+            const auto injectDesc = GPUTextureDescription::New2D(injectWidth, injectHeight, PixelFormat::R16G16B16A16_Float);
+            fogInject = RenderTargetPool::Get(injectDesc);
+            RENDER_TARGET_POOL_SET_NAME(fogInject, "Fog.Inject");
+            context->Clear(fogInject->View(), Color::Transparent);
+            context->SetViewportAndScissors((float)injectWidth, (float)injectHeight);
+            context->SetRenderTarget(fogInject->View());
+            const DrawPass savedPass = renderContext.View.Pass;
+            renderContext.View.Pass = DrawPass::FogInject;
+            renderContext.List->ExecuteDrawCalls(renderContext, DrawCallsListType::FogInject);
+            renderContext.View.Pass = savedPass;
+            context->ResetRenderTarget();
+            context->SetViewportAndScissors(renderContext.Task->GetViewport());
+            renderContext.List->Fog.FogInjectTexture = fogInject;
+
+#if USE_EDITOR
+            // Debug view: visualize the signed inject buffer (green = push/thicken, red = pull/thin)
+            if (fogInjectDebug)
+            {
+                context->ResetSR();
+                context->SetRenderTarget(task->GetOutputView());
+                context->SetViewportAndScissors(task->GetOutputViewport());
+                PostProcessingPass::Instance()->RenderFogInjectDebug(renderContext, fogInject);
+                renderContext.List->Fog.FogInjectTexture = nullptr;
+                RenderTargetPool::Release(fogInject);
+                RenderTargetPool::Release(lightBuffer);
+                return;
+            }
+#endif
+        }
+    }
+
     if (renderContext.List->AtmosphericFog)
     {
         PROFILE_GPU_CPU("Atmospheric Fog");
@@ -810,9 +858,6 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
     // Apply depth haze before forward pass so it doesn't affect translucent surfaces (e.g. glass)
     auto frameBuffer = RenderTargetPool::Get(tempDesc);
     RENDER_TARGET_POOL_SET_NAME(frameBuffer, "FrameBuffer");
-    bool useDepthHaze = EnumHasAnyFlags(renderContext.View.Flags, ViewFlags::DepthHaze) &&
-                        renderContext.List->Settings.DepthHaze.Enabled &&
-                        renderContext.List->Settings.DepthHaze.Intensity > 0.0f;
     if (useDepthHaze)
     {
         auto tempBuffer = RenderTargetPool::Get(tempDesc);
@@ -820,6 +865,13 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
         PostProcessingPass::Instance()->RenderDepthHaze(renderContext, lightBuffer, tempBuffer);
         Swap(lightBuffer, tempBuffer);
         RenderTargetPool::Release(tempBuffer);
+    }
+
+    // Release the fog inject buffer (kept alive through the fog and depth haze passes that read it)
+    if (fogInject)
+    {
+        renderContext.List->Fog.FogInjectTexture = nullptr;
+        RenderTargetPool::Release(fogInject);
     }
 
     StylizedCloudPass::Instance()->Render(renderContext, lightBuffer);

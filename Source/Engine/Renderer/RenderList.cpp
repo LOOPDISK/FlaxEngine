@@ -201,6 +201,7 @@ RenderFogData::RenderFogData()
 {
     Renderer = nullptr;
     VolumetricFogTexture = nullptr;
+    FogInjectTexture = nullptr;
     Platform::MemoryClear(&ExponentialHeightFogData, sizeof(ExponentialHeightFogData));
     ExponentialHeightFogData.FogMinOpacity = 1.0f;
     ExponentialHeightFogData.FogCutoffDistance = 0.1f;
@@ -702,6 +703,10 @@ void RenderList::AddDrawCall(const RenderContext& renderContext, DrawPass drawMo
     {
         DrawCallsLists[(int32)DrawCallsListType::StylizedCloud].Indices.Add(index);
     }
+    if ((drawModes & DrawPass::FogInject) != DrawPass::None)
+    {
+        DrawCallsLists[(int32)DrawCallsListType::FogInject].Indices.Add(index);
+    }
 }
 
 static bool CustomCullingCriteria(StaticFlags staticFlags, const RenderView& view, const BoundingSphere& bounds, float cullingDistanceSq, float minObjectPixelSizeSq)
@@ -770,6 +775,10 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
         if ((drawModes & DrawPass::StylizedCloud) != DrawPass::None)
         {
             DrawCallsLists[(int32)DrawCallsListType::StylizedCloud].Indices.Add(index);
+        }
+        if ((drawModes & DrawPass::FogInject) != DrawPass::None)
+        {
+            DrawCallsLists[(int32)DrawCallsListType::FogInject].Indices.Add(index);
         }
     }
     float minObjectPixelSizeSq = Math::Square(Graphics::Shadows::MinObjectPixelSize);

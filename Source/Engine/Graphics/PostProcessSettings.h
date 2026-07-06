@@ -568,9 +568,14 @@ API_ENUM(Attributes="Flags") enum class DepthHazeSettingsOverride : int32
     ChromaticDispersion = 1 << 6,
 
     /// <summary>
+    /// Overrides <see cref="DepthHazeSettings.ParticlePush"/> property.
+    /// </summary>
+    ParticlePush = 1 << 7,
+
+    /// <summary>
     /// All properties.
     /// </summary>
-    All = Enabled | Intensity | NearDistance | FarDistance | Power | MaxMipLevel | ChromaticDispersion,
+    All = Enabled | Intensity | NearDistance | FarDistance | Power | MaxMipLevel | ChromaticDispersion | ParticlePush,
 };
 
 /// <summary>
@@ -629,6 +634,12 @@ API_STRUCT() struct FLAXENGINE_API DepthHazeSettings : ISerializable
     /// </summary>
     API_FIELD(Attributes="Limit(0, 2.0f, 0.01f), EditorOrder(6), PostProcessSetting((int)DepthHazeSettingsOverride.ChromaticDispersion)")
     float ChromaticDispersion = 0.4f;
+
+    /// <summary>
+    /// Strength multiplier for the particle fog inject buffer pushing the haze (particles thickening it via the FogInject draw pass). 1 means a full-strength particle doubles the apparent distance; 0 disables the effect on the haze.
+    /// </summary>
+    API_FIELD(Attributes="Limit(0, 8.0f, 0.01f), EditorOrder(7), PostProcessSetting((int)DepthHazeSettingsOverride.ParticlePush)")
+    float ParticlePush = 1.0f;
 
 public:
     /// <summary>

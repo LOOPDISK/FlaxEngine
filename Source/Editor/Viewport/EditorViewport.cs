@@ -2110,6 +2110,7 @@ namespace FlaxEditor.Viewport
             new ViewModeOptions(ViewMode.GlobalSurfaceAtlas, "Global Surface Atlas", Editor.Instance.Options.Options.Input.GlobalSurfaceAtlas),
             new ViewModeOptions(ViewMode.GlobalIllumination, "Global Illumination", Editor.Instance.Options.Options.Input.GlobalIllumination),
             new ViewModeOptions(ViewMode.HierarchialZBuffer, "HZB Occluders", Editor.Instance.Options.Options.Input.HZBOccluders),
+            new ViewModeOptions(ViewMode.FogInject, "Fog Inject Buffer"),
         };
 
         private void WidgetViewModeShowHideClicked(ContextMenuButton button)

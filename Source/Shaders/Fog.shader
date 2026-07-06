@@ -19,6 +19,8 @@ GBufferData GBuffer;
 ExponentialHeightFogData ExponentialHeightFog;
 VolumetricFogData VolumetricFog;
 float4 TemporalAAJitter;
+float FogInjectStrength;
+float3 FogInjectPadding;
 META_CB_END
 
 DECLARE_GBUFFERDATA_ACCESS(GBuffer)
@@ -28,10 +30,15 @@ Texture2D Depth : register(t0);
 Texture3D VolumetricFogTexture : register(t1);
 #endif
 Texture2D GBuffer1 : register(t2);
+#if FOG_INJECT
+Texture2D FogInjectTexture : register(t3); // Low-res particle-driven density (R = signed density push)
+#endif
 
 META_PS(true, FEATURE_LEVEL_ES2)
-META_PERMUTATION_1(VOLUMETRIC_FOG=0)
-META_PERMUTATION_1(VOLUMETRIC_FOG=1)
+META_PERMUTATION_2(VOLUMETRIC_FOG=0, FOG_INJECT=0)
+META_PERMUTATION_2(VOLUMETRIC_FOG=1, FOG_INJECT=0)
+META_PERMUTATION_2(VOLUMETRIC_FOG=0, FOG_INJECT=1)
+META_PERMUTATION_2(VOLUMETRIC_FOG=1, FOG_INJECT=1)
 float4 PS_Fog(Quad_VS2PS input) : SV_Target0
 {
     // Get world space position at given pixel coordinate
@@ -59,6 +66,18 @@ float4 PS_Fog(Quad_VS2PS input) : SV_Target0
     // Sample volumetric fog and mix it in
 	float4 volumetricFog = SampleVolumetricFog(VolumetricFogTexture, VolumetricFog, worldPos - GBuffer.ViewPos, input.TexCoord, TemporalAAJitter);
 	fog = CombineVolumetricFog(fog, volumetricFog);
+#endif
+
+#if FOG_INJECT
+	// Organic particle-driven density push, RELATIVE to the fog already here. fog.a is transmittance
+	// (exp(-opticalDepth)); scaling optical depth by k gives pow(fog.a, k) -> k = 1 + push: k>1 denser,
+	// k<1 thinner, k=0 clears. Where there's no fog (fog.a=1) pow(1,k)=1 so particles can't conjure
+	// fog from nothing. Match the transmittance delta in inscattering so color stays consistent.
+	// Push is clamped as the buffer accumulates unbounded (overlapping particles stack additively).
+	float push = clamp(FogInjectTexture.SampleLevel(SamplerLinearClamp, input.TexCoord, 0).r * FogInjectStrength, -8.0, 8.0);
+	float fogA = pow(fog.a, max(0.0, 1.0 + push));
+	fog.rgb += ExponentialHeightFog.FogInscatteringColor * (fog.a - fogA);
+	fog.a = fogA;
 #endif
 
 	return float4(fog.rgb, 1.0 - fog.a);

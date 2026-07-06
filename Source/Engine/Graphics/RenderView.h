@@ -344,18 +344,19 @@ public:
 public:
     FORCE_INLINE DrawPass GetShadowsDrawPassMask(ShadowsCastingMode shadowsMode) const
     {
+        // FogInject is a non-shadow auxiliary pass (like Distortion) - never gate it by shadow mode
         switch (shadowsMode)
         {
         case ShadowsCastingMode::All:
-            return DrawPass::Default;
+            return DrawPass::Default | DrawPass::FogInject;
         case ShadowsCastingMode::DynamicOnly:
-            return IsOfflinePass ? ~(DrawPass::Depth | DrawPass::WeaponDepth) : DrawPass::Default;
+            return IsOfflinePass ? ~(DrawPass::Depth | DrawPass::WeaponDepth) : (DrawPass::Default | DrawPass::FogInject);
         case ShadowsCastingMode::StaticOnly:
-            return IsOfflinePass ? DrawPass::Default : ~(DrawPass::Depth | DrawPass::WeaponDepth);
+            return IsOfflinePass ? (DrawPass::Default | DrawPass::FogInject) : ~(DrawPass::Depth | DrawPass::WeaponDepth);
         case ShadowsCastingMode::None:
             return ~(DrawPass::Depth | DrawPass::WeaponDepth);
         default:
-            return DrawPass::Default;
+            return DrawPass::Default | DrawPass::FogInject;
         }
     }
 

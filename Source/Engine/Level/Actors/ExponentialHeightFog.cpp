@@ -81,6 +81,7 @@ void ExponentialHeightFog::Serialize(SerializeStream& stream, const void* otherO
     SERIALIZE(FogMaxOpacity);
     SERIALIZE(StartDistance);
     SERIALIZE(FogCutoffDistance);
+    SERIALIZE(FogInjectStrength);
 
     SERIALIZE(DirectionalInscatteringLight);
     SERIALIZE(DirectionalScatteringAnisotropy);
@@ -106,6 +107,7 @@ void ExponentialHeightFog::Deserialize(DeserializeStream& stream, ISerializeModi
     DESERIALIZE(FogMaxOpacity);
     DESERIALIZE(StartDistance);
     DESERIALIZE(FogCutoffDistance);
+    DESERIALIZE(FogInjectStrength);
 
     DESERIALIZE(DirectionalInscatteringLight);
     DESERIALIZE(DirectionalScatteringAnisotropy);
@@ -186,6 +188,8 @@ GPU_CB_STRUCT(Data {
     ShaderExponentialHeightFogData ExponentialHeightFog;
     ShaderVolumetricFogData VolumetricFog;
     Float4 TemporalAAJitter;
+    float FogInjectStrength;
+    Float3 FogInjectPadding;
     });
 
 void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderContext, GPUTextureView* output)
@@ -193,6 +197,8 @@ void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderCon
     PROFILE_GPU_CPU("Exponential Height Fog");
     auto volumetricFogTexture = renderContext.List->Fog.VolumetricFogTexture;
     bool useVolumetricFog = volumetricFogTexture != nullptr;
+    auto fogInjectTexture = renderContext.List->Fog.FogInjectTexture;
+    bool useFogInject = fogInjectTexture != nullptr;
 
     // Setup shader inputs
     Data data;
@@ -200,6 +206,7 @@ void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderCon
     data.ExponentialHeightFog = renderContext.List->Fog.ExponentialHeightFogData;
     data.VolumetricFog = renderContext.List->Fog.VolumetricFogData;
     data.TemporalAAJitter = renderContext.View.TemporalAAJitter;
+    data.FogInjectStrength = FogInjectStrength;
     auto cb = _shader->GetShader()->GetCB(0);
     ASSERT_LOW_LAYER(cb->GetSize() == sizeof(Data));
     context->UpdateCB(cb, &data);
@@ -207,12 +214,14 @@ void ExponentialHeightFog::DrawFog(GPUContext* context, RenderContext& renderCon
     context->BindSR(0, renderContext.Buffers->DepthBuffer);
     context->BindSR(1, volumetricFogTexture);
     context->BindSR(2, renderContext.Buffers->GBuffer1); // Shading model for weapon depth correction
+    if (useFogInject)
+        context->BindSR(3, fogInjectTexture); // Low-res particle-driven signed density buffer
 
     // TODO: instead of rendering fullscreen triangle, draw quad transformed at the fog start distance (also it could use early depth discard)
     // TODO: or use DepthBounds to limit the fog rendering to the distance range
 
-    // Draw fog
-    const int32 psIndex = (useVolumetricFog ? 1 : 0);
+    // Draw fog (permutation: [VOLUMETRIC_FOG] + 2*[FOG_INJECT])
+    const int32 psIndex = (useVolumetricFog ? 1 : 0) + (useFogInject ? 2 : 0);
     context->SetState(_psFog.Get(psIndex));
     context->SetRenderTarget(output);
     context->DrawFullscreenTriangle();

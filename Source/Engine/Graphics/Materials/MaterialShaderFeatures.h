@@ -109,6 +109,17 @@ struct DistortionFeature : MaterialShaderFeature
 #endif
 };
 
+// Material shader feature that adds the fog inject pass (particles writing density into the fog buffer).
+struct FogInjectFeature : MaterialShaderFeature
+{
+    enum { SRVs = 1 };
+
+    static void Bind(MaterialShader::BindParameters& params, Span<byte>& cb, int32& srv);
+#if USE_EDITOR
+    static void Generate(GeneratorData& data);
+#endif
+};
+
 // Material shader feature that adds motion vectors rendering pass.
 struct MotionVectorsFeature : MaterialShaderFeature
 {

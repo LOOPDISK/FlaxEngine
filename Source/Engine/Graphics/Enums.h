@@ -833,6 +833,11 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     StylizedCloud = 1 << 15,
 
     /// <summary>
+    /// The fog inject pass. Particles draw into a dedicated low-res buffer that the distance fog and depth haze read to modulate density (organic fog). High bit to avoid master-merge collisions.
+    /// </summary>
+    FogInject = 1 << 19,
+
+    /// <summary>
     /// The debug quad overdraw rendering (editor-only).
     /// </summary>
     API_ENUM(Attributes="HideInEditor")
@@ -848,7 +853,7 @@ API_ENUM(Attributes="Flags") enum class DrawPass : int32
     /// The all draw passes combined into a single mask.
     /// </summary>
     API_ENUM(Attributes = "HideInEditor")
-    All = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | StylizedCloud,
+    All = Depth | GBuffer | Forward | Distortion | MotionVectors | GlobalSDF | GlobalSurfaceAtlas | StylizedCloud | FogInject,
 };
 
 
@@ -998,6 +1003,11 @@ API_ENUM() enum class ViewMode
     /// Draw HZB preview.
     /// </summary>
     HierarchialZBuffer = 27,
+
+    /// <summary>
+    /// Draw the particle fog inject buffer preview (R = signed density push).
+    /// </summary>
+    FogInject = 28,
 
 };
 

@@ -15,6 +15,7 @@ private:
         PipelineStateCache Default;
         PipelineStateCache Depth;
         PipelineStateCache Distortion;
+        PipelineStateCache FogInject;
 #if USE_EDITOR
         PipelineStateCache QuadOverdraw;
 #endif
@@ -28,6 +29,8 @@ private:
                 return &Depth;
             case DrawPass::Distortion:
                 return &Distortion;
+            case DrawPass::FogInject:
+                return &FogInject;
             case DrawPass::Forward:
                 return &Default;
 #if USE_EDITOR
@@ -44,6 +47,7 @@ private:
             Default.Release();
             Depth.Release();
             Distortion.Release();
+            FogInject.Release();
 #if USE_EDITOR
             QuadOverdraw.Release();
 #endif

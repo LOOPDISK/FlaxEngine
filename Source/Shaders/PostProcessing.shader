@@ -53,7 +53,7 @@ float DepthHazePower;
 float DepthHazeMaxMipLevel;
 float DepthHazeChromaticDispersion;
 float DepthHazeMipCount;
-float DepthHazePadding0;
+float DepthHazeParticlePush;
 
 float BloomIntensity;
 float BloomClamp;
@@ -132,6 +132,7 @@ Texture2D LensDirt : register(t4);
 Texture2D LensStar : register(t5);
 Texture2D LensColor : register(t6);
 Texture2D DepthHaze : register(t8);
+Texture2D FogInject : register(t9); // Low-res particle-driven signed density push (black = neutral when no particles)
 Texture2D DepthMips : register(t10);
 #if USE_VOLUME_LUT
 Texture3D ColorGradingLUT : register(t7);
@@ -578,6 +579,17 @@ float HazeRadialScale(float2 uv)
 {
     float2 ray = (uv * 2.0 - 1.0) * ViewInfo.xy;
     return sqrt(1.0 + dot(ray, ray));
+}
+
+// Particle-driven apparent-distance scale for the haze: particles accumulate a density push
+// into a low-res buffer; a full-strength particle (push 1 at default DepthHazeParticlePush)
+// doubles the distance the haze sees (thicker/blurrier). Applied ONLY at composite time - the
+// mip chain must stay physical: injected depth cliffs inside the marching-mask pyramid get
+// decimated and spread by every downsample level and come back as geometry-silhouette echoes
+// at each mip scale. Clamped as overlapping particles stack additively.
+float HazeInjectScale(float2 uv)
+{
+    return exp2(clamp(FogInject.SampleLevel(SamplerLinearClamp, uv, 0).r * DepthHazeParticlePush, -8.0, 8.0));
 }
 
 // Initial full-res -> half-res premultiplied copy (MRT: color mip 0 + participating depth mip 0)
@@ -1254,6 +1266,17 @@ float4 SampleHazePremult(float2 uv, float mip)
     return s;
 }
 
+// Fog inject buffer debug view: diverging visualization of the signed density push.
+// Green = push (thicken), red = pull (thin), near-black = neutral. Point-sampled so the
+// quarter-res texels show honestly. Opaque alpha so the editor viewport doesn't composite it away.
+META_PS(true, FEATURE_LEVEL_ES2)
+float4 PS_FogInjectDebug(Quad_VS2PS input) : SV_Target
+{
+    float push = FogInject.SampleLevel(SamplerPointClamp, input.TexCoord, 0).r;
+    float3 color = float3(saturate(-push), saturate(push), 0.02);
+    return float4(color, 1.0);
+}
+
 // Standalone depth haze composition pass (applied after forward pass, before AA/UI)
 // Input0: scene color, DepthHaze: premultiplied haze mip chain, DepthMips: full-res depth buffer
 META_PS(true, FEATURE_LEVEL_ES2)
@@ -1268,7 +1291,14 @@ float4 PS_DepthHazeComposite(Quad_VS2PS input) : SV_Target
         // silhouettes, and it crawls in lockstep with the scene's own geometric edges.
         // Radial distance (not view-Z) so the haze is invariant under camera rotation.
         float deviceDepth = DepthMips.SampleLevel(SamplerPointClamp, input.TexCoord, 0).r;
-        float pixelDepth = LinearizeZ(deviceDepth, ViewInfo, ViewFar) * HazeRadialScale(input.TexCoord);
+        float baseDepth = LinearizeZ(deviceDepth, ViewInfo, ViewFar) * HazeRadialScale(input.TexCoord);
+
+        // Particle push thickens the haze by scaling the apparent distance, gated by the pixel's
+        // base participation: the premultiplied chain holds no color for near pixels (masked out
+        // to prevent halos), so pushing them would renormalize toward black - fog stays behind
+        // near geometry instead of fogging over it.
+        float basePart = HazeParticipation(baseDepth, DepthHazeNearDistance);
+        float pixelDepth = baseDepth * lerp(1.0, HazeInjectScale(input.TexCoord), basePart);
 
         float depthRange = DepthHazeFarDistance - DepthHazeNearDistance;
         float normalizedDepth = saturate((pixelDepth - DepthHazeNearDistance) / max(depthRange, 1.0));

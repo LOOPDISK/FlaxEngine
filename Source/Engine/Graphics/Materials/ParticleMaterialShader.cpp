@@ -56,7 +56,9 @@ void ParticleMaterialShader::Bind(BindParameters& params)
     cb = cb.Slice(sizeof(ParticleMaterialShaderData));
     int32 srv = 2;
 
-    // Setup features
+    // Setup features (order must match the features order in MaterialGenerator so the srv counter lines up with the generated t__SRV__ registers)
+    if (_info.BlendMode != MaterialBlendMode::Opaque)
+        FogInjectFeature::Bind(params, cb, srv);
     if (EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::GlobalIllumination))
         GlobalIlluminationFeature::Bind(params, cb, srv);
     ForwardShadingFeature::Bind(params, cb, srv);
@@ -230,6 +232,27 @@ bool ParticleMaterialShader::Load()
         _cacheModel.Distortion.Init(psDesc);
         psDesc.VS = vsRibbon;
         _cacheRibbon.Distortion.Init(psDesc);
+    }
+
+    // Check if material contributes to the fog inject pass
+    if (_shader->HasShader("PS_FogInject"))
+    {
+        _drawModes |= DrawPass::FogInject;
+
+        // Accumulate signed density into the low-res fog buffer (additive float target, no hardware depth - occlusion is done softly in the pixel shader)
+        psDesc.PS = _shader->GetPS("PS_FogInject");
+        psDesc.BlendMode = BlendingMode::Add;
+        psDesc.DepthEnable = false;
+        psDesc.DepthWriteEnable = false;
+        psDesc.VS = vsSprite;
+        _cacheSprite.FogInject.Init(psDesc);
+        psDesc.VS = vsMesh;
+        _cacheModel.FogInject.Init(psDesc);
+        psDesc.VS = vsRibbon;
+        _cacheRibbon.FogInject.Init(psDesc);
+
+        // Restore depth test config for the passes below
+        psDesc.DepthEnable = (_info.FeaturesFlags & MaterialFeaturesFlags::DisableDepthTest) == MaterialFeaturesFlags::None;
     }
 
     // Forward Pass

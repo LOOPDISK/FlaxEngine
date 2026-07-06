@@ -244,8 +244,8 @@ public:
     /// <summary>
     /// The draw passes to use for rendering this object.
     /// </summary>
-    API_FIELD(Attributes="EditorDisplay(\"Particle Effect\"), EditorOrder(75), DefaultValue(DrawPass.Default)")
-    DrawPass DrawModes = DrawPass::Default;
+    API_FIELD(Attributes="EditorDisplay(\"Particle Effect\"), EditorOrder(75), DefaultValue(DrawPass.Default | DrawPass.FogInject)")
+    DrawPass DrawModes = DrawPass::Default | DrawPass::FogInject; // FogInject included by default: the actual opt-in is the renderer module's Draw Modes (which excludes it by default)
 
     /// <summary>
     /// The object sort order key used when sorting drawable objects during rendering. Use lower values to draw object before others, higher values are rendered later (on top). Can be used to control transparency drawing.

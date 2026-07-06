@@ -25,7 +25,7 @@ GPU_CB_STRUCT(Data{
     float DepthHazeMaxMipLevel;  // Maximum mip level for depth haze blur
     float DepthHazeChromaticDispersion; // Chromatic dispersion strength
     float DepthHazeMipCount;
-    float DepthHazePadding0;
+    float DepthHazeParticlePush; // Strength multiplier for the particle fog inject buffer pushing the haze
 
     float BloomIntensity; // Overall bloom strength multiplier
     float BloomClamp; // Maximum brightness limit for bloom
@@ -99,6 +99,7 @@ bool PostProcessingPass::Init()
     _psDepthHazePremultCopy = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeMarchingDownsample = GPUDevice::Instance->CreatePipelineState();
     _psDepthHazeComposite = GPUDevice::Instance->CreatePipelineState();
+    _psFogInjectDebug = GPUDevice::Instance->CreatePipelineState();
     _psBloomBrightPass = GPUDevice::Instance->CreatePipelineState();
     _psBloomDownsample = GPUDevice::Instance->CreatePipelineState();
     _psBloomDualFilterUpsample = GPUDevice::Instance->CreatePipelineState();
@@ -151,6 +152,12 @@ bool PostProcessingPass::setupResources()
     {
         psDesc.PS = shader->GetPS("PS_DepthHazeComposite");
         if (_psDepthHazeComposite->Init(psDesc))
+            return true;
+    }
+    if (!_psFogInjectDebug->IsValid())
+    {
+        psDesc.PS = shader->GetPS("PS_FogInjectDebug");
+        if (_psFogInjectDebug->Init(psDesc))
             return true;
     }
     if (!_psBloomBrightPass->IsValid())
@@ -266,6 +273,7 @@ void PostProcessingPass::Dispose()
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazePremultCopy);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeMarchingDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psDepthHazeComposite);
+    SAFE_DELETE_GPU_RESOURCE(_psFogInjectDebug);
     SAFE_DELETE_GPU_RESOURCE(_psBloomBrightPass);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDownsample);
     SAFE_DELETE_GPU_RESOURCE(_psBloomDualFilterUpsample);
@@ -705,6 +713,7 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
     data.DepthHazeMaxMipLevel = settings.DepthHaze.MaxMipLevel;
     data.DepthHazeChromaticDispersion = settings.DepthHaze.ChromaticDispersion;
     data.DepthHazeMipCount = (float)bloomMipCount;
+    data.DepthHazeParticlePush = Math::Max(settings.DepthHaze.ParticlePush, 0.0f);
 
     // BloomLayer doubles as the target mip index for the marching-mask downsample
     data.BloomMipCount = (float)bloomMipCount;
@@ -716,6 +725,10 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
 
     context->UpdateCB(cb0, &data);
     context->BindCB(0, cb0);
+
+    // Particle fog inject buffer scales the haze's apparent distance per pixel (black = neutral when no particles this frame)
+    GPUTexture* fogInject = renderContext.List->Fog.FogInjectTexture;
+    context->BindSR(9, fogInject ? fogInject : GPUDevice::Instance->GetDefaultBlackTexture());
 
     ////////////////////////////////////////////////////////////////////////////////////
     // Atmospheric Scattering Mip Chains
@@ -833,9 +846,26 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
     context->ResetRenderTarget();
     context->UnBindSR(0);
     context->UnBindSR(8);
+    context->UnBindSR(9);
     context->UnBindSR(10);
     RenderTargetPool::Release(scatteringColorBuffer);
     if (scatteringColorBuffer2)
         RenderTargetPool::Release(scatteringColorBuffer2);
     RenderTargetPool::Release(depthMipBuffer);
+}
+
+void PostProcessingPass::RenderFogInjectDebug(RenderContext& renderContext, GPUTexture* fogInject)
+{
+    // The raw buffer holds signed data with zero alpha, so a plain copy blit would show black
+    // for pulls and get alpha-composited away by the editor viewport - visualize it instead
+    auto context = GPUDevice::Instance->GetMainContext();
+    if (checkIfSkipPass() || !_psFogInjectDebug || !_psFogInjectDebug->IsValid())
+    {
+        context->Draw(fogInject); // Fallback raw blit
+        return;
+    }
+    context->BindSR(9, fogInject);
+    context->SetState(_psFogInjectDebug);
+    context->DrawFullscreenTriangle();
+    context->UnBindSR(9);
 }

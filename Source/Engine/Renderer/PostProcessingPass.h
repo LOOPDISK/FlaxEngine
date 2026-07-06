@@ -16,6 +16,7 @@ private:
     GPUPipelineState* _psDepthHazePremultCopy = nullptr;
     GPUPipelineState* _psDepthHazeMarchingDownsample = nullptr;
     GPUPipelineState* _psDepthHazeComposite = nullptr;
+    GPUPipelineState* _psFogInjectDebug = nullptr;
     GPUPipelineState* _psBloomBrightPass = nullptr;
     GPUPipelineState* _psBloomDownsample = nullptr;
     GPUPipelineState* _psBloomDualFilterUpsample = nullptr;
@@ -45,6 +46,13 @@ public:
     /// <param name="output">Output frame</param>
     void RenderDepthHaze(RenderContext& renderContext, GPUTexture* input, GPUTexture* output);
 
+    /// <summary>
+    /// Renders the fog inject buffer debug visualization to the currently bound render target (green = push/thicken, red = pull/thin).
+    /// </summary>
+    /// <param name="renderContext">The rendering context.</param>
+    /// <param name="fogInject">The particle fog inject buffer.</param>
+    void RenderFogInjectDebug(RenderContext& renderContext, GPUTexture* fogInject);
+
 private:
 #if COMPILE_WITH_DEV_ENV
     void OnShaderReloading(Asset* obj)
@@ -53,6 +61,7 @@ private:
         _psDepthHazePremultCopy->ReleaseGPU();
         _psDepthHazeMarchingDownsample->ReleaseGPU();
         _psDepthHazeComposite->ReleaseGPU();
+        _psFogInjectDebug->ReleaseGPU();
         _psBloomBrightPass->ReleaseGPU();
         _psBloomDownsample->ReleaseGPU();
         _psBloomDualFilterUpsample->ReleaseGPU();

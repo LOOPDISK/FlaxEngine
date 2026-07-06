@@ -481,6 +481,7 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
             !isOpaque &&
             EnumHasAnyFlags(info.UsageFlags, MaterialUsageFlags::UseRefraction) &&
             (info.FeaturesFlags & MaterialFeaturesFlags::DisableDistortion) == MaterialFeaturesFlags::None;
+    const bool useFogInject = info.Domain == MaterialDomain::Particle && !isOpaque; // matches FogInjectFeature in MaterialGenerator
     const MaterialShadingModel shadingModel = info.ShadingModel == MaterialShadingModel::CustomLit ? MaterialShadingModel::Unlit : info.ShadingModel;
 
     // @formatter:off
@@ -556,6 +557,7 @@ void Material::InitCompilationOptions(ShaderCompilationOptions& options)
     options.Macros.Add({ "USE_FORWARD", Numbers[useForward ? 1 : 0] });
     options.Macros.Add({ "USE_DEFERRED", Numbers[isSurfaceOrTerrainOrDeformable && isOpaque ? 1 : 0] });
     options.Macros.Add({ "USE_DISTORTION", Numbers[useDistortion ? 1 : 0] });
+    options.Macros.Add({ "USE_FOG_INJECT", Numbers[useFogInject ? 1 : 0] });
 #endif
 }
 

@@ -240,6 +240,8 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
     case MaterialDomain::Particle:
         if (!isOpaque && (materialInfo.FeaturesFlags & MaterialFeaturesFlags::DisableDistortion) == MaterialFeaturesFlags::None)
             ADD_FEATURE(DistortionFeature);
+        if (!isOpaque)
+            ADD_FEATURE(FogInjectFeature); // Keep before GlobalIllumination/ForwardShading so t__SRV__ registers match the FogInjectFeature::Bind order in ParticleMaterialShader
         if (!isOpaque && EnumHasAnyFlags(materialInfo.FeaturesFlags, MaterialFeaturesFlags::GlobalIllumination))
             ADD_FEATURE(GlobalIlluminationFeature);
         if (EnumHasAnyFlags(materialInfo.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride))

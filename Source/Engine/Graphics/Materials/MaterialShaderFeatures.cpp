@@ -193,6 +193,17 @@ bool GlobalIlluminationFeature::Bind(MaterialShader::BindParameters& params, Spa
     return useGI;
 }
 
+void FogInjectFeature::Bind(MaterialShader::BindParameters& params, Span<byte>& cb, int32& srv)
+{
+    // Scene depth for soft occlusion of the fog push. Only bound during the inject pass itself:
+    // in other passes the depth buffer may be bound as a (read-only) DSV, so keep the slot clear.
+    if (params.RenderContext.View.Pass == DrawPass::FogInject)
+        params.GPUContext->BindSR(srv + 0, params.RenderContext.Buffers->DepthBuffer);
+    else
+        params.GPUContext->UnBindSR(srv + 0);
+    srv += SRVs;
+}
+
 bool SDFReflectionsFeature::Bind(MaterialShader::BindParameters& params, Span<byte>& cb, int32& srv)
 {
     auto& data = *(Data*)cb.Get();
@@ -280,6 +291,11 @@ void SDFReflectionsFeature::Generate(GeneratorData& data)
 void DistortionFeature::Generate(GeneratorData& data)
 {
     data.Template = TEXT("Features/Distortion.hlsl");
+}
+
+void FogInjectFeature::Generate(GeneratorData& data)
+{
+    data.Template = TEXT("Features/FogInject.hlsl");
 }
 
 void MotionVectorsFeature::Generate(GeneratorData& data)

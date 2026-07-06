@@ -19,7 +19,7 @@ class FLAXENGINE_API ExponentialHeightFog : public Actor, public IFogRenderer
     DECLARE_SCENE_OBJECT(ExponentialHeightFog);
 private:
     AssetReference<Shader> _shader;
-    GPUPipelineStatePermutationsPs<2> _psFog;
+    GPUPipelineStatePermutationsPs<4> _psFog; // [VOLUMETRIC_FOG] + 2*[FOG_INJECT]
     int32 _sceneRenderingKey = -1;
 
 public:
@@ -60,6 +60,12 @@ public:
     /// </summary>
     API_FIELD(Attributes="EditorOrder(60), DefaultValue(0.0f), EditorDisplay(\"Exponential Height Fog\")")
     float FogCutoffDistance = 0.0f;
+
+    /// <summary>
+    /// Strength multiplier for the particle fog inject buffer (particles thickening the fog via the FogInject draw pass). 0 disables the effect on this fog.
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(70), DefaultValue(1.0f), Limit(0, 8, 0.01f), EditorDisplay(\"Exponential Height Fog\")")
+    float FogInjectStrength = 1.0f;
 
 public:
     /// <summary>

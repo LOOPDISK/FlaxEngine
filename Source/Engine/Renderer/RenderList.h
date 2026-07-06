@@ -183,6 +183,7 @@ struct RenderFogData
 {
     IFogRenderer* Renderer;
     GPUTextureView* VolumetricFogTexture;
+    GPUTexture* FogInjectTexture; // Low-res particle-driven signed density buffer read by the fog and depth haze passes (transient, from RenderTargetPool)
     ShaderExponentialHeightFogData ExponentialHeightFogData;
     ShaderVolumetricFogData VolumetricFogData;
     VolumetricFogOptions VolumetricFog;
@@ -230,6 +231,11 @@ API_ENUM() enum class DrawCallsListType
     /// Stylized cloud pre-pass rendering.
     /// </summary>
     StylizedCloud,
+
+    /// <summary>
+    /// Fog inject pass (particles writing signed density into the fog buffer).
+    /// </summary>
+    FogInject,
 
     MAX,
 };
