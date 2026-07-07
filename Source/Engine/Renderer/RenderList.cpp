@@ -786,6 +786,7 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
 
     // Cascade best-fit: a caster fully in a finer cascade is added only there, not every coarser one it intersects.
     // Cull-and-add this draw call to a shadow context if it passes that context's pass mask, frustum, static-flags and custom culling.
+    // Screen-size culling through the main view is FOV-stable via RenderView::ReferenceFovScreenScaleSq.
     auto addShadowCaster = [&](const RenderContext& rc)
     {
         const DrawPass dm = modes & rc.View.Pass;

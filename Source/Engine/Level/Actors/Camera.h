@@ -42,6 +42,7 @@ private:
     bool _usePerspective;
     float _fov;
     float _weaponFov;
+    float _referenceFov;
     float _customAspectRatio;
     float _near;
     float _far;
@@ -97,6 +98,17 @@ public:
     /// Sets the weapon-only field of view (in degrees).
     /// </summary>
     API_PROPERTY() void SetWeaponFieldOfView(float value);
+
+    /// <summary>
+    /// Gets the reference field of view (in degrees) used to stabilize FOV-dependent rendering heuristics against field of view animation. Model LOD selection, min-screen-size culling, light screen size (shadow resolution/fade), shadow cascade sizing and shadow caster culling evaluate at max(reference, current) FOV, so gameplay FOV changes (eg. aim-down-sights zoom) don't switch LODs, re-cull objects or resize/rebuild shadows. Set to the widest gameplay FOV. Set to 0 to disable (shadows still latch the maximum FOV observed at runtime).
+    /// </summary>
+    API_PROPERTY(Attributes="EditorOrder(26), DefaultValue(0.0f), Limit(0, 179), EditorDisplay(\"Camera\", \"Reference Field Of View\"), VisibleIf(nameof(UsePerspective)), ValueCategory(Utils.ValueCategory.Angle)")
+    float GetReferenceFieldOfView() const;
+
+    /// <summary>
+    /// Sets the reference field of view (in degrees) used to stabilize FOV-dependent rendering heuristics against field of view animation.
+    /// </summary>
+    API_PROPERTY() void SetReferenceFieldOfView(float value);
 
     /// <summary>
     /// Gets the custom aspect ratio. 0 if not use custom value.

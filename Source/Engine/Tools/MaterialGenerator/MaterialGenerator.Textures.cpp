@@ -306,7 +306,7 @@ MaterialValue* MaterialGenerator::sampleTextureRaw(Node* caller, Value& value, B
         const Char* sampler = TEXT("SamplerLinearWrap");
 
         // Sample texture
-        if (texture->AsInteger == (int32)MaterialSceneTextures::SceneDepth)
+        if (texture->Type == MaterialParameterType::SceneTexture && texture->AsInteger == (int32)MaterialSceneTextures::SceneDepth)
         {
             // Sample depth buffer
             String sampledValue = String::Format(TEXT("SAMPLE_RT_DEPTH({0}, {1})"), texture->ShaderName, uv);
@@ -816,12 +816,18 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         {
             // Sample Texture - check for hex tile mode
             const bool hexTileEnabled = node->Values.Count() >= 4 ? node->Values[3].AsBool : false;
-            const auto rotationStrength = tryGetValue(node->TryGetBox(4), node->Values.Count() >= 5 ? node->Values[4] : 1.0f);
-            const auto contrast = tryGetValue(node->TryGetBox(5), node->Values.Count() >= 6 ? node->Values[5] : 0.5f);
-            const bool largeWorldStability = node->Values.Count() >= 7 ? node->Values[6].AsBool : false;
 
             if (hexTileEnabled)
             {
+                // Hex tile inputs: Rotation Strength = box 5, Contrast = box 6 (must match the editor archetype).
+                // Only evaluated when hex tiling is on: nodes saved before hex tiling existed use box ID 4 for
+                // the Color OUTPUT, and eating an output box walks forward into this node's consumers - that
+                // recurses back into this node until the shader graph call stack limit and poisons the box
+                // caches with zeros (broke e.g. the editor SelectionOutlineMaterial on regeneration).
+                const auto rotationStrength = tryGetValue(node->TryGetBox(5), node->Values.Count() >= 5 ? node->Values[4] : 1.0f);
+                const auto contrast = tryGetValue(node->TryGetBox(6), node->Values.Count() >= 6 ? node->Values[5] : 0.5f);
+                const bool largeWorldStability = node->Values.Count() >= 7 ? node->Values[6].AsBool : false;
+
                 // Mark that hex tile functions are needed for this material
                 _needsHexTileFunctions = true;
 

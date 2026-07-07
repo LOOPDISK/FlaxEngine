@@ -464,7 +464,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Triplanar Texture",
                 Description = "Projects a texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 240),  // Increased height for new inputs
+                Size = new Float2(280, 300),  // Tall enough to fit controls down to the Large World row (LayoutOffsetY * 11)
                 DefaultValues = new object[]
                 {
                     Float3.One, // Scale
@@ -560,7 +560,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Create = (id, context, arch, groupArch) => new TriplanarSampleTextureNode(id, context, arch, groupArch),
                 Description = "Projects a normal map texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 240),  // Increased height for new inputs
+                Size = new Float2(280, 300),  // Tall enough to fit controls down to the Large World row (LayoutOffsetY * 11)
                 DefaultValues = new object[]
                 {
                     Float3.One, // Scale

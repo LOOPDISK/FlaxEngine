@@ -87,7 +87,9 @@ public:
     /// <returns>The squared radius.</returns>
     FORCE_INLINE static float ComputeBoundsScreenRadiusSquared(const Float3& origin, const float radius, const RenderView& view)
     {
-        return ComputeBoundsScreenRadiusSquared(origin, radius, view.Position, view.Projection);
+        // Scaled to the view's reference FOV (RenderView::ReferenceFovScreenScaleSq) so screen-size
+        // heuristics (LOD, min-size culling, light screen size) don't track per-frame FOV animation
+        return ComputeBoundsScreenRadiusSquared(origin, radius, view.Position, view.Projection) * view.ReferenceFovScreenScaleSq;
     }
 
     /// <summary>

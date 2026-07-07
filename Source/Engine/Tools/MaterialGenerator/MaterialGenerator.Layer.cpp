@@ -176,8 +176,17 @@ void MaterialGenerator::prepareLayer(MaterialLayer* layer, bool allowVisiblePara
         m.DstId = param->Identifier;
         if (!isRooLayer)
         {
-            // Generate new ID (stable permutation based on the original ID)
+            // Generate new ID (stable permutation based on the original ID) to avoid
+            // clashing with the root layer or other sub-layers. This MUST be collision-free:
+            // the permutation only perturbs DstId.A and, without the check below, could alias
+            // an ID already registered in _parameters. Because findParam() resolves by first
+            // matching ID, a clash makes a texture parameter resolve to the wrong asset (e.g.
+            // sampling a red texture instead of the intended one). Whether it clashed depended
+            // on _parameters.Count(), so the same layer bound correctly in one host material
+            // and wrongly in another.
             m.DstId.A += _parameters.Count() * 17 + 13;
+            while (findParam(m.DstId) != nullptr)
+                m.DstId.A += 17;
         }
         layer->ParamIdsMappings.Add(m);
 

@@ -178,6 +178,11 @@ public:
     API_FIELD() float WeaponFOV = 54.0f;
 
     /// <summary>
+    /// Reference field of view (in degrees) used to stabilize FOV-dependent rendering heuristics against FOV animation. Model LOD selection, min-screen-size culling, light screen size (shadow resolution/fade), shadow cascade sizing and shadow caster culling evaluate at max(reference, current) FOV, so per-frame FOV lerps (eg. aim-down-sights zoom) don't switch LODs, re-cull objects or resize/rebuild shadows. Set to the widest gameplay FOV. 0 = disabled for screen-size heuristics (shadows still latch the maximum FOV observed at runtime).
+    /// </summary>
+    API_FIELD() float ReferenceFOV = 0.0f;
+
+    /// <summary>
     /// Temporal Anti-Aliasing jitter frame index.
     /// </summary>
     API_FIELD() int32 TaaFrameIndex = 0;
@@ -187,16 +192,22 @@ public:
     /// </summary>
     API_FIELD() LayersMask RenderLayersMask;
 
-    // -1 = not a directional cascade (main view, point/spot). 0..N = cascade index from finest.
-    // Set by ShadowsPass; read by RenderList::AddDrawCall for cascade best-fit.
-    int8 CascadeIndex = -1;
+    /// <summary>
+    /// -1 = not a directional cascade (main view, point/spot). 0..N = cascade index from finest. Set by ShadowsPass; read by RenderList::AddDrawCall for cascade best-fit.
+    /// </summary>
+    // MUST be API_FIELD: RenderView marshals to C# as a raw whole-struct copy (SceneRenderTask.View),
+    // so any native-only field breaks the managed layout and corrupts the stack on get/set.
+    API_FIELD(Attributes="HideInEditor") int8 CascadeIndex = -1;
 
-    // True for the toroidal static-shadow clipmap collection. The cache includes casters by
-    // world-extent containment, not apparent size: foliage's per-level screen-pixel cull is
-    // evaluated in each level's ortho, so a far (coarse) level drops sub-texel casters that the
-    // near level keeps - making static shadows vanish in all but the nearest cascade. Cache cost
-    // is paid on redraw/strip only, so skipping the size cull here is cheap. Set by RenderClipmapStrip.
-    bool IsStaticShadowCache = false;
+    /// <summary>
+    /// True for the toroidal static-shadow clipmap collection. The cache includes casters by world-extent containment, not apparent size. Set by RenderClipmapStrip.
+    /// </summary>
+    // Foliage's per-level screen-pixel cull is evaluated in each level's ortho, so a far (coarse)
+    // level drops sub-texel casters that the near level keeps - making static shadows vanish in all
+    // but the nearest cascade. Cache cost is paid on redraw/strip only, so skipping the size cull
+    // here is cheap.
+    // MUST be API_FIELD: see CascadeIndex above.
+    API_FIELD(Attributes="HideInEditor") bool IsStaticShadowCache = false;
 
 public:
     /// <summary>
@@ -248,6 +259,11 @@ public:
     /// Square of <see cref="ModelLODDistanceFactor"/>. Cached by rendering backend.
     /// </summary>
     API_FIELD() float ModelLODDistanceFactorSqrt;
+
+    /// <summary>
+    /// Screen-radius-squared scale that evaluates screen-size heuristics (model LOD, min-screen-size culling, light screen size) at <see cref="ReferenceFOV"/> instead of the live FOV (1 when disabled or the live FOV is wider). Cached before rendering.
+    /// </summary>
+    API_FIELD(Attributes="HideInEditor") float ReferenceFovScreenScaleSq = 1.0f;
 
     /// <summary>
     /// Prepares view for rendering a scene. Called before rendering so other parts can reuse calculated value.

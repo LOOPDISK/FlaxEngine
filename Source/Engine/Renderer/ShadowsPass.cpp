@@ -126,9 +126,12 @@ static void ComputeCascadeSphere(const Float3* frustumCornersVs, const Matrix& i
         radius = Math::Max(radius, (cornersWs[i] - center).LengthSquared());
     radius = Math::Sqrt(radius);
 
-    // Decouple the radius from per-frame churn. Raw radius tracks tan(fov/2) (game lerps FOV every
-    // frame: flinch/reveal/ADS) with sensitivity growing as sec^2(fov/2), plus world-scale float
-    // noise under camera rotation. Any radius change rescales the texel-snap grid below (tpu), which
+    // Decouple the radius from per-frame churn. Raw radius tracks tan(fov/2) with sensitivity
+    // growing as sec^2(fov/2), plus world-scale float noise under camera rotation. Gameplay FOV
+    // lerps (flinch/reveal/ADS) are absorbed UPSTREAM now - the frustum corners come from the
+    // FOV-stable reference projection (ShadowsCustomBuffer::StableShadowProjection), so under a
+    // pure zoom the raw radius here is constant and this hysteresis is a backstop (aspect changes,
+    // FOV latch growth, rotation noise). Any radius change rescales the texel-snap grid below (tpu), which
     // reads as sub-texel shimmer on ALL shadow edges - worst at wide FOV - AND forces a full redraw
     // of the matching clipmap level (TexelSize re-anchor). Quantize to 1/16-magnitude buckets (same
     // scheme as the clipmap WorldExtent) with motion-aware hysteresis:
@@ -682,10 +685,15 @@ struct ShadowAtlasLightCache
     float Distance;
     Float4 CascadeSplits;
     Float3 ViewDirection;
-    Float2 ProjectionScale; // Camera projection M11/M22 (FOV + aspect): cascade spheres are built from the frustum, so a pure zoom moves every cascade even with position/direction unchanged
+    // Stable shadow projection M11/M22 (reference FOV + aspect): cascade spheres are built from the
+    // reference frustum (ShadowsCustomBuffer::StableShadowProjection), so this only changes when the
+    // cascades actually move - aspect change, or the FOV latch growing past the reference. A gameplay
+    // FOV lerp (ADS zoom) below the reference no longer touches it, keeping cached shadows valid
+    // through the whole animation.
+    Float2 ProjectionScale;
     int32 ShadowsResolution;
 
-    void Set(const RenderView& view, const RenderLightData& light, const Float4& cascadeSplits = Float4::Zero)
+    void Set(const RenderView& view, const RenderLightData& light, const Float4& cascadeSplits = Float4::Zero, const Float2& projectionScale = Float2::Zero)
     {
         StaticValid = true;
         DynamicValid = true;
@@ -701,7 +709,7 @@ struct ShadowAtlasLightCache
             Position = view.Position;
             ViewDirection = view.Direction;
             CascadeSplits = cascadeSplits;
-            ProjectionScale = Float2(view.NonJitteredProjection.M11, view.NonJitteredProjection.M22);
+            ProjectionScale = projectionScale;
         }
         else
         {
@@ -800,7 +808,7 @@ struct ShadowAtlasLight
         return 1.0f / updateRate;
     }
 
-    void ValidateCache(const RenderView& view, const RenderLightData& light)
+    void ValidateCache(const RenderView& view, const RenderLightData& light, const Float2& projectionScale = Float2::Zero)
     {
         if (!Cache.StaticValid || !Cache.DynamicValid)
             return;
@@ -816,14 +824,14 @@ struct ShadowAtlasLight
         }
         if (light.IsDirectionalLight)
         {
-            // Sun. Projection scale (FOV/aspect) is part of the key: cascade spheres are built from
-            // the camera frustum, so a zoom animation moves every cascade per-frame even with the
-            // camera static - without this, rate-limited cascades keep serving the previous frame's
-            // projection during the animation (visible popping).
+            // Sun. Stable projection scale (reference FOV/aspect) is part of the key: cascade spheres
+            // are built from the reference frustum, so the cache must drop when that frustum changes
+            // (aspect change, FOV latch growth) - but a gameplay FOV lerp below the reference no
+            // longer moves the cascades, so it no longer invalidates cached shadows either.
             if (!Float3::NearEqual(Cache.Position, view.Position, SHADOWS_POSITION_ERROR) ||
                 !Float4::NearEqual(Cache.CascadeSplits, CascadeSplits) ||
                 Float3::Dot(Cache.ViewDirection, view.Direction) < SHADOWS_ROTATION_ERROR ||
-                !Float2::NearEqual(Cache.ProjectionScale, Float2(view.NonJitteredProjection.M11, view.NonJitteredProjection.M22)))
+                !Float2::NearEqual(Cache.ProjectionScale, projectionScale))
             {
                 // Invalidate
                 Cache.StaticValid = false;
@@ -883,6 +891,22 @@ public:
     // back to plain CSM rendering (no static exclusion, no composite).
     uint64 ClipmapOwnerFrame = 0;
     Guid ClipmapOwnerLight = Guid::Empty;
+
+    // FOV-stable shadow reference (see Camera.ReferenceFieldOfView). World-anchored shadow structures
+    // (cascade spheres -> snap grids, clipmap extents, static-cache keys) must not track a per-frame
+    // FOV lerp (ADS zoom, flinch): every radius change re-anchors texel grids and forces
+    // clipmap/static-cache work that reads as shadows jumping. Latches the widest tan(fov/2) seen,
+    // seeded by the camera property (session-max: an intentional base-FOV decrease keeps the wider
+    // latch - slightly coarser texel density - until this buffer is recreated). Live FOV always wins
+    // when wider so cascade coverage never clips. Model LOD and screen-size culling are stabilized
+    // separately via RenderView::ReferenceFovScreenScaleSq.
+    float LatchedShadowTanHalfFov = 0.0f;
+    // Same idea for the weapon self-shadow ortho bounds: WeaponFOV lerps during ADS (eg. 30->12),
+    // which would rescale the weapon shadow texel grid every frame of the zoom animation.
+    float LatchedWeaponFov = 0.0f;
+    // Main view's NonJitteredProjection widened to the reference FOV (== live projection when the
+    // live FOV is the widest seen, or for ortho views). Refreshed at the top of SetupShadows.
+    Matrix StableShadowProjection = Matrix::Identity;
 
     // Weapon self-shadowing support
     GPUTexture* WeaponShadowMapAtlas = nullptr;
@@ -1381,6 +1405,7 @@ void ShadowsPass::SetupRenderContext(RenderContext& renderContext, RenderContext
     const auto& view = renderContext.View;
 
     // Use the current render view to sync model LODs with the shadow maps rendering stage
+    // (LOD selection through it is FOV-stable via RenderView::ReferenceFovScreenScaleSq)
     shadowContext.LodProxyView = &renderContext.View;
 
     // Prepare properties
@@ -1692,8 +1717,10 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
     }
     atlasLight.CascadeSplits = renderContext.View.Near + Float4(cascadeSplits) * viewRange;
 
-    // Update cached state (invalidate it if the light changed)
-    atlasLight.ValidateCache(renderContext.View, light);
+    // Update cached state (invalidate it if the light changed). Directional cascades are keyed on
+    // the FOV-stable reference projection so a gameplay FOV lerp doesn't invalidate cached shadows.
+    const Float2 stableProjectionScale(shadows.StableShadowProjection.M11, shadows.StableShadowProjection.M22);
+    atlasLight.ValidateCache(renderContext.View, light, stableProjectionScale);
 
     // Update cascades to check which should be updated this frame
     atlasLight.ContextIndex = renderContextBatch.Contexts.Count();
@@ -1732,7 +1759,7 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
         return;
     if (atlasLight.ContextCount > 0)
         renderContextBatch.Contexts.AddDefault(atlasLight.ContextCount);
-    atlasLight.Cache.Set(renderContext.View, light, atlasLight.CascadeSplits);
+    atlasLight.Cache.Set(renderContext.View, light, atlasLight.CascadeSplits, stableProjectionScale);
 
     // Get the 8 points of the view frustum in view-space (unproject from clip-space)
     Float3 frustumCornersVs[8];
@@ -1748,8 +1775,12 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
             Float3(1.0f, -1.0f, 1.0f),
             Float3(-1.0f, -1.0f, 1.0f),
         };
+        // Unproject through the FOV-stable reference projection (not the live one): cascade spheres,
+        // their texel-snap grids and the clipmap extents derived from these corners must not track a
+        // per-frame FOV lerp (ADS zoom). The reference is only ever as narrow as the live FOV, so
+        // coverage of the actual view frustum is preserved.
         Matrix invProjectionMatrix;
-        Matrix::Invert(renderContext.View.NonJitteredProjection, invProjectionMatrix);
+        Matrix::Invert(shadows.StableShadowProjection, invProjectionMatrix);
         for (int32 i = 0; i < 8; i++)
             Float3::TransformCoordinate(frustumCornersCs[i], invProjectionMatrix, frustumCornersVs[i]);
     }
@@ -2231,6 +2262,22 @@ void ShadowsPass::SetupShadows(RenderContext& renderContext, RenderContextBatch&
     if (shadows.LastFrameUsed == currentFrame)
         shadows.Reset();
     shadows.LastFrameUsed = currentFrame;
+
+    // Refresh the FOV-stable shadow reference (see the field comments): widen the main projection
+    // laterally to the reference FOV, preserving aspect ratio and the depth rows.
+    shadows.StableShadowProjection = renderContext.View.NonJitteredProjection;
+    if (shadows.StableShadowProjection.M44 == 0.0f && shadows.StableShadowProjection.M22 > ZeroTolerance) // Perspective views only
+    {
+        const float liveTanHalfFov = 1.0f / shadows.StableShadowProjection.M22;
+        const float refTanHalfFov = renderContext.View.ReferenceFOV > 0.0f ? Math::Tan(renderContext.View.ReferenceFOV * DegreesToRadians * 0.5f) : 0.0f;
+        shadows.LatchedShadowTanHalfFov = Math::Max(shadows.LatchedShadowTanHalfFov, Math::Max(liveTanHalfFov, refTanHalfFov));
+        const float fovScale = liveTanHalfFov / shadows.LatchedShadowTanHalfFov;
+        if (fovScale < 1.0f - ZeroTolerance)
+        {
+            shadows.StableShadowProjection.M11 *= fovScale;
+            shadows.StableShadowProjection.M22 *= fovScale;
+        }
+    }
     // Listen to scene changes early (first attach also seeds the static-caster bounds from the
     // scene's current population) so the clipmap's dynamic depth interval is valid the same frame
     // the lights below set up. Also invalidates static shadows on scene edits.
@@ -3415,8 +3462,13 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             const float farPlane = cascadeExtents.Z;  // Far plane based on weapon bounds
 
             // CORRECTED APPROACH: Use proper bounds that match the weapon's visual FOV
-            // Calculate the actual visible area at the weapon distance using the configured weapon FOV
-            const float weaponFovDegrees = renderContext.View.WeaponFOV > 0.0f ? renderContext.View.WeaponFOV : 54.0f;
+            // Calculate the actual visible area at the weapon distance using the configured weapon FOV.
+            // WeaponFOV lerps during ADS (eg. 30->12), which would rescale these ortho bounds - and the
+            // texel grid they imply - every frame of the zoom animation (weapon shadow shimmer), so
+            // latch the widest value seen instead; a narrower live FOV is always covered by it.
+            const float weaponFovLive = renderContext.View.WeaponFOV > 0.0f ? renderContext.View.WeaponFOV : 54.0f;
+            shadowsMutable.LatchedWeaponFov = Math::Max(shadowsMutable.LatchedWeaponFov, weaponFovLive);
+            const float weaponFovDegrees = shadowsMutable.LatchedWeaponFov;
             const float weaponFOV = weaponFovDegrees * PI / 180.0f;
             const float aspect = 1.0f; // Square shadow map
             const float distanceToWeapon = 100.0f; // Same distance used for weaponCenter

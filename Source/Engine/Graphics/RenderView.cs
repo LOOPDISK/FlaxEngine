@@ -12,6 +12,7 @@ namespace FlaxEngine
             MaxShadowsQuality = Quality.Ultra;
             ModelLODDistanceFactor = 1.0f;
             ModelLODDistanceFactorSqrt = 1.0f;
+            ReferenceFovScreenScaleSq = 1.0f;
             WeaponFOV = 54.0f;
 #pragma warning disable 0612
             ShadowModelLODDistanceFactor = 1.0f;
@@ -32,6 +33,18 @@ namespace FlaxEngine
             Matrix.Invert(ref viewProjection, out IVP);
             CullingFrustum = Frustum;
             NonJitteredProjection = Projection;
+
+            ReferenceFovScreenScaleSq = 1.0f;
+            if (ReferenceFOV > 0.0f && Projection.M44 == 0.0f && Projection.M22 > 1e-6f)
+            {
+                float liveTanHalfFov = 1.0f / Projection.M22;
+                float refTanHalfFov = Mathf.Tan(ReferenceFOV * Mathf.DegreesToRadians * 0.5f);
+                if (refTanHalfFov > liveTanHalfFov)
+                {
+                    float scale = liveTanHalfFov / refTanHalfFov;
+                    ReferenceFovScreenScaleSq = scale * scale;
+                }
+            }
         }
 
         /// <summary>
@@ -107,6 +120,7 @@ namespace FlaxEngine
             Flags = camera.RenderFlags;
             Mode = camera.RenderMode;
             WeaponFOV = camera.WeaponFieldOfView;
+            ReferenceFOV = camera.ReferenceFieldOfView;
 
             UpdateCachedData();
         }

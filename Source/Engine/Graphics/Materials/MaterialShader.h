@@ -10,7 +10,7 @@
 /// <summary>
 /// Current materials shader version.
 /// </summary>
-#define MATERIAL_GRAPH_VERSION 186 // 184: particle FogInject pass, 185: FogInject push-only opacity, 186: FogInject low-res ScreenSize (no template downscale factor)
+#define MATERIAL_GRAPH_VERSION 187 // 184: particle FogInject pass, 185: FogInject push-only opacity, 186: FogInject low-res ScreenSize (no template downscale factor), 187: fix Sample Texture hex-tile box IDs eating legacy Color output (recursion poisoned codegen)
 
 class Material;
 class GPUShader;

@@ -77,6 +77,19 @@ void RenderView::PrepareCache(const RenderContext& renderContext, float width, f
 
     ModelLODDistanceFactorSqrt = ModelLODDistanceFactor * ModelLODDistanceFactor;
 
+    // FOV-stable screen-size heuristics: evaluate model LOD, min-screen-size culling and light screen
+    // size at the reference FOV (see Camera.ReferenceFieldOfView) so per-frame FOV lerps (eg.
+    // aim-down-sights zoom) don't switch LODs or re-cull. Widening only: a live FOV wider than the
+    // reference wins, so results are never over-estimated.
+    ReferenceFovScreenScaleSq = 1.0f;
+    if (ReferenceFOV > 0.0f && Projection.M44 == 0.0f && Projection.M22 > ZeroTolerance)
+    {
+        const float liveTanHalfFov = 1.0f / Projection.M22;
+        const float refTanHalfFov = Math::Tan(ReferenceFOV * DegreesToRadians * 0.5f);
+        if (refTanHalfFov > liveTanHalfFov)
+            ReferenceFovScreenScaleSq = Math::Square(liveTanHalfFov / refTanHalfFov);
+    }
+
     // Setup main view render info
     if (!mainView)
         mainView = this;
@@ -209,6 +222,7 @@ void RenderView::CopyFrom(const Camera* camera, const Viewport* viewport)
     Flags = camera->RenderFlags;
     Mode = camera->RenderMode;
     WeaponFOV = camera->GetWeaponFieldOfView();
+    ReferenceFOV = camera->GetReferenceFieldOfView();
 }
 
 void RenderView::GetWorldMatrix(const Transform& transform, Matrix& world) const
