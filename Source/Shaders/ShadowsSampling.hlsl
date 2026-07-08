@@ -77,6 +77,14 @@ float GetShadowTileWorldPerDepthUnit(ShadowTileData tile)
     return 1.0f / max(length(depthColumn), 1e-9f);
 }
 
+// World-space lateral distance spanned by 1 unit of tile UV (i.e. the cascade's world extent). Used to
+// convert a world-space penumbra into tile/atlas UV so soft shadows stay world-consistent across cascades.
+float GetShadowTileWorldPerUV(ShadowTileData tile)
+{
+    float3 uvColumn = float3(tile.WorldToShadow[0].x, tile.WorldToShadow[1].x, tile.WorldToShadow[2].x);
+    return 1.0f / max(length(uvColumn), 1e-9f);
+}
+
 // World-space size of one shadow map texel for the tile (directional cascades only - perspective
 // tiles have no single texel size). The UV column magnitude is 1/(cascade world extent).
 float GetShadowTileTexelWorldSize(ShadowTileData tile, float atlasResolution)
@@ -131,7 +139,7 @@ float2 ComputeReceiverPlaneDepthGradient(float3 shadowPosDDX, float3 shadowPosDD
     return clamp(gradient / det, -8.0f, 8.0f);
 }
 
-float2 GetLightShadowAtlasUVWithReceiverBias(ShadowData shadow, ShadowTileData shadowTile, float3 samplePosition, float NoL, out float4 shadowPosition, out float2 receiverPlaneDepthBias)
+float2 GetLightShadowAtlasUVWithReceiverBias(ShadowData shadow, ShadowTileData shadowTile, float3 samplePosition, float3 ddxWorld, float3 ddyWorld, float NoL, out float4 shadowPosition, out float2 receiverPlaneDepthBias)
 {
     // Project into shadow space (WorldToShadow is pre-multiplied to convert Clip Space to UV Space)
     shadowPosition = mul(float4(samplePosition, 1.0f), shadowTile.WorldToShadow);
@@ -150,8 +158,13 @@ float2 GetLightShadowAtlasUVWithReceiverBias(ShadowData shadow, ShadowTileData s
 #if SHADOWS_USE_RECEIVER_PLANE_BIAS && SHADOWS_QUALITY != 0
     // Exact plane gradient, converted from tile-UV to atlas-UV units (PCF taps offset in atlas UV):
     // atlasUV = tileUV * ShadowToAtlas.xy + zw, so dz/d(atlasUV) = dz/d(tileUV) / ShadowToAtlas.xy.
-    float3 shadowPosDDX = ddx(shadowPosition.xyz);
-    float3 shadowPosDDY = ddy(shadowPosition.xyz);
+    // Derive the shadow-space screen gradient from the CONTINUOUS world-position derivatives, not from
+    // ddx(shadowPosition): the CSM dither band mixes two cascades within one 2x2 quad, so a reprojected
+    // shadowPosition jumps between cascades and its ddx explodes -> a thin dark seam at the split. The
+    // world position doesn't jump between cascades. Directional cascades are orthographic (w==1), so
+    // d(shadowPos)/d(screen) = WorldToShadow * d(worldPos) exactly (the /w above is a no-op here).
+    float3 shadowPosDDX = mul(float4(ddxWorld, 0.0f), shadowTile.WorldToShadow).xyz;
+    float3 shadowPosDDY = mul(float4(ddyWorld, 0.0f), shadowTile.WorldToShadow).xyz;
     receiverPlaneDepthBias = ComputeReceiverPlaneDepthGradient(shadowPosDDX, shadowPosDDY) / shadowTile.ShadowToAtlas.xy;
 
     // The plane gradient replaces the authored slope-scaled bias: the comparison reference follows
@@ -427,23 +440,32 @@ float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, fl
 {
     float rot = ShadowVogelRotation(screenPos);
 
-    // Same scale on X and Y (tiles are square)
-    float tileScale = tile.ShadowToAtlas.x;
+    // Work in WORLD units so the penumbra matches across cascade boundaries. Doing this in cascade-UV
+    // (the old way) made a fixed Softness mean a different world penumbra per cascade - each cascade
+    // covers ~2x the extent of the previous, so the softness visibly jumped at every split. lightSize
+    // (Softness) is treated as a world tangent: penumbra per unit world blocker->receiver gap. The
+    // cascade's UV and depth scales cancel, so identical geometry gives an identical world penumbra
+    // regardless of which cascade shades the pixel.
+    float tileScale = tile.ShadowToAtlas.x;                       // atlas-UV per tile-UV (same for all cascades)
+    float worldPerUV = GetShadowTileWorldPerUV(tile);            // cm per tile-UV (cascade lateral extent)
+    float worldPerDepth = GetShadowTileWorldPerDepthUnit(tile);  // cm per normalized depth (cascade depth span)
+    float worldToAtlasUV = tileScale / worldPerUV;              // convert world cm -> atlas UV
 
-    float searchRadiusAtlasUV = lightSize * tileScale;
+    // Blocker search over the cascade's depth span (the widest plausible penumbra), sized in world.
+    float searchRadiusAtlasUV = lightSize * worldPerDepth * worldToAtlasUV;
     float avgBlocker = FindBlockerDepth_Directional(shadowMap, atlasUV, receiverDepth, searchRadiusAtlasUV, receiverPlaneBias, rot);
     if (avgBlocker < 0.0)
         return 1.0; // No blockers in search disk -> fully lit
 
-    // Orthographic projection: penumbra width is linear in (receiver - blocker) depth.
-    float penumbraCascadeUV = (receiverDepth - avgBlocker) * lightSize;
+    // Similar triangles for a directional source: penumbra grows with the WORLD gap to the blocker.
+    float gapWorld = max(receiverDepth - avgBlocker, 0.0) * worldPerDepth;
+    float penumbraWorld = lightSize * gapWorld;
+    float filterRadiusAtlasUV = penumbraWorld * worldToAtlasUV;
 
-    // Clamp to at least ~one cascade texel so we always get a stable filter footprint.
+    // Clamp to >= ~1 atlas texel for a stable footprint (resolution-relative, intentionally per-tile).
     float2 shadowMapSize;
     shadowMap.GetDimensions(shadowMapSize.x, shadowMapSize.y);
-    float minRadiusCascadeUV = 1.0 / (shadowMapSize.x * tileScale);
-    float filterRadiusCascadeUV = max(penumbraCascadeUV, minRadiusCascadeUV);
-    float filterRadiusAtlasUV = filterRadiusCascadeUV * tileScale;
+    filterRadiusAtlasUV = max(filterRadiusAtlasUV, 1.0 / shadowMapSize.x);
 
     return SamplePCF_VogelDirectional(shadowMap, atlasUV, receiverDepth, filterRadiusAtlasUV, receiverPlaneBias, rot);
 }
@@ -454,10 +476,15 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
     ShadowSample result;
     ShadowTileData shadowTile = LoadShadowsBufferTile(shadowsBuffer, light.ShadowsBufferAddress, cascadeIndex);
 
+    // Receiver-plane gradient is built from the raw surface world position's screen derivatives (not the
+    // per-cascade biased samplePosition), so it stays continuous across cascade splits / the dither band.
+    float3 ddxWorld = ddx(gBuffer.WorldPos);
+    float3 ddyWorld = ddy(gBuffer.WorldPos);
+
     // Project position into shadow atlas UV with slope-scaled bias + receiver plane bias
     float4 shadowPosition;
     float2 receiverPlaneBias;
-    float2 shadowMapUV = GetLightShadowAtlasUVWithReceiverBias(shadow, shadowTile, samplePosition, NoL, shadowPosition, receiverPlaneBias);
+    float2 shadowMapUV = GetLightShadowAtlasUVWithReceiverBias(shadow, shadowTile, samplePosition, ddxWorld, ddyWorld, NoL, shadowPosition, receiverPlaneBias);
 
     BRANCH
     if (shadow.Softness > 0.0)
@@ -471,9 +498,14 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
         result.SurfaceShadow = SampleShadowMapOptimizedPCF(shadowMap, shadowMapUV, shadowPosition.z, screenPos, receiverPlaneBias);
     }
 
-    // Increase the sharpness for higher cascades to match the filter radius
-    const float SharpnessScale[MaxNumCascades] = { 1.0f, 1.5f, 3.0f, 3.5f };
-    shadow.Sharpness *= SharpnessScale[min(cascadeIndex, (uint)MaxNumCascades - 1)];
+    // Increase sharpness for higher cascades to match the fixed-radius PCF's growing texel footprint.
+    // Skip it for PCSS: its penumbra is world-consistent across cascades, so a per-cascade sharpness
+    // would re-introduce the very cascade seam that costs us here (contrast jumping at each split).
+    if (shadow.Softness <= 0.0)
+    {
+        const float SharpnessScale[MaxNumCascades] = { 1.0f, 1.5f, 3.0f, 3.5f };
+        shadow.Sharpness *= SharpnessScale[min(cascadeIndex, (uint)MaxNumCascades - 1)];
+    }
 
     result.TransmissionShadow = 1;
 #if defined(USE_GBUFFER_CUSTOM_DATA)
