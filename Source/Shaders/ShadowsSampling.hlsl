@@ -353,40 +353,47 @@ float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV
 #endif
 }
 
-// 16-tap optimized Poisson disk in unit-radius. Used for PCSS blocker search and variable-radius PCF.
-static const float2 PoissonDisk16[16] =
-{
-    float2(-0.94201624, -0.39906216),
-    float2( 0.94558609, -0.76890725),
-    float2(-0.09418410, -0.92938870),
-    float2( 0.34495938,  0.29387760),
-    float2(-0.91588581,  0.45771432),
-    float2(-0.81544232, -0.87912464),
-    float2(-0.38277543,  0.27676845),
-    float2( 0.97484398,  0.75648379),
-    float2( 0.44323325, -0.97511554),
-    float2( 0.53742981, -0.47373420),
-    float2(-0.26496911, -0.41893023),
-    float2( 0.79197514,  0.19090188),
-    float2(-0.24188840,  0.99706507),
-    float2(-0.81409955,  0.91437590),
-    float2( 0.19984126,  0.78641367),
-    float2( 0.14383161, -0.14100790),
-};
+// Golden-angle Vogel disk sampling for smooth PCSS. Deterministic low-discrepancy points (uniform
+// area, works for any tap count) plus a per-pixel IGN rotation turn residual under-sampling into fine
+// grain instead of the concentric banding a fixed Poisson set prints once the penumbra widens. Each
+// tap is a hardware 2x2 comparison (ShadowSamplerLinear), so effective coverage is ~4x the tap count.
+// Ported from the magi area-light MC-PCSS sampler.
+static const float SHADOW_GOLDEN_ANGLE = 2.39996323; // 2*PI*(2 - phi)
 
-// PCSS blocker search. Returns average blocker depth in shadow-NDC, or -1 if no blockers found.
-// searchRadiusAtlasUV is the search disk radius expressed in atlas-UV units (already tile-scaled).
+// Tap counts: the grain<->cost dial for soft (Softness>0) directional shadows. The blocker search
+// dominates residual grain - sparse blocker taps under-sample the footprint and leave salt-and-pepper
+// leaks - so it is kept as dense as the PCF. Bump both for smoother/softer, drop for cheaper.
+#define PCSS_BLOCKER_TAPS 32
+#define PCSS_PCF_TAPS 32
+
+// Per-pixel rotation from interleaved-gradient noise (Jimenez): decorrelates the Vogel disk between
+// neighbouring pixels so leftover error reads as high-frequency grain (TAA-friendly), not banding.
+float ShadowVogelRotation(float2 screenPos)
+{
+    return InterleavedGradientNoise(screenPos) * 6.2831853;
+}
+
+// Vogel (golden-angle) disk: uniform-area low-discrepancy point i of n on the unit disk, rotated by rot.
+float2 ShadowVogelDisk(int i, int n, float rot)
+{
+    float r = sqrt((float(i) + 0.5) / float(n));
+    float theta = float(i) * SHADOW_GOLDEN_ANGLE + rot;
+    return r * float2(cos(theta), sin(theta));
+}
+
+// PCSS blocker search over a rotated Vogel disk. Returns average blocker depth in shadow-NDC, or -1
+// if no blockers found. searchRadiusAtlasUV is the disk radius in atlas-UV units (already tile-scaled).
 // Each tap compares against the receiver PLANE (receiverDepth extrapolated along the gradient), so
 // a sloped receiver's own surface doesn't register as a blocker across the disk. Depth is point-
 // sampled: linear-filtering raw depth across discontinuities corrupts the blocker average.
-float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, float receiverDepth, float searchRadiusAtlasUV, float2 receiverPlaneBias)
+float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, float receiverDepth, float searchRadiusAtlasUV, float2 receiverPlaneBias, float rot)
 {
     float blockerSum = 0.0;
     float blockerCount = 0.0;
     UNROLL
-    for (int i = 0; i < 16; i++)
+    for (int i = 0; i < PCSS_BLOCKER_TAPS; i++)
     {
-        float2 offset = PoissonDisk16[i] * searchRadiusAtlasUV;
+        float2 offset = ShadowVogelDisk(i, PCSS_BLOCKER_TAPS, rot) * searchRadiusAtlasUV;
         float d = shadowMap.SampleLevel(SamplerPointClamp, atlasUV + offset, 0).r;
         if (d < receiverDepth + dot(offset, receiverPlaneBias))
         {
@@ -397,31 +404,34 @@ float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, f
     return blockerCount > 0.0 ? (blockerSum / blockerCount) : -1.0;
 }
 
-// Variable-radius Poisson PCF in atlas UV. Radius is the disk radius (atlas-UV units).
+// Variable-radius Vogel PCF in atlas UV (rotated per pixel). Radius is the disk radius (atlas-UV units).
 // Per-tap references follow the receiver plane along the gradient.
-float SamplePCF_Poisson16(Texture2D<float> shadowMap, float2 atlasUV, float sceneDepth, float radiusAtlasUV, float2 receiverPlaneBias = float2(0, 0))
+float SamplePCF_VogelDirectional(Texture2D<float> shadowMap, float2 atlasUV, float sceneDepth, float radiusAtlasUV, float2 receiverPlaneBias, float rot)
 {
     float sum = 0.0;
     UNROLL
-    for (int i = 0; i < 16; i++)
+    for (int i = 0; i < PCSS_PCF_TAPS; i++)
     {
-        float2 offset = PoissonDisk16[i] * radiusAtlasUV;
+        float2 offset = ShadowVogelDisk(i, PCSS_PCF_TAPS, rot) * radiusAtlasUV;
         sum += SAMPLE_SHADOW_MAP(shadowMap, atlasUV + offset, sceneDepth + dot(offset, receiverPlaneBias));
     }
-    return sum * (1.0 / 16.0);
+    return sum * (1.0 / float(PCSS_PCF_TAPS));
 }
 
-// PCSS for directional light: blocker search -> penumbra estimate -> variable-radius PCF.
+// PCSS for directional light: blocker search -> penumbra estimate -> variable-radius Vogel PCF.
 // lightSize is in cascade-UV space (a fraction of the cascade's coverage). Converted to atlas UV
 // via the tile's UV scale so the search/filter disk stays the right physical size per cascade.
 // receiverDepth must already include the flat epsilon; slope handling comes from the plane gradient.
-float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, float2 atlasUV, float receiverDepth, float lightSize, float2 receiverPlaneBias)
+// screenPos drives the shared per-pixel Vogel rotation (same rotation for blocker + PCF).
+float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, float2 atlasUV, float receiverDepth, float lightSize, float2 receiverPlaneBias, float2 screenPos)
 {
+    float rot = ShadowVogelRotation(screenPos);
+
     // Same scale on X and Y (tiles are square)
     float tileScale = tile.ShadowToAtlas.x;
 
     float searchRadiusAtlasUV = lightSize * tileScale;
-    float avgBlocker = FindBlockerDepth_Directional(shadowMap, atlasUV, receiverDepth, searchRadiusAtlasUV, receiverPlaneBias);
+    float avgBlocker = FindBlockerDepth_Directional(shadowMap, atlasUV, receiverDepth, searchRadiusAtlasUV, receiverPlaneBias, rot);
     if (avgBlocker < 0.0)
         return 1.0; // No blockers in search disk -> fully lit
 
@@ -435,7 +445,7 @@ float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, fl
     float filterRadiusCascadeUV = max(penumbraCascadeUV, minRadiusCascadeUV);
     float filterRadiusAtlasUV = filterRadiusCascadeUV * tileScale;
 
-    return SamplePCF_Poisson16(shadowMap, atlasUV, receiverDepth, filterRadiusAtlasUV, receiverPlaneBias);
+    return SamplePCF_VogelDirectional(shadowMap, atlasUV, receiverDepth, filterRadiusAtlasUV, receiverPlaneBias, rot);
 }
 
 // Samples the shadow cascade for the given directional light on the material surface (supports subsurface shadowing)
@@ -453,7 +463,7 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
     if (shadow.Softness > 0.0)
     {
         // PCSS contact-hardening. Flat epsilon is folded into the reference; taps follow the plane.
-        result.SurfaceShadow = SamplePCSS_Directional(shadowMap, shadowTile, shadowMapUV, shadowPosition.z, shadow.Softness, receiverPlaneBias);
+        result.SurfaceShadow = SamplePCSS_Directional(shadowMap, shadowTile, shadowMapUV, shadowPosition.z, shadow.Softness, receiverPlaneBias, screenPos);
     }
     else
     {
