@@ -574,7 +574,9 @@ float SampleWeaponShadow(LightData light, Buffer<float4> weaponShadowsBuffer, Te
 }
 
 // Samples the shadow for the given directional light on the material surface (supports subsurface shadowing)
-ShadowSample SampleDirectionalLightShadow(LightData light, Buffer<float4> shadowsBuffer, Texture2D<float> shadowMap, GBufferSample gBuffer, float dither = 0.0f)
+// svPosition: viewport pixel coords (SV_Position.xy) for the sample-rotation noise seed. Pixel
+// shaders pass it; compute/custom callers leave it negative to fall back to view-space position.
+ShadowSample SampleDirectionalLightShadow(LightData light, Buffer<float4> shadowsBuffer, Texture2D<float> shadowMap, GBufferSample gBuffer, float dither = 0.0f, float2 svPosition = float2(-1, -1))
 {
 #if !LIGHTING_NO_DIRECTIONAL
     // Skip if surface is in a full shadow
@@ -641,8 +643,11 @@ ShadowSample SampleDirectionalLightShadow(LightData light, Buffer<float4> shadow
     float texelWorldSize = GetShadowTileTexelWorldSize(offsetTile, shadowAtlasSize.x);
     samplePosition += GetShadowPositionOffset(shadow.NormalOffsetScale * texelWorldSize, NoL, gBuffer.Normal);
 #endif
-    // Use view position for screen-space noise (available in all contexts)
-    float2 screenPos = gBuffer.ViewPos.xy;
+    // Seed sample-rotation noise (Vogel disk / PCF dither) with true viewport pixel coords when the
+    // caller supplies them. InterleavedGradientNoise expects unit-spaced pixel indices; view-space
+    // ViewPos.xy (cm, spacing ~depth) correlates neighbouring taps into screen-locked moire rings.
+    // Fall back to ViewPos.xy for compute/custom callers that can't provide pixel coordinates.
+    float2 screenPos = svPosition.x >= 0.0 ? svPosition : gBuffer.ViewPos.xy;
     // Slope-scaled bias uses saturated NoL; subsurface paths pass through with NoL=1 fallback.
     float NoLSat = saturate(NoL);
     result = SampleDirectionalLightShadowCascade(light, shadowsBuffer, shadowMap, gBuffer, shadow, samplePosition, cascadeIndex, screenPos, NoLSat);

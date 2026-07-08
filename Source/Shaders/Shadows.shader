@@ -127,7 +127,7 @@ float4 PS_DirLight(Quad_VS2PS input) : SV_Target0
 	GBufferSample gBuffer = SampleGBuffer(gBufferData, input.TexCoord);
 
 	// Sample CSM shadow (this will have fade applied, lerping shadow towards 1.0)
-    ShadowSample shadow = SampleDirectionalLightShadow(Light, ShadowsBuffer, ShadowMap, gBuffer, TemporalTime);
+    ShadowSample shadow = SampleDirectionalLightShadow(Light, ShadowsBuffer, ShadowMap, gBuffer, TemporalTime, input.Position.xy);
 
 #if CONTACT_SHADOWS && SHADOWS_QUALITY > 0
 	// Calculate screen-space contact shadow
