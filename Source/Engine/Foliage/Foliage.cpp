@@ -227,17 +227,12 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
 		if (cullingDisabled || context.RenderContext.View.CullingFrustum.Intersects(box)) \
         { \
             if (!isMainContext) \
-            { \
-                if (bounds.Radius > _shadowCullRadius || Float3::DistanceSquared(_mainViewPosition, bounds.Center) < _shadowCullDistance2) \
-                    DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
-                /* \
-                else \
-                { \
-                    bounds.Center += context.ViewOrigin; \
-                    DebugDraw::DrawSphere(bounds, Color(1, 0, 1, 0.2f), 0, false); \
-                } \
-                */ \
-            } \
+                /* Shadow contexts (cascades + static-shadow clipmap): recurse unconditionally. The \
+                   per-instance pixel cull below is the only shadow LOD, matching the StaticModel \
+                   path - the old radius/CullingDistance gate made foliage cast CSM shadows only \
+                   within ~20 m, so foliage shadows lived only in the clipmap and vanished when it \
+                   was disabled. */ \
+                DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
             else if (CheckVisibility(cluster->Children[idx], bounds)) \
                 DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
             /* \
@@ -277,19 +272,19 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCal
                 context.RenderContext.View.CullingFrustum.Intersects(sphere) &&
                 RenderTools::ComputeBoundsScreenRadiusSquared(sphere.Center, (float)sphere.Radius, context.RenderContext.View) * context.ViewScreenSizeSq >= context.MinObjectPixelSizeSq)) // TODO: technically, this should be using the main context
             {
-                if (!isMainContext)
-                {
-                    if (sphere.Radius < _shadowCullRadius && Float3::DistanceSquared(_mainViewPosition, sphere.Center) > _shadowCullDistance2)
-                        continue;
-                }
-                else if (!cullingDisabled && EnumHasAnyFlags(context.RenderContext.View.Pass, DrawPass::GBuffer) && !CheckVisibility(instance, cluster, i))
+                // Shadow contexts (cascades + static-shadow clipmap) get NO extra distance/size cull
+                // here beyond the per-cascade pixel cull applied in the if() above - matching the
+                // StaticModel path (RenderList) so foliage casts CSM shadows at all distances. The old
+                // radius/CullingDistance (~20 m) gate made foliage shadow-cast only near the camera in
+                // CSM, so foliage shadows lived only in the clipmap and vanished the moment it was off.
+                // Main view still HZB-gates against the camera GBuffer pyramid.
+                if (isMainContext && !cullingDisabled && EnumHasAnyFlags(context.RenderContext.View.Pass, DrawPass::GBuffer) && !CheckVisibility(instance, cluster, i))
                 {
                     // IsCullingDisabled means the caller explicitly listed actors - don't HZB-gate them.
                     // HZB cull only against the main camera GBuffer pass. Static-shadow clipmap and
                     // other depth-only collections build single-context batches that look "main",
                     // but ActiveSlot was populated against the camera pyramid earlier this frame -
                     // consulting it here would HZB-cull casters into the sun's static shadow cache.
-                //     DebugDraw::DrawSphere(instance.Bounds, Color(1, 0, 0, 0.2f), 0, false); // can't do this in a job
                     continue;
                 }
                 const auto modelFrame = instance.DrawState.PrevFrame + 1;
@@ -411,17 +406,12 @@ void Foliage::DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::D
 		if (context.RenderContext.View.CullingFrustum.Intersects(box)) \
         { \
             if (!isMainContext) \
-            { \
-                if (bounds.Radius > _shadowCullRadius || Float3::DistanceSquared(_mainViewPosition, bounds.Center) < _shadowCullDistance2) \
-                    DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
-                /* \
-                else \
-                { \
-                    bounds.Center += context.ViewOrigin; \
-                    DebugDraw::DrawSphere(bounds, Color(1, 0, 1, 0.2f), 0, false); \
-                } \
-                */ \
-            } \
+                /* Shadow contexts (cascades + static-shadow clipmap): recurse unconditionally. The \
+                   per-instance pixel cull below is the only shadow LOD, matching the StaticModel \
+                   path - the old radius/CullingDistance gate made foliage cast CSM shadows only \
+                   within ~20 m, so foliage shadows lived only in the clipmap and vanished when it \
+                   was disabled. */ \
+                DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
             else if (CheckVisibility(cluster->Children[idx], bounds)) \
                 DrawCluster(context, cluster->Children[idx], drawCallsLists, result, isMainContext); \
             /* \
@@ -621,8 +611,8 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Me
     };
     if (context.RenderContext.View.Pass != DrawPass::Depth)
         context.MinObjectPixelSizeSq = 0.0f; // Don't use it in main view
-    else if (context.RenderContext.View.IsStaticShadowCache)
-        context.MinObjectPixelSizeSq = 0.0f; // Cache: per-level size cull drops far-cascade foliage
+    else
+        context.MinObjectPixelSizeSq = 0.0f; // TEMP (CSM investigation): disable shadow size cull - cascade ScreenSize.X*Y==1 (should be res^2) culls all foliage; matches RenderList::ShadowCasterPassesSizeCull bypass. Restore with the ScreenSize fix.
 #if FOLIAGE_USE_DRAW_CALLS_BATCHING
     // Initialize draw calls for foliage type all LODs meshes
     for (int32 lod = 0; lod < type.Model->LODs.Count(); lod++)

@@ -132,6 +132,11 @@ public:
     {
         DECLARE_SCRIPTING_TYPE_MINIMAL(Shadows);
 
+        /// <summary>
+        /// Enables the directional light static shadow clipmap (cached static-geometry shadows). When disabled, static geometry is rendered into the Cascaded Shadow Maps every frame like dynamic geometry (CSM for everything).
+        /// </summary>
+        API_FIELD() static bool EnableClipmap;
+
         // The minimum size in pixels of objects to cast shadows. Improves performance by skipping too small objects (eg. sub-pixel) from rendering into shadow maps.
         API_FIELD() static float MinObjectPixelSize;
 

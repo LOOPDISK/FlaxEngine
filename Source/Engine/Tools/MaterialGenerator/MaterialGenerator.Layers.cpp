@@ -175,11 +175,13 @@ void MaterialGenerator::ProcessGroupLayers(Box* box, Node* node, Value& value)
         if (node->TypeID == 8)
         {
             // Height Layer Blend
+            // Additive height bias keeps heightmap contrast across Alpha and keeps Alpha working with no heights connected. Transition (box 6) replaces the old fixed 0.05 width
             auto bottomHeight = tryGetValue(node->GetBox(4), Value::Zero);
             auto topHeight = tryGetValue(node->GetBox(5), Value::Zero);
-            auto bottomHeightScaled = writeLocal(VariantType::Float, String::Format(TEXT("{0} * (1.0 - {1})"), bottomHeight.Value, alpha.Value), node);
-            auto topHeightScaled = writeLocal(VariantType::Float, String::Format(TEXT("{0} * {1}"), topHeight.Value, alpha.Value), node);
-            auto heightStart = writeLocal(VariantType::Float, String::Format(TEXT("max({0}, {1}) - 0.05"), bottomHeightScaled.Value, topHeightScaled.Value), node);
+            auto transition = tryGetValue(node->TryGetBox(6), node->Values.Count() >= 2 ? node->Values[1] : 0.1f).AsFloat();
+            auto bottomHeightScaled = writeLocal(VariantType::Float, String::Format(TEXT("{0} + (1.0 - {1})"), bottomHeight.Value, alpha.Value), node);
+            auto topHeightScaled = writeLocal(VariantType::Float, String::Format(TEXT("{0} + {1}"), topHeight.Value, alpha.Value), node);
+            auto heightStart = writeLocal(VariantType::Float, String::Format(TEXT("max({0}, {1}) - max({2}, 0.0001)"), bottomHeightScaled.Value, topHeightScaled.Value, transition.Value), node);
             auto bottomLevel = writeLocal(VariantType::Float, String::Format(TEXT("max({0} - {1}, 0.0001)"), topHeightScaled.Value, heightStart.Value), node);
             alpha = writeLocal(VariantType::Float, alpha.Value, node);
             _writer.Write(TEXT("\t{0} = {1} / (max({2} - {3}, 0) + {4});\n"), alpha.Value, bottomLevel.Value, bottomHeightScaled.Value, heightStart.Value, bottomLevel.Value);

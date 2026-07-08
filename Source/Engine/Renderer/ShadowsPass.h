@@ -20,7 +20,6 @@ private:
     GPUPipelineState* _psDepthClear = nullptr;
     GPUPipelineState* _psDepthCopy = nullptr;
     GPUPipelineState* _psClipmapComposite = nullptr;
-    GPUPipelineState* _psDepthVisualize = nullptr; // HACK: clipmap debug overlay
     GPUPipelineStatePermutationsPs<int32(Quality::MAX) * 2 * 2> _psShadowDir;
     GPUPipelineStatePermutationsPs<int32(Quality::MAX) * 2> _psShadowPoint;
     GPUPipelineStatePermutationsPs<int32(Quality::MAX) * 2> _psShadowPointInside;
@@ -55,17 +54,6 @@ public:
     /// <param name="shadowMapAtlas">The output shadow map atlas texture or null if unused.</param>
     /// <param name="shadowsBuffer">The output shadows buffer or null if unused.</param>
     static void GetShadowAtlas(const RenderBuffers* renderBuffers, GPUTexture*& shadowMapAtlas, GPUBufferView*& shadowsBuffer);
-
-    // HACK: draws the toroidal shadow clipmap level depth textures as grayscale thumbnails
-    // down the right edge of the output target. No-op unless g_ClipmapDebugDraw is true.
-    static void DrawClipmapDebugOverlay(GPUContext* context, RenderContext& renderContext, GPUTextureView* output, const struct Viewport& outputViewport);
-
-    /// <summary>
-    /// Requests a one-shot dump of shadow maps + clipmap levels + metadata to disk on the next RenderShadowMaps call.
-    /// Dumps land in {ProjectFolder}/ShadowDumps/dump_{frame}/. Includes raw depth bins for each texture and a JSON sidecar with the per-level math state (TexelSize, DepthRange, scroll, origin, light basis, depth remap) plus per-light cascade matrices.
-    /// Exposed to C# via Renderer.RequestShadowsDump() (this class has no API_CLASS binding).
-    /// </summary>
-    static void RequestDump();
 
     /// <summary>
     /// Requests a full rebuild of the static-shadow clipmap cache, amortized over amortizeFrames frames

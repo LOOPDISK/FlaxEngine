@@ -49,20 +49,13 @@
 // (~0.6mm per level at 10km). See: D:\code\notes\shadow_clipmap_assumptions.md (invariant I8).
 #define SHADOW_CLIPMAP_NEAR_PAD METERS_TO_UNITS(10000.0f) // 10km of vertical headroom toward the sun
 
-// HACK debug toggles for shadow clipmap investigation. Flip and rebuild.
-// g_ClipmapIsolateStatic: when true and clipmap is active for the directional light, skip
-// the per-cascade dynamic shadow draw so the cascade tile shows ONLY composited clipmap content.
-// g_ClipmapDebugDraw: when true, ShadowsPass::DrawClipmapDebugOverlay paints clipmap level depth
-// textures as grayscale thumbnails down the right edge of the output (called from Renderer.cpp).
-static bool g_ClipmapIsolateStatic = false;
-static bool g_ClipmapDebugDraw = false;
-// g_ClipmapAutoRedraw: legacy heuristic policy. When true, Init's sun/basis/drift checks force a
-// full redraw on their own (the old spiky behavior). When false (default), the clipmap is an
-// explicit static cache: a full redraw fires ONLY on cold-init, scroll-overflow self-heal, or
-// Renderer::InvalidateStaticShadows(). Cheap L-strip scroll updates always run regardless.
-static bool g_ClipmapAutoRedraw = false;
-// Scroll-overflow self-heal: when the camera outruns a level's window in one frame (|delta| >= R)
-// in explicit mode, rebuild that level amortized over this many frames rather than smear stale
+// The clipmap is an explicit static-shadow cache: a full redraw fires only on cold-init,
+// scroll-overflow self-heal, or Renderer::InvalidateStaticShadows(). Cheap L-strip scroll
+// updates always run regardless. Engine-detected sun/basis/drift changes request an amortized
+// self-heal rather than a spiky one-frame rebuild.
+//
+// Scroll-overflow self-heal: when the camera outruns a level's window in one frame (|delta| >= R),
+// rebuild that level amortized over this many frames rather than smear stale
 // content or spike a one-frame full redraw.
 #define SHADOW_CLIPMAP_OVERFLOW_AMORTIZE 4
 
@@ -308,6 +301,13 @@ struct ShadowClipmapLevel
     Int2  RedrawAnchorScroll = Int2::Zero;
     int32 RedrawRowCursor = -1;          // next texel row to rasterize; <0 = idle
     int32 RedrawRowsPerFrame = 0;        // band height (rows) per frame
+    // R4 content-proof: static occluders rasterized so far by the in-flight rebuild, accumulated
+    // across bands. Reset when a rebuild starts; checked at completion. Populated latches true ONLY
+    // if this is >0 - a fresh proc-gen world whose geometry hasn't streamed in yet collects zero
+    // casters, and latching "valid" over that empty rasterize is what made statics silently vanish
+    // (and the editor "only casts when I move a prop" symptom). Mirrors master's own
+    // non-empty-draw-list gate before committing a static cache.
+    int32 RedrawCasterCount = 0;
     bool  SelfHealRequested = false;     // engine-detected genuine invalidation (cumulative cascade-scale
                                          // drift the game can't see). Honored as an amortized rebuild even
                                          // in explicit mode - survives the populated-clear, unlike the
@@ -366,7 +366,6 @@ struct ShadowClipmap
     Float3 PrevLightRight = Float3::Zero;
     Float3 PrevLightUp = Float3::Zero;
     bool Enabled = false;
-    bool DbgGateWasOpen = false;          // DIAG: cold-load gate-flip tracing
     Guid LightId;                         // ID of directional light using this clipmap
     // Explicit-redraw bookkeeping (Renderer::InvalidateStaticShadows). ServicedRedrawGeneration is
     // the last global request this clipmap honored; PendingAmortize carries the frame budget for the
@@ -510,23 +509,14 @@ struct ShadowClipmap
                     rebuild = true; // Static caster depth window moved substantially (streaming/scene edits)
                 if (rebuild && !level.NeedsFullRedraw && !level.SelfHealRequested && level.RedrawRowCursor < 0)
                 {
-                    LOG(Info, "[ShadowClipmap] level {0} param divergence -> rebuild request: extent {1}->{2} (raw {3}), depth [{4}, +{5}] -> [{6}, +{7}]",
-                        i, level.WorldExtent, level.DesiredWorldExtent, rawExtent,
-                        level.DepthMinZ, level.DepthRange, level.DesiredDepthMinZ, level.DesiredDepthRange);
-                    if (g_ClipmapAutoRedraw)
-                        level.NeedsFullRedraw = true;
-                    else
-                        level.SelfHealRequested = true;
+                    // Static caster depth window / extent moved substantially (streaming or scene
+                    // edits): request an amortized self-heal rather than a spiky one-frame redraw.
+                    level.SelfHealRequested = true;
                 }
             }
 
             if (sunChanged)
-            {
-                LOG(Info, "[ClipmapTrigger] L{0} sunChanged: cached=({1},{2},{3}) cur=({4},{5},{6}) dot={7}",
-                    i, CachedSunDirection.X, CachedSunDirection.Y, CachedSunDirection.Z,
-                    SunDir.X, SunDir.Y, SunDir.Z, Float3::Dot(CachedSunDirection, SunDir));
                 level.NeedsFullRedraw = true;
-            }
 
             // Per-level basis-coherence: the cache content was rasterized under level.LastRedrawSunDir.
             // If the current basis has drifted from that, the cached texels are mis-anchored and must
@@ -540,13 +530,7 @@ struct ShadowClipmap
             const bool basisCoherent = level.LastRedrawSunDir != Float3::Zero &&
                                        Float3::Dot(level.LastRedrawSunDir, SunDir) > 1.0f - 1e-7f;
             if (!basisCoherent)
-            {
-                LOG(Info, "[ClipmapTrigger] L{0} basisCoherent FAIL: dot={1} last=({2},{3},{4}) cur=({5},{6},{7})",
-                    i, Float3::Dot(level.LastRedrawSunDir, SunDir),
-                    level.LastRedrawSunDir.X, level.LastRedrawSunDir.Y, level.LastRedrawSunDir.Z,
-                    SunDir.X, SunDir.Y, SunDir.Z);
                 level.NeedsFullRedraw = true;
-            }
 
             // Create or resize texture if needed
             if (!level.DepthTexture)
@@ -570,6 +554,11 @@ struct ShadowClipmap
                     Enabled = false;
                     return;
                 }
+                // The realloc leaves undefined contents, so the level is no longer populated. Clearing
+                // this (not just NeedsFullRedraw) is required: the play-mode explicit-redraw gate (~L1944)
+                // suppresses NeedsFullRedraw on populated levels, which would otherwise cancel the
+                // mandatory post-resize rebuild and composite an empty texture as if valid.
+                level.Populated = false;
                 level.NeedsFullRedraw = true;
             }
         }
@@ -611,13 +600,10 @@ struct ShadowClipmap
             level.DirtyStrip = level.ScrollTexels - level.PrevScrollTexels;
             if (Math::Abs(level.DirtyStrip.X) >= level.Resolution || Math::Abs(level.DirtyStrip.Y) >= level.Resolution)
             {
-                LOG(Info, "[ClipmapTrigger] L{0} scroll-overflow: delta=({1},{2}) R={3}",
-                    i, level.DirtyStrip.X, level.DirtyStrip.Y, level.Resolution);
                 level.NeedsFullRedraw = true;
                 level.DirtyStrip = Int2::Zero;
-                // Explicit mode: spread the forced rebuild so a fast fly-through can't spike.
-                if (!g_ClipmapAutoRedraw)
-                    PendingAmortize = Math::Max(PendingAmortize, SHADOW_CLIPMAP_OVERFLOW_AMORTIZE);
+                // Spread the forced rebuild so a fast fly-through can't spike.
+                PendingAmortize = Math::Max(PendingAmortize, SHADOW_CLIPMAP_OVERFLOW_AMORTIZE);
             }
         }
     }
@@ -1179,18 +1165,6 @@ public:
             const BoundingSphere curBounds = a->GetSphere();
             if (IsDepthCasterType(a))
                 MergeStaticCasterBounds(curBounds);
-            if (Clipmap.Enabled)
-            {
-                String chain = BuildActorChain(a);
-                // moved = world-space center travel this update; recurring nonzero values are the
-                // real offenders (a Shadow-static asset being moved every frame). A near-zero moved
-                // with a flag/material flags is a one-off and harmless.
-                const float moved = (float)Float3::Distance((Float3)curBounds.Center, (Float3)prevBounds.Center);
-                LOG(Info, "[ClipmapDirty] moved={0} path='{1}' type='{2}' flags={3} prev=({4},{5},{6})r={7} cur=({8},{9},{10})r={11}",
-                    moved, chain, String(a->GetType().GetName()), (int32)flags,
-                    prevBounds.Center.X, prevBounds.Center.Y, prevBounds.Center.Z, prevBounds.Radius,
-                    curBounds.Center.X, curBounds.Center.Y, curBounds.Center.Z, curBounds.Radius);
-            }
             DirtyStaticBounds(prevBounds);
             DirtyStaticBounds(curBounds);
         }
@@ -1385,15 +1359,6 @@ bool ShadowsPass::setupResources()
         psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::None;
         _psClipmapComposite = GPUDevice::Instance->CreatePipelineState();
         if (_psClipmapComposite->Init(psDesc))
-            return true;
-    }
-    if (_psDepthVisualize == nullptr)
-    {
-        // HACK clipmap debug overlay: color-write fullscreen triangle, no depth.
-        psDesc = GPUPipelineState::Description::DefaultFullscreenTriangle;
-        psDesc.PS = GPUDevice::Instance->QuadShader->GetPS("PS_DepthVisualize");
-        _psDepthVisualize = GPUDevice::Instance->CreatePipelineState();
-        if (_psDepthVisualize->Init(psDesc))
             return true;
     }
 
@@ -1631,7 +1596,10 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
     atlasLight.Bias = light.ShadowsDepthBias + 2.0f * GetShadowMapFormatUlp(Instance()->_shadowMapFormat);
 
     const auto& view = renderContext.View;
-    bool useClipmap = light.StaticShadows && shadows.EnableStaticShadows && EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
+    // Graphics::Shadows::EnableClipmap off => no clipmap at all: statics render into the CSM cascades
+    // every frame (the exclusion filter below is skipped since ownsEnabledClipmap stays false), i.e.
+    // plain "CSM for everything". Toggleable live (DebugCommand) and via Graphics Settings.
+    bool useClipmap = Graphics::Shadows::EnableClipmap && light.StaticShadows && shadows.EnableStaticShadows && EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
     // Single clipmap per shadows buffer: the first StaticShadows sun each frame claims ownership;
     // any other shadowed sun falls back to plain CSM rendering (its cascades keep static geometry).
     if (useClipmap)
@@ -1700,7 +1668,11 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
             const float lambda = partitionMode == PartitionMode::PSSM ? pssmFactor : 1.0f;
             const auto range = maxDistance - minDistance;
             const auto ratio = maxDistance / minDistance;
-            const auto logRatio = Math::Clamp(1.0f - lambda, 0.0f, 1.0f);
+            // Blend weight toward the logarithmic split: 1 = fully logarithmic (tight near cascades),
+            // 0 = uniform. Master used (1 - lambda) here, which inverted it - "Logarithmic" (lambda=1)
+            // collapsed to uniform, so cascade 0 spanned the whole ShadowsDistance and near shadows went
+            // coarse/blobby (only small objects kept a crisp shadow). Use lambda directly; PSSM stays 0.5.
+            const auto logRatio = Math::Clamp(lambda, 0.0f, 1.0f);
             for (int32 cascadeLevel = 0; cascadeLevel < csmCount; cascadeLevel++)
             {
                 // Compute cascade split (between znear and zfar)
@@ -1875,18 +1847,6 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
     // Setup shadow clipmap for static geometry caching
     auto& clipmap = shadows.Clipmap;
 
-    // DIAG: clipmap never enables on cold play, works after editor reload. Trace which gate flips.
-    {
-        const bool sFlag = EnumHasAllFlags(light.StaticFlags, StaticFlags::Shadow);
-        if (useClipmap != clipmap.DbgGateWasOpen)
-            LOG(Info, "[ClipmapGate] {0}->{1} StaticShadows={2} EnableStatic={3} StaticFlagShadow={4} frame={5}",
-                clipmap.DbgGateWasOpen, useClipmap, light.StaticShadows, shadows.EnableStaticShadows, sFlag, Engine::FrameCount);
-        else if (!useClipmap && (Engine::FrameCount % 120) == 0)
-            LOG(Info, "[ClipmapGate] DISABLED StaticShadows={0} EnableStatic={1} StaticFlagShadow={2} frame={3}",
-                light.StaticShadows, shadows.EnableStaticShadows, sFlag, Engine::FrameCount);
-        clipmap.DbgGateWasOpen = useClipmap;
-    }
-
     if (useClipmap)
     {
         // Per-cascade radii + centers for clipmap init. Uses the SAME ComputeCascadeSphere as the
@@ -1932,7 +1892,6 @@ void ShadowsPass::SetupLight(ShadowsCustomBuffer& shadows, RenderContext& render
             // regenerate the cache without the game's explicit request - but amortized on populated
             // levels so an edit never hitches the frame. In-flight rebuilds keep their request so a
             // mid-build re-request restarts once the current band schedule drains.
-            if (!g_ClipmapAutoRedraw)
             {
                 const bool playMode = Engine::IsPlayMode();
                 for (int32 li = 0; li < clipmap.LevelCount; li++)
@@ -2200,7 +2159,6 @@ void ShadowsPass::Dispose()
     SAFE_DELETE_GPU_RESOURCE(_psDepthClear);
     SAFE_DELETE_GPU_RESOURCE(_psDepthCopy);
     SAFE_DELETE_GPU_RESOURCE(_psClipmapComposite);
-    SAFE_DELETE_GPU_RESOURCE(_psDepthVisualize);
 }
 
 void ShadowsPass::SetupShadows(RenderContext& renderContext, RenderContextBatch& renderContextBatch)
@@ -2606,7 +2564,10 @@ RETRY_ATLAS_SETUP:
 // Caller must have called context->SetRenderTarget(level.DepthTexture->View(), nullptr).
 //
 // wMin/wMax are absolute world-texel coords (light-XY plane). wMax exclusive. Width & height must each be in [1, R].
-static void RenderClipmapStrip(
+// Rasterizes one clipmap sub-rect (arm) and returns the number of static occluders collected for
+// it (0 on any early-out). Callers accumulate this across a banded rebuild to content-prove the
+// cache before latching Populated (R4).
+static int32 RenderClipmapStrip(
     GPUContext* context,
     const RenderContext& mainRenderContext,
     const ShadowClipmap& clipmap,
@@ -2620,7 +2581,7 @@ static void RenderClipmapStrip(
     const int32 wWidth = wMax.X - wMin.X;
     const int32 wHeight = wMax.Y - wMin.Y;
     if (wWidth <= 0 || wHeight <= 0 || wWidth > R || wHeight > R)
-        return;
+        return 0;
     const float ts = level.TexelSize;
     const Int2& origin = level.TextureOriginTexels;
 
@@ -2654,7 +2615,7 @@ static void RenderClipmapStrip(
     // No task = no scene to collect from. Bail before pulling a RenderList from the pool so we
     // don't leak it on this early return.
     if (!mainRenderContext.Task)
-        return;
+        return 0;
 
     // Collect once over the arm (both sync + async actor categories; matches weapon-shadow pattern)
     RenderContext armCtx;
@@ -2686,8 +2647,16 @@ static void RenderClipmapStrip(
     auto& ctx = armBatch.Contexts[0];
     if (!ctx.List)
     {
-        return;
+        return 0;
     }
+
+    // R4 content-proof: how many static occluders this arm actually collected. Matches the
+    // Depth + ShadowDepth non-empty test master uses (DrawCallsList::IsEmpty semantics: Indices +
+    // PreBatchedDrawCalls). The same collected list is executed for every sub-rect below, so this
+    // count is the arm's occluder tally regardless of the wrap split.
+    const auto& depthList = ctx.List->DrawCallsLists[(int32)DrawCallsListType::Depth];
+    const int32 casterCount = depthList.Indices.Count() + depthList.PreBatchedDrawCalls.Count()
+        + ctx.List->ShadowDepthDrawCallsList.Indices.Count() + ctx.List->ShadowDepthDrawCallsList.PreBatchedDrawCalls.Count();
 
 // Split world-texel X range into up to 2 texture-pixel sub-ranges based on wrap around R.
     // Texture pixel px for world-texel w.X = ((w.X - origin.X) mod R + R) mod R.
@@ -2794,16 +2763,7 @@ static void RenderClipmapStrip(
 
     context->ResetSR();
     RenderList::ReturnToPool(ctx.List);
-}
-
-// One-shot debug dump trigger. Set via ShadowsPass::RequestDump(); consumed once per request
-// at the end of RenderShadowMaps. Volatile (rather than atomic) because the read and the
-// reset both happen on the main render thread; writers (key handler, console) just set it.
-static volatile bool ShadowsDumpRequested = false;
-
-void ShadowsPass::RequestDump()
-{
-    ShadowsDumpRequested = true;
+    return casterCount;
 }
 
 void ShadowsPass::RequestStaticShadowRedraw(int32 amortizeFrames)
@@ -2823,224 +2783,6 @@ bool ShadowsPass::AreStaticShadowsRedrawing()
     // holds until the cache is coherent. One-frame slack absorbs the render-thread/main-thread lag.
     const int64 lastBand = Platform::AtomicRead(&StaticShadowLastBandFrame);
     return lastBand >= 0 && (int64)Engine::FrameCount - lastBand <= 1;
-}
-
-// Worker-thread routine: pulls texture bytes from GPU and writes the raw blob to disk.
-// Lives on a thread-pool task because GPUTexture::DownloadData asserts off-main-thread
-// (it queues a copy-to-staging on the GPU side then blocks on a CPU fence).
-static void DumpTextureRawWorker(GPUTexture* tex, String path)
-{
-    if (!tex)
-        return;
-    TextureData data;
-    if (tex->DownloadData(data))
-    {
-        LOG(Warning, "[ShadowDump] DownloadData failed for {0}", path);
-        return;
-    }
-    if (data.Items.IsEmpty() || data.Items[0].Mips.IsEmpty())
-    {
-        LOG(Warning, "[ShadowDump] no mip data for {0}", path);
-        return;
-    }
-    const TextureMipData& mip = data.Items[0].Mips[0];
-    if (mip.Data.Length() == 0)
-    {
-        LOG(Warning, "[ShadowDump] empty mip data for {0}", path);
-        return;
-    }
-    auto* file = FileWriteStream::Open(path);
-    if (!file)
-    {
-        LOG(Warning, "[ShadowDump] failed to open {0}", path);
-        return;
-    }
-    // 32-byte header: magic, width, height, format, rowPitch, dataBytes, reserved, reserved
-    const uint32 magic = 0x4D444853u; // 'SHDM'
-    const uint32 width = (uint32)data.Width;
-    const uint32 height = (uint32)data.Height;
-    const uint32 format = (uint32)data.Format;
-    const uint32 rowPitch = mip.RowPitch;
-    const uint32 dataBytes = (uint32)mip.Data.Length();
-    const uint32 reserved0 = 0, reserved1 = 0;
-    file->WriteBytes(&magic, sizeof(uint32));
-    file->WriteBytes(&width, sizeof(uint32));
-    file->WriteBytes(&height, sizeof(uint32));
-    file->WriteBytes(&format, sizeof(uint32));
-    file->WriteBytes(&rowPitch, sizeof(uint32));
-    file->WriteBytes(&dataBytes, sizeof(uint32));
-    file->WriteBytes(&reserved0, sizeof(uint32));
-    file->WriteBytes(&reserved1, sizeof(uint32));
-    file->WriteBytes(mip.Data.Get(), dataBytes);
-    file->Close();
-    Delete(file);
-}
-
-static void DumpTextureRaw(GPUTexture* tex, const String& path)
-{
-    if (!tex)
-        return;
-    // Capture pointer + path by value; the texture lives as long as the renderer does.
-    Task::StartNew(Function<void()>([tex, path]() { DumpTextureRawWorker(tex, path); }));
-}
-
-static String JsonFloat(float v)
-{
-    // Avoid "inf"/"nan" tripping strict JSON parsers (no Math::IsFinite in Flax - inline check)
-    if (v != v || v > 1e30f || v < -1e30f)
-        return TEXT("null");
-    return String::Format(TEXT("{0}"), v);
-}
-
-static String JsonFloat3(const Float3& v)
-{
-    return String::Format(TEXT("[{0}, {1}, {2}]"), JsonFloat(v.X), JsonFloat(v.Y), JsonFloat(v.Z));
-}
-
-static String JsonFloat4(const Float4& v)
-{
-    return String::Format(TEXT("[{0}, {1}, {2}, {3}]"), JsonFloat(v.X), JsonFloat(v.Y), JsonFloat(v.Z), JsonFloat(v.W));
-}
-
-static String JsonMatrix(const Matrix& m)
-{
-    String s = TEXT("[");
-    for (int32 r = 0; r < 4; r++)
-    {
-        if (r) s += TEXT(", ");
-        s += String::Format(TEXT("[{0}, {1}, {2}, {3}]"),
-            JsonFloat(m.Values[r][0]), JsonFloat(m.Values[r][1]), JsonFloat(m.Values[r][2]), JsonFloat(m.Values[r][3]));
-    }
-    return s + TEXT("]");
-}
-
-static void DumpShadowsToDisk(const ShadowsCustomBuffer& shadows, const RenderContext& renderContext)
-{
-    PROFILE_CPU_NAMED("Shadow Dump");
-    const uint64 frame = Engine::FrameCount;
-    const String folder = Globals::ProjectFolder / TEXT("ShadowDumps") / String::Format(TEXT("dump_{0}"), frame);
-    if (!FileSystem::DirectoryExists(folder))
-    {
-        if (FileSystem::CreateDirectory(folder))
-        {
-            LOG(Warning, "[ShadowDump] failed to create folder {0}", folder);
-            return;
-        }
-    }
-
-    // Textures: dynamic atlas, static atlas, weapon atlas, per-clipmap-level depth
-    DumpTextureRaw(shadows.ShadowMapAtlas, folder / TEXT("atlas_dynamic.bin"));
-    if (shadows.StaticShadowMapAtlas)
-        DumpTextureRaw(shadows.StaticShadowMapAtlas, folder / TEXT("atlas_static.bin"));
-    if (shadows.WeaponShadowMapAtlas)
-        DumpTextureRaw(shadows.WeaponShadowMapAtlas, folder / TEXT("atlas_weapon.bin"));
-    for (int32 i = 0; i < shadows.Clipmap.LevelCount; i++)
-    {
-        auto* tex = shadows.Clipmap.Levels[i].DepthTexture;
-        if (tex)
-            DumpTextureRaw(tex, folder / String::Format(TEXT("clipmap_L{0}.bin"), i));
-    }
-
-    // Metadata sidecar. Hand-rolled JSON because we only need write here and the engine's
-    // JSON writer wants a full document object. Format is plain ASCII so any parser works.
-    String j = TEXT("{\n");
-    j += String::Format(TEXT("  \"frame\": {0},\n"), frame);
-    j += String::Format(TEXT("  \"atlasResolution\": {0},\n"), shadows.Resolution);
-    j += String::Format(TEXT("  \"viewOrigin\": {0},\n"), JsonFloat3((Float3)shadows.ViewOrigin));
-    j += String::Format(TEXT("  \"viewPosition\": {0},\n"), JsonFloat3((Float3)renderContext.View.Position));
-    j += String::Format(TEXT("  \"viewDirection\": {0},\n"), JsonFloat3(renderContext.View.Direction));
-    j += String::Format(TEXT("  \"viewNear\": {0},\n"), JsonFloat(renderContext.View.Near));
-    j += String::Format(TEXT("  \"viewFar\": {0},\n"), JsonFloat(renderContext.View.Far));
-    j += String::Format(TEXT("  \"viewMatrix\": {0},\n"), JsonMatrix(renderContext.View.View));
-    j += String::Format(TEXT("  \"projection\": {0},\n"), JsonMatrix(renderContext.View.NonJitteredProjection));
-
-    // Clipmap-level math
-    j += TEXT("  \"clipmap\": {\n");
-    const auto& cm = shadows.Clipmap;
-    j += String::Format(TEXT("    \"enabled\": {0},\n"), cm.Enabled ? TEXT("true") : TEXT("false"));
-    j += String::Format(TEXT("    \"levelCount\": {0},\n"), cm.LevelCount);
-    j += String::Format(TEXT("    \"sunDir\": {0},\n"), JsonFloat3(cm.SunDir));
-    j += String::Format(TEXT("    \"lightRight\": {0},\n"), JsonFloat3(cm.LightRight));
-    j += String::Format(TEXT("    \"lightUp\": {0},\n"), JsonFloat3(cm.LightUp));
-    j += TEXT("    \"levels\": [\n");
-    for (int32 i = 0; i < cm.LevelCount; i++)
-    {
-        const auto& L = cm.Levels[i];
-        j += TEXT("      {");
-        j += String::Format(TEXT("\"index\": {0}, "), i);
-        j += String::Format(TEXT("\"resolution\": {0}, "), L.Resolution);
-        j += String::Format(TEXT("\"worldExtent\": {0}, "), JsonFloat(L.WorldExtent));
-        j += String::Format(TEXT("\"texelSize\": {0}, "), JsonFloat(L.TexelSize));
-        j += String::Format(TEXT("\"lastRedrawTexelSize\": {0}, "), JsonFloat(L.LastRedrawTexelSize));
-        j += String::Format(TEXT("\"depthRange\": {0}, "), JsonFloat(L.DepthRange));
-        j += String::Format(TEXT("\"depthMinZ\": {0}, "), JsonFloat(L.DepthMinZ));
-        j += String::Format(TEXT("\"lastRedrawDepthRange\": {0}, "), JsonFloat(L.LastRedrawDepthRange));
-        j += String::Format(TEXT("\"lastRedrawWorldExtent\": {0}, "), JsonFloat(L.LastRedrawWorldExtent));
-        j += String::Format(TEXT("\"scrollTexels\": [{0}, {1}], "), L.ScrollTexels.X, L.ScrollTexels.Y);
-        j += String::Format(TEXT("\"prevScrollTexels\": [{0}, {1}], "), L.PrevScrollTexels.X, L.PrevScrollTexels.Y);
-        j += String::Format(TEXT("\"originTexels\": [{0}, {1}], "), L.TextureOriginTexels.X, L.TextureOriginTexels.Y);
-        j += String::Format(TEXT("\"dirtyStrip\": [{0}, {1}], "), L.DirtyStrip.X, L.DirtyStrip.Y);
-        j += String::Format(TEXT("\"compositingColor\": {0}, "), JsonFloat4(L.CompositingColor));
-        j += String::Format(TEXT("\"depthRemap\": [{0}, {1}], "), JsonFloat(L.DepthRemap.X), JsonFloat(L.DepthRemap.Y));
-        j += String::Format(TEXT("\"wrapOffsetUV\": [{0}, {1}], "), JsonFloat(L.WrapOffsetUV.X), JsonFloat(L.WrapOffsetUV.Y));
-        j += String::Format(TEXT("\"needsFullRedraw\": {0}"), L.NeedsFullRedraw ? TEXT("true") : TEXT("false"));
-        j += (i + 1 < cm.LevelCount) ? TEXT("},\n") : TEXT("}\n");
-    }
-    j += TEXT("    ]\n");
-    j += TEXT("  },\n");
-
-    // Per-light cascade tile data
-    j += TEXT("  \"lights\": [\n");
-    int32 lightIdx = 0;
-    const int32 lightCount = shadows.Lights.Count();
-    for (auto it = shadows.Lights.Begin(); it.IsNotEnd(); ++it)
-    {
-        const auto& al = it->Value;
-        j += TEXT("    {");
-        j += String::Format(TEXT("\"id\": \"{0}\", "), it->Key.ToString());
-        j += String::Format(TEXT("\"resolution\": {0}, "), al.Resolution);
-        j += String::Format(TEXT("\"tilesCount\": {0}, "), al.TilesCount);
-        j += String::Format(TEXT("\"renderDynamic\": {0}, "), al.RenderDynamic ? TEXT("true") : TEXT("false"));
-        j += String::Format(TEXT("\"hasStaticShadowContext\": {0}, "), al.HasStaticShadowContext ? TEXT("true") : TEXT("false"));
-        j += String::Format(TEXT("\"cascadeSplits\": {0}, "), JsonFloat4(al.CascadeSplits));
-        j += String::Format(TEXT("\"bias\": {0}, "), JsonFloat(al.Bias));
-        j += String::Format(TEXT("\"softness\": {0}, "), JsonFloat(al.Softness));
-        j += TEXT("\"tiles\": [");
-        for (int32 t = 0; t < al.TilesCount; t++)
-        {
-            const auto& tile = al.Tiles[t];
-            j += TEXT("{");
-            if (tile.RectTile)
-            {
-                j += String::Format(TEXT("\"rect\": [{0}, {1}, {2}, {3}], "),
-                    tile.RectTile->X, tile.RectTile->Y, tile.RectTile->Width, tile.RectTile->Height);
-            }
-            else
-            {
-                j += TEXT("\"rect\": null, ");
-            }
-            j += String::Format(TEXT("\"skipUpdate\": {0}, "), tile.SkipUpdate ? TEXT("true") : TEXT("false"));
-            j += String::Format(TEXT("\"hasStaticGeometry\": {0}, "), tile.HasStaticGeometry ? TEXT("true") : TEXT("false"));
-            j += String::Format(TEXT("\"worldToShadow\": {0}"), JsonMatrix(tile.WorldToShadow));
-            j += (t + 1 < al.TilesCount) ? TEXT("}, ") : TEXT("}");
-        }
-        j += TEXT("]");
-        j += (++lightIdx < lightCount) ? TEXT("},\n") : TEXT("}\n");
-    }
-    j += TEXT("  ]\n");
-    j += TEXT("}\n");
-
-    const String metaPath = folder / TEXT("meta.json");
-    auto* metaFile = FileWriteStream::Open(metaPath);
-    if (metaFile)
-    {
-        const StringAsANSI<2048> ansi(j.Get(), j.Length());
-        metaFile->WriteBytes(ansi.Get(), j.Length());
-        metaFile->Close();
-        Delete(metaFile);
-    }
-
-    LOG(Info, "[ShadowDump] frame {0} -> {1} (textures download async on worker threads)", frame, folder);
 }
 
 void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
@@ -3186,8 +2928,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
                 const int32 amortize = Math::Clamp(clipmap.PendingAmortize, 1, R);
                 level.RedrawRowsPerFrame = (R + amortize - 1) / amortize;
                 level.RedrawRowCursor = 0;
-                LOG(Info, "[ClipmapRedraw] L{0} START amortize={1} rowsPerFrame={2} R={3} scroll=({4},{5})",
-                    levelIdx, amortize, level.RedrawRowsPerFrame, R, level.ScrollTexels.X, level.ScrollTexels.Y);
+                level.RedrawCasterCount = 0; // R4: start the content tally for this rebuild
             }
 
             // Banded rebuild in flight: rasterize the next horizontal band at the fixed anchor.
@@ -3199,7 +2940,7 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
                 const int32 y0 = level.RedrawRowCursor;
                 const int32 y1 = Math::Min(y0 + level.RedrawRowsPerFrame, R);
                 context->SetRenderTarget(level.DepthTexture->View(), (GPUTextureView*)nullptr);
-                RenderClipmapStrip(context, renderContext, clipmap, level,
+                level.RedrawCasterCount += RenderClipmapStrip(context, renderContext, clipmap, level,
                                    Int2(a.X - R / 2, a.Y - R / 2 + y0),
                                    Int2(a.X + R / 2, a.Y - R / 2 + y1),
                                    _psDepthClear, quadShaderCB);
@@ -3212,7 +2953,18 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
                 {
                     // Rebuild complete - stamp the math/basis state the content was rendered against.
                     level.RedrawRowCursor = -1;
-                    level.Populated = true;
+                    // R4: content-proven validity. Only claim Populated if the rebuild actually
+                    // rasterized >=1 static occluder across the level. On a fresh proc-gen world the
+                    // cold rebuild (the hot path - nothing is baked, a new world every run) can fire
+                    // before geometry has streamed in and collect nothing; latching Populated then
+                    // composites an empty depth texture as a valid cache and statics silently vanish.
+                    // Leaving Populated false keeps FallbackActive set (see the serve-check in
+                    // SetupLight), so statics stay in the CSM dynamic draw - visible, never dropped -
+                    // until a later rebuild (invalidation / self-heal / editor edit) proves content.
+                    level.Populated = level.RedrawCasterCount > 0;
+                    // TEMPORARY DIAGNOSTIC (correctness prompt item 2 - REMOVE once known): total
+                    // occluders this rebuild rasterized and whether it latched as populated.
+                    LOG(Info, "[ClipmapRebuild] level {0} R={1} casters={2} -> Populated={3}", levelIdx, R, level.RedrawCasterCount, (int32)level.Populated);
                     level.LastRedrawSunDir = clipmap.SunDir;
                     level.LastRedrawTexelSize = level.TexelSize;
                     level.LastRedrawDepthRange = level.DepthRange;
@@ -3235,11 +2987,6 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
 
                 const int32 dx = level.DirtyStrip.X;
                 const int32 dy = level.DirtyStrip.Y;
-                // Strip path is otherwise silent - log delta so a moving capture can be told apart
-                // from a full-redraw spam (invalidation) and fat-strip costs surface.
-                if (g_ClipmapDebugDraw)
-                    LOG(Info, "[ClipmapStrip] L{0} dx={1} dy={2} R={3} scroll=({4},{5})",
-                        levelIdx, dx, dy, R, newScroll.X, newScroll.Y);
                 const int32 absDx = Math::Abs(dx);
                 const int32 absDy = Math::Abs(dy);
 
@@ -3356,18 +3103,77 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
 
             // Draw objects depth (dynamic-only when clipmap is active for this light).
             // Skipped when DynamicShadows is off - no per-cascade contexts exist to draw from.
-            // HACK g_ClipmapIsolateStatic: skip dynamic draws on clipmap-active light so the
-            // cascade tile shows ONLY composited clipmap content (still need to advance the
-            // context-index counter so the static-shadow context lookup remains correct).
-            const bool skipDynamicForIsolation = g_ClipmapIsolateStatic && useClipmapForLight;
             if (atlasLight.RenderDynamic && atlasLight.ContextCount > 0)
             {
                 auto& shadowContext = renderContextBatch.Contexts[atlasLight.ContextIndex + contextIndex++];
-                if (!skipDynamicForIsolation)
+                // TEMPORARY DIAGNOSTIC (CSM-render investigation - REMOVE): localize why clipmap-off
+                // CSM collects nothing. sDepth = casters routed into THIS cascade context by
+                // RenderList::addShadowCaster (RenderList.cpp:792). Decision tree when sDepth=0:
+                //   mainDC=0                  => whole scene wasn't collected (upstream, not shadows)
+                //   mainDC>0, sCmp != vCmp    => the :2029 static-exclusion override fired for this
+                //                                cascade (StaticShadows off or clipmap-owned) -> statics
+                //                                filtered out by the static-flags gate
+                //   mainDC>0, sMask=sCmp=vMask=vCmp=0 => static-flags gate is inert, so the frustum
+                //                                intersect or the per-cascade pixel-size cull is
+                //                                rejecting every caster (bad cascade proj / ScreenSize)
+                // sMask/sCmp = cascade view StaticFlags(Mask/Compare); vMask/vCmp = main view's.
                 {
-                    shadowContext.List->ExecuteDrawCalls(shadowContext, DrawCallsListType::Depth);
-                    shadowContext.List->ExecuteDrawCalls(shadowContext, shadowContext.List->ShadowDepthDrawCallsList, renderContext.List, nullptr);
+                    const auto& dl = shadowContext.List->DrawCallsLists[(int32)DrawCallsListType::Depth];
+                    const auto& sdl = shadowContext.List->ShadowDepthDrawCallsList;
+                    LOG(Info, "[CSMDraw] tile={0} cm={1} fb={2} depth={3} sDepth={4} mainDC={5} sMask={6} sCmp={7} vMask={8} vCmp={9} res={10}",
+                        tileIndex, (int32)useClipmapForLight,
+                        (int32)(tileIndex < clipmap.LevelCount ? clipmap.Levels[tileIndex].FallbackActive : true),
+                        dl.Indices.Count() + dl.PreBatchedDrawCalls.Count(), sdl.Indices.Count() + sdl.PreBatchedDrawCalls.Count(),
+                        renderContext.List->DrawCalls.Count(),
+                        (int32)shadowContext.View.StaticFlagsMask, (int32)shadowContext.View.StaticFlagsCompare,
+                        (int32)renderContext.View.StaticFlagsMask, (int32)renderContext.View.StaticFlagsCompare,
+                        (int32)(shadowContext.View.ScreenSize.X));
+
+                    // TEMPORARY PROBE (REMOVE): re-test every collected draw call against THIS cascade's
+                    // culling frustum, on the main thread, to separate the two remaining causes of
+                    // sDepth=0 (static-flags gate already proven inert). frustum = casters whose bounds
+                    // intersect the cascade frustum (what addShadowCaster gate 2 saw); sizePass = of
+                    // those, how many also clear the per-cascade pixel-size cull (gate 4). Reading:
+                    //   frustum=0            => cascade frustum is positioned/sized wrong (ComputeCascadeSphere
+                    //                           center/radius, or a large-world origin mismatch) - it misses ALL geometry.
+                    //   frustum>0 sizePass=0 => frustum is fine; the size cull (radius/R vs MinObjectPixelSize) rejects all.
+                    //   frustum>0 sizePass>0 => neither gate rejects - the miss is the pass-mask (dm) or an
+                    //                           async/context wiring issue, not culling.
+                    // csmEye/obj0 (both Float3, origin-relative) expose any coordinate-space offset.
+                    {
+                        const float minPxSq = Math::Square(Graphics::Shadows::MinObjectPixelSize);
+                        const auto& dcs = renderContext.List->DrawCalls;
+                        int32 frustumHits = 0, sizePass = 0;
+                        Float3 obj0(0, 0, 0); float r0 = 0.0f;
+                        for (int32 k = 0; k < dcs.Count(); k++)
+                        {
+                            const DrawCall& dc = dcs.Get()[k];
+                            const BoundingSphere bs(dc.ObjectPosition, dc.ObjectRadius);
+                            if (k == 0) { obj0 = dc.ObjectPosition; r0 = dc.ObjectRadius; }
+                            if (shadowContext.View.CullingFrustum.Intersects(bs))
+                            {
+                                frustumHits++;
+                                if (RenderTools::ComputeBoundsScreenRadiusSquared(bs.Center, (float)bs.Radius, shadowContext.View) * (shadowContext.View.ScreenSize.X * shadowContext.View.ScreenSize.Y) >= minPxSq)
+                                    sizePass++;
+                            }
+                        }
+                        // Decompose the size cull for obj0: rawScr = ComputeBoundsScreenRadiusSquared
+                        // (pre-ScreenSize), then *res^2 gives the value compared to minPxSq (=4).
+                        // M11 = ortho lateral scale (= 1/cascadeRadius, so cascadeRadius=1/M11);
+                        // M34 should be 0 for ortho (nonzero => distance term wrongly divides it down);
+                        // rfss = ReferenceFovScreenScaleSq (should be 1.0 for an ortho view).
+                        const BoundingSphere bs0(obj0, r0);
+                        const float rawScr = RenderTools::ComputeBoundsScreenRadiusSquared(bs0.Center, r0, shadowContext.View);
+                        LOG(Info, "[CSMProbe] tile={0} frustum={1}/{2} sizePass={3} cascadeR={4} SS=({5},{6},{7},{8}) rawScr={9} scaled={10}",
+                            tileIndex, frustumHits, dcs.Count(), sizePass,
+                            (shadowContext.View.Projection.M11 != 0.0f ? 1.0f / shadowContext.View.Projection.M11 : -1.0f),
+                            shadowContext.View.ScreenSize.X, shadowContext.View.ScreenSize.Y,
+                            shadowContext.View.ScreenSize.Z, shadowContext.View.ScreenSize.W,
+                            rawScr, rawScr * (shadowContext.View.ScreenSize.X * shadowContext.View.ScreenSize.Y));
+                    }
                 }
+                shadowContext.List->ExecuteDrawCalls(shadowContext, DrawCallsListType::Depth);
+                shadowContext.List->ExecuteDrawCalls(shadowContext, shadowContext.List->ShadowDepthDrawCallsList, renderContext.List, nullptr);
             }
             if (atlasLight.HasStaticShadowContext)
             {
@@ -3614,14 +3420,6 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
     context->ResetRenderTarget();
     context->SetViewportAndScissors(renderContext.Task->GetViewport());
     shadows.ClearShadowMapAtlas = false;
-
-    // One-shot debug dump (RequestDump() set the flag). Runs after all shadow textures are
-    // populated for this frame so the downloaded data matches the metadata we serialise.
-    if (ShadowsDumpRequested)
-    {
-        ShadowsDumpRequested = false;
-        DumpShadowsToDisk(shadows, renderContext);
-    }
 }
 
 void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, RenderLightData& light, GPUTextureView* shadowMask)
@@ -3717,70 +3515,6 @@ void ShadowsPass::RenderShadowMask(RenderContextBatch& renderContextBatch, Rende
     context->UnBindSR(6);
     context->UnBindSR(8);
     context->UnBindSR(9);
-}
-
-// HACK debug overlay: paint each shadow clipmap level's depth texture as a grayscale thumbnail
-// down the right edge of the output. Order is top-to-bottom = level 0 (nearest cascade) ...
-// level N (farthest / beyond-CSM). Sized so all levels fit even with 5 levels (4 CSM + 1 beyond).
-void ShadowsPass::DrawClipmapDebugOverlay(GPUContext* context, RenderContext& renderContext, GPUTextureView* output, const Viewport& outputViewport)
-{
-    if (!g_ClipmapDebugDraw)
-        return;
-    if (!renderContext.Buffers)
-        return;
-    const ShadowsCustomBuffer* shadowsPtr = renderContext.Buffers->FindCustomBuffer<ShadowsCustomBuffer>(TEXT("Shadows"), false);
-    if (!shadowsPtr)
-        return;
-    const ShadowsCustomBuffer& shadows = *shadowsPtr;
-    if (!shadows.Clipmap.Enabled || shadows.Clipmap.LevelCount <= 0)
-        return;
-    auto* instance = ShadowsPass::Instance();
-    if (!instance || !instance->_psDepthVisualize || !instance->_psDepthVisualize->IsValid())
-        return;
-
-    PROFILE_GPU("Clipmap Debug Overlay");
-
-    // Layout: right-edge strip, square thumbnails stacked vertically.
-    const int32 levelCount = shadows.Clipmap.LevelCount;
-    const float vpW = outputViewport.Width;
-    const float vpH = outputViewport.Height;
-    const float vpX = outputViewport.X;
-    const float vpY = outputViewport.Y;
-    // Thumbnail size: 1/levelCount of viewport height, but capped to ~1/5 of viewport width
-    // so on wide viewports they don't dominate the screen.
-    float thumb = vpH / (float)Math::Max(levelCount, 1);
-    const float maxThumb = vpW * 0.2f;
-    if (thumb > maxThumb)
-        thumb = maxThumb;
-    const float stripX = vpX + vpW - thumb;
-
-    GPUConstantBuffer* quadShaderCB = GPUDevice::Instance->QuadShader->GetCB(0);
-    QuadShaderData quadShaderData;
-    quadShaderData.Color = Float4(1.0f, 1.0f, 0, 0); // x=invert (1 for far=white->near=dark hmm), y=contrast power
-    quadShaderData.Params = Float4::Zero;
-
-    context->ResetRenderTarget();
-    context->SetRenderTarget(output);
-    context->SetState(instance->_psDepthVisualize);
-
-    for (int32 i = 0; i < levelCount; i++)
-    {
-        const auto& level = shadows.Clipmap.Levels[i];
-        if (!level.DepthTexture)
-            continue;
-
-        const float yTop = vpY + (float)i * thumb;
-        context->SetViewportAndScissors(Viewport(stripX, yTop, thumb, thumb));
-
-        context->UpdateCB(quadShaderCB, &quadShaderData);
-        context->BindCB(0, quadShaderCB);
-        context->BindSR(0, level.DepthTexture->View());
-        context->DrawFullscreenTriangle();
-        context->UnBindSR(0);
-    }
-
-    context->ResetRenderTarget();
-    context->SetViewportAndScissors(outputViewport);
 }
 
 void ShadowsPass::GetShadowAtlas(const RenderBuffers* renderBuffers, GPUTexture*& shadowMapAtlas, GPUBufferView*& shadowsBuffer)

@@ -135,6 +135,12 @@ public:
     bool AllowCSMBlending = false;
 
     /// <summary>
+    /// Enables the directional light static shadow clipmap (cached static-geometry shadows). When disabled, static geometry is rendered into the Cascaded Shadow Maps every frame like dynamic geometry (CSM for everything).
+    /// </summary>
+    API_FIELD(Attributes="EditorOrder(1325), DefaultValue(true), EditorDisplay(\"Quality\", \"Enable Shadow Clipmap\")")
+    bool EnableShadowClipmap = true;
+
+    /// <summary>
     /// Default probes cubemap resolution (use for Environment Probes, can be overriden per-actor).
     /// </summary>
     API_FIELD(Attributes="EditorOrder(1500), EditorDisplay(\"Quality\")")

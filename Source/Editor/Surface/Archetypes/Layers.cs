@@ -177,10 +177,11 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Height Layer Blend",
                 Description = "Create blended layer using height-based blending",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(200, 100),
+                Size = new Float2(200, 120),
                 DefaultValues = new object[]
                 {
                     0.5f,
+                    0.1f,
                 },
                 Elements = new[]
                 {
@@ -189,6 +190,7 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(2, "Top", true, typeof(void), 1),
                     NodeElementArchetype.Factory.Input(3, "Top Height", true, typeof(float), 5),
                     NodeElementArchetype.Factory.Input(4, "Alpha", true, typeof(float), 2, 0),
+                    NodeElementArchetype.Factory.Input(5, "Transition", true, typeof(float), 6, 1),
                     NodeElementArchetype.Factory.Output(0, "", typeof(void), 3)
                 }
             },

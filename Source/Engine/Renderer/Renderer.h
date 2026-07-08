@@ -32,11 +32,6 @@ public:
     API_FUNCTION() static void Render(SceneRenderTask* task);
 
     /// <summary>
-    /// Requests a one-shot shadow-map / clipmap dump to disk on the next frame. Dumps land in {ProjectFolder}/ShadowDumps/dump_{frame}/ as raw depth bins + a JSON sidecar with the per-level math state. Useful for diagnosing static-clipmap projection bugs.
-    /// </summary>
-    API_FUNCTION() static void RequestShadowsDump();
-
-    /// <summary>
     /// Requests an amortized full rebuild of the static-shadow clipmap cache. Call when the cached static
     /// shadows must change: the procedural level has settled after load, the sun direction moved, or the
     /// player warped/teleported. The rebuild is spread over amortizeFrames frames (banded) so it does not

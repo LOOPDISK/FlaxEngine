@@ -34,6 +34,7 @@ bool Graphics::SpreadWorkload = true;
 #if !BUILD_RELEASE || USE_EDITOR
 float Graphics::TestValue = 0.0f;
 #endif
+bool Graphics::Shadows::EnableClipmap = true;
 float Graphics::Shadows::MinObjectPixelSize = 2.0f;
 float Graphics::Shadows::CullingSize = 500;
 float Graphics::Shadows::CullingDistance = 2000;
@@ -86,6 +87,7 @@ void GraphicsSettings::Apply()
     Graphics::ShadowsQuality = ShadowsQuality;
     Graphics::ShadowMapsQuality = ShadowMapsQuality;
     Graphics::AllowCSMBlending = AllowCSMBlending;
+    Graphics::Shadows::EnableClipmap = EnableShadowClipmap;
     Graphics::GlobalSDFQuality = GlobalSDFQuality;
     Graphics::GIQuality = GIQuality;
     Graphics::GICascadesBlending = GICascadesBlending;

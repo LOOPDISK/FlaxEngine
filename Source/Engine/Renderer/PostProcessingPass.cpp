@@ -748,6 +748,18 @@ void PostProcessingPass::RenderDepthHaze(RenderContext& renderContext, GPUTextur
     auto depthMipBuffer = RenderTargetPool::Get(depthMipDesc);
     RENDER_TARGET_POOL_SET_NAME(depthMipBuffer, "DepthHaze.DepthMips");
 
+    // Defensive per-mip clear (mirrors bloom at ~L484). These buffers are acquired unconditionally
+    // but only written inside the if(depthBuffer) block below, and RenderTargetPool::Get hands back
+    // the same physical texture every steady-state frame WITHOUT clearing it. Without this, a skipped
+    // write lets the composite sample a previous frame's / another effect's leftover contents (under
+    // R16 output the pool key even aliases bloom's chain) - sticky garbage that only clears when the
+    // effect is toggled and the RT is re-acquired. Clearing degrades any skipped write to neutral.
+    for (int32 mip = 0; mip < bloomMipCount; mip++)
+    {
+        context->Clear(scatteringColorBuffer->View(0, mip), Color::Transparent);
+        context->Clear(depthMipBuffer->View(0, mip), Color::Transparent);
+    }
+
     if (depthBuffer)
     {
         // Initial half-res premultiplied copy (MRT: color mip 0 + participating depth mip 0)

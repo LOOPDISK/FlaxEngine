@@ -76,23 +76,6 @@ float PS_DepthCopy(Quad_VS2PS input) : SV_Depth
 
 #endif
 
-#ifdef _PS_DepthVisualize
-
-Texture2D Source : register(t0);
-
-// HACK: visualize a depth texture as grayscale. Color.x = invert flag (0/1), Color.y = contrast power.
-META_PS(true, FEATURE_LEVEL_ES2)
-float4 PS_DepthVisualize(Quad_VS2PS input) : SV_Target
-{
-	float d = Source.SampleLevel(SamplerPointClamp, input.TexCoord, 0).r;
-	if (Color.x > 0.5)
-		d = 1.0 - d;
-	d = pow(saturate(d), max(Color.y, 0.0001));
-	return float4(d, d, d, 1);
-}
-
-#endif
-
 #ifdef _PS_ClipmapComposite
 
 Texture2D ClipmapDepth : register(t0);

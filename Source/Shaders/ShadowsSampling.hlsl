@@ -137,6 +137,16 @@ float2 GetLightShadowAtlasUVWithReceiverBias(ShadowData shadow, ShadowTileData s
     shadowPosition = mul(float4(samplePosition, 1.0f), shadowTile.WorldToShadow);
     shadowPosition.xyz /= shadowPosition.w;
 
+    // World-constant flat bias. shadow.Bias is normalized shadow-depth, so subtracting it directly
+    // peter-pans by shadow.Bias * worldPerDepthUnit - and worldPerDepthUnit tracks the cascade's
+    // depth range, which ~doubles per cascade. So far cascades (3+) over-biased by tens of cm and
+    // shrank small shadows (worst at a vertical sun, where a sphere's true shadow is smallest).
+    // Divide by worldPerDepthUnit and scale by a reference so the world peter-pan is the same on
+    // every cascade: worldPeterPan = shadow.Bias * BiasWorldScale cm. Scale keeps the 0.005 default
+    // at ~2.5 cm, matching a typical near cascade's prior look.
+    const float BiasWorldScale = 500.0f; // cm of world peter-pan per unit of normalized Bias
+    float biasNorm = shadow.Bias * (BiasWorldScale / GetShadowTileWorldPerDepthUnit(shadowTile));
+
 #if SHADOWS_USE_RECEIVER_PLANE_BIAS && SHADOWS_QUALITY != 0
     // Exact plane gradient, converted from tile-UV to atlas-UV units (PCF taps offset in atlas UV):
     // atlasUV = tileUV * ShadowToAtlas.xy + zw, so dz/d(atlasUV) = dz/d(tileUV) / ShadowToAtlas.xy.
@@ -147,12 +157,12 @@ float2 GetLightShadowAtlasUVWithReceiverBias(ShadowData shadow, ShadowTileData s
     // The plane gradient replaces the authored slope-scaled bias: the comparison reference follows
     // the receiver surface per tap, so only the flat epsilon remains (depth-format quantization,
     // folded into Bias on the CPU, plus any authored extra for LOD-mismatched or masked casters).
-    shadowPosition.z -= shadow.Bias;
+    shadowPosition.z -= biasNorm;
 #else
     // No derivatives (compute shaders) or single-tap quality that ignores the gradient: flat
     // reference with the legacy slope-scaled authored bias.
     receiverPlaneDepthBias = float2(0.0, 0.0);
-    shadowPosition.z -= ComputeSlopeScaledBias(shadow.Bias, NoL);
+    shadowPosition.z -= ComputeSlopeScaledBias(biasNorm, NoL);
 #endif
 
     // UV Space -> Atlas Tile UV Space

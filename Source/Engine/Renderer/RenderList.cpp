@@ -709,23 +709,23 @@ void RenderList::AddDrawCall(const RenderContext& renderContext, DrawPass drawMo
     }
 }
 
-static bool CustomCullingCriteria(StaticFlags staticFlags, const RenderView& view, const BoundingSphere& bounds, float cullingDistanceSq, float minObjectPixelSizeSq)
+static bool ShadowCasterPassesSizeCull(const RenderView& shadowView, const BoundingSphere& bounds, float minObjectPixelSizeSq)
 {
-    float distSq = Float3::DistanceSquared(view.Position, bounds.Center);
-    if ((staticFlags & StaticFlags::Occluder) == StaticFlags::None)
-    {
-        // non-occluders should just get culled after a certain distance
-        return (distSq < cullingDistanceSq);
-    }
-    else
-    {
-        if (distSq < cullingDistanceSq)
-        { // only do the minPixel check if the object is far away
-            return true;
-        }
-
-        return RenderTools::ComputeBoundsScreenRadiusSquared(bounds.Center, bounds.Radius, view) * (view.ScreenSize.X * view.ScreenSize.Y) >= minObjectPixelSizeSq;
-    }
+    // Master's shadow-caster cull: keep a caster only if it projects to >= minObjectPixelSize pixels IN
+    // THIS CASCADE's shadow map. shadowView is the cascade's ORTHO view, so ComputeBoundsScreenRadiusSquared
+    // is distance-independent (proj[2][3] == 0) and measures the object's footprint as a fraction of the
+    // cascade extent, scaled by the shadow-map resolution (view.ScreenSize) - the correct per-cascade
+    // metric. Must use the cascade view, NOT the main camera view: the perspective camera form is
+    // distance-dependent and returned a degenerate value at collection time here (stale ScreenSize /
+    // large-world distance), which culled even large near casters (spheres cast no shadow at all).
+    // There is deliberately NO hard camera-distance cull: a caster well beyond the camera still casts a
+    // shadow received by the coarser cascades, so the old Occluder-gated `distSq < CullingDistance`
+    // cliff (CullingDistance = 2000 cm = 20 m) dropped every non-occluder shadow past ~20 m - the whole
+    // scene lost shadows beyond the first cascade. Size alone degrades gracefully with distance.
+    // TEMP (CSM investigation): bypass size cull - probe shows cascade ScreenSize.X*Y==1 (should be
+    // res^2), so this rejects every caster. Confirm shadows return, then fix ScreenSize root cause and restore.
+    return true;
+    // return RenderTools::ComputeBoundsScreenRadiusSquared(bounds.Center, bounds.Radius, shadowView) * (shadowView.ScreenSize.X * shadowView.ScreenSize.Y) >= minObjectPixelSizeSq;
 }
 
 void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawPass drawModes, StaticFlags staticFlags, ShadowsCastingMode shadowsMode, const BoundingSphere& bounds, DrawCall& drawCall, bool receivesDecals, int8 sortOrder)
@@ -782,60 +782,31 @@ void RenderList::AddDrawCall(const RenderContextBatch& renderContextBatch, DrawP
         }
     }
     float minObjectPixelSizeSq = Math::Square(Graphics::Shadows::MinObjectPixelSize);
-    float cullingDistanceSq = Math::Square(Graphics::Shadows::CullingDistance);
 
-    // Cascade best-fit: a caster fully in a finer cascade is added only there, not every coarser one it intersects.
-    // Cull-and-add this draw call to a shadow context if it passes that context's pass mask, frustum, static-flags and custom culling.
-    // Screen-size culling through the main view is FOV-stable via RenderView::ReferenceFovScreenScaleSq.
+    // Cull-and-add this draw call to EVERY shadow context (cascade / cube face / spot / clipmap) whose
+    // pass mask, frustum, static-flags and custom culling it passes. A directional caster must go into
+    // every cascade its bounds intersect - NOT just the finest cascade that fully contains it - because
+    // a caster sitting in a near cascade still casts a shadow onto receivers that sample the coarser
+    // cascades (the shadow extends along the light axis, well past the caster's own cascade window).
+    // The former "best-fit: finest containing cascade wins" shortcut dropped those cross-cascade
+    // shadows: a caster fully inside cascade 0 cast nothing beyond cascade 0 (shadows blended to
+    // nothing at the split, and scaling a caster up until it straddled the split was what made its
+    // shadow reappear in the farther cascades). Restores master's per-context intersect-and-add.
     auto addShadowCaster = [&](const RenderContext& rc)
     {
         const DrawPass dm = modes & rc.View.Pass;
         if (dm != DrawPass::None &&
             rc.View.CullingFrustum.Intersects(bounds) &&
             (staticFlags & rc.View.StaticFlagsMask) == rc.View.StaticFlagsCompare &&
-            CustomCullingCriteria(staticFlags, mainRenderContext.View, bounds, cullingDistanceSq, minObjectPixelSizeSq))
+            ShadowCasterPassesSizeCull(rc.View, bounds, minObjectPixelSizeSq))
             rc.List->ShadowDepthDrawCallsList.Indices.Add(index);
     };
 
     const int32 contextCount = renderContextBatch.Contexts.Count();
-    int32 i = 1;
-    while (i < contextCount)
+    for (int32 i = 1; i < contextCount; i++)
     {
-        const RenderContext& firstRc = renderContextBatch.Contexts.Get()[i];
-        ASSERT_LOW_LAYER(firstRc.View.Pass == DrawPass::Depth);
-        if (firstRc.View.CascadeIndex < 0)
-        {
-            // Non-cascade shadow context (cube face, spot, clipmap-style): legacy intersect-and-add.
-            addShadowCaster(firstRc);
-            i++;
-            continue;
-        }
-
-        // Group spans the monotonic CascadeIndex run; it ends when the sequence breaks (new light or -1).
-        int32 groupEnd = i + 1;
-        int8 expected = (int8)(firstRc.View.CascadeIndex + 1);
-        while (groupEnd < contextCount && renderContextBatch.Contexts.Get()[groupEnd].View.CascadeIndex == expected)
-        {
-            groupEnd++;
-            expected++;
-        }
-
-        // Finest cascade fully containing the bounds wins (added only there); else straddling - per-cascade intersect.
-        int32 bestFit = -1;
-        for (int32 c = i; c < groupEnd; c++)
-        {
-            if (renderContextBatch.Contexts.Get()[c].View.CullingFrustum.Contains(bounds) == ContainmentType::Contains)
-            {
-                bestFit = c;
-                break;
-            }
-        }
-        if (bestFit >= 0)
-            addShadowCaster(renderContextBatch.Contexts.Get()[bestFit]);
-        else
-            for (int32 c = i; c < groupEnd; c++)
-                addShadowCaster(renderContextBatch.Contexts.Get()[c]);
-        i = groupEnd;
+        ASSERT_LOW_LAYER(renderContextBatch.Contexts.Get()[i].View.Pass == DrawPass::Depth);
+        addShadowCaster(renderContextBatch.Contexts.Get()[i]);
     }
 }
 

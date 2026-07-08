@@ -225,11 +225,6 @@ bool Renderer::IsReady()
     return true;
 }
 
-void Renderer::RequestShadowsDump()
-{
-    ShadowsPass::RequestDump();
-}
-
 void Renderer::InvalidateStaticShadows(int32 amortizeFrames)
 {
     ShadowsPass::RequestStaticShadowRedraw(amortizeFrames);
@@ -824,6 +819,11 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
             renderContext.View.Pass = savedPass;
             renderContext.View.ScreenSize = savedScreenSize;
             context->ResetRenderTarget();
+            // Unbind the particle draw's shader resources, matching the atmospheric/distance fog passes
+            // below. Those ResetSR calls are conditional on their fog actors existing; when neither is
+            // present the leaked particle SRVs would otherwise survive into RenderDepthHaze (which does
+            // not ResetSR itself) and alias the pooled RTs it acquires - an intermittent read/write hazard.
+            context->ResetSR();
             context->SetViewportAndScissors(renderContext.Task->GetViewport());
             renderContext.List->Fog.FogInjectTexture = fogInject;
 
@@ -1038,9 +1038,6 @@ void RenderInner(SceneRenderTask* task, RenderContext& renderContext, RenderCont
             MultiScaler::Instance()->Upscale(context, outputViewport, frameBuffer, outputView);
         }
     }
-
-    // HACK shadow clipmap debug overlay (no-op unless g_ClipmapDebugDraw is true in ShadowsPass.cpp).
-    ShadowsPass::DrawClipmapDebugOverlay(context, renderContext, outputView, outputViewport);
 
     RenderTargetPool::Release(tempBuffer);
     RenderTargetPool::Release(frameBuffer);
