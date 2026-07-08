@@ -75,9 +75,14 @@ GPU_CB_STRUCT(Data{
     Matrix LensFlareStarMat;
     Float4 ViewInfo;
     float ViewFar;
+    float ToneToe;
+    float ToneShoulder;
+    float ToneSaturation;
+
+    float TonePathToWhite;
+    uint32 ApplyMedpole; // 1 = apply Medpole analytically per-pixel in the composite (grading LUT bypassed)
     float DummyPadding1;
     float DummyPadding2;
-    float DummyPadding3;
     });
 
 GPU_CB_STRUCT(GaussianBlurData{
@@ -323,6 +328,10 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
     bool useDepthHaze = EnumHasAnyFlags(view.Flags, ViewFlags::DepthHaze) && settings.DepthHaze.Enabled && settings.DepthHaze.Intensity > 0.0f;
     bool useBloom = EnumHasAnyFlags(view.Flags, ViewFlags::Bloom) && settings.Bloom.Enabled && settings.Bloom.Intensity > 0.0f;
     bool useToneMapping = EnumHasAnyFlags(view.Flags, ViewFlags::ToneMapping) && settings.ToneMapping.Mode != ToneMappingMode::None;
+    // Medpole is analytic and cheap - evaluate it per-pixel in the composite instead of baking it into the
+    // 32-node grading LUT (which quantizes its steep toe/shoulder curve into contour rings). Routed down the
+    // no-LUT composite path below.
+    bool useMedpole = useToneMapping && settings.ToneMapping.Mode == ToneMappingMode::Medpole;
     bool useCameraArtifacts = EnumHasAnyFlags(view.Flags, ViewFlags::CameraArtifacts) && (settings.CameraArtifacts.VignetteIntensity > 0.0f || settings.CameraArtifacts.GrainAmount > 0.0f || settings.CameraArtifacts.ChromaticDistortion > 0.0f || settings.CameraArtifacts.ScreenFadeColor.A > 0.0f);
     bool useLensFlares = EnumHasAnyFlags(view.Flags, ViewFlags::LensFlares) && settings.LensFlares.Intensity > 0.0f && useBloom;
 
@@ -444,6 +453,11 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
         data.LensDirtIntensity = 0;
     }
     data.QuantizationError = RenderTools::GetColorQuantizationError(output->Format());
+    data.ToneToe = settings.ToneMapping.Toe;
+    data.ToneShoulder = settings.ToneMapping.Shoulder;
+    data.ToneSaturation = settings.ToneMapping.Saturation;
+    data.TonePathToWhite = settings.ToneMapping.PathToWhite;
+    data.ApplyMedpole = useMedpole ? 1u : 0u;
     data.PostExposure = Math::Exp2(settings.EyeAdaptation.PostExposure);
     data.InputSize = Float2(static_cast<float>(w1), static_cast<float>(h1));
     data.InvInputSize = Float2(1.0f / static_cast<float>(w1), 1.0f / static_cast<float>(h1));
@@ -624,6 +638,9 @@ void PostProcessingPass::Render(RenderContext& renderContext, GPUTexture* input,
             colorGradingLutView = colorGradingLUT->View();
         }
     }
+
+    // Medpole tonemaps analytically per-pixel in the composite (ApplyMedpole=1); the LUT it samples afterwards
+    // is baked grade-only (PostTonemapGrade), so there's no double tonemap and no node-quantization rings.
 
     // Composite pass inputs mapping:
     // - 0 - Input0      - scene color

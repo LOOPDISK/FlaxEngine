@@ -42,12 +42,16 @@ GPU_CB_STRUCT(Data{
 
     float ToneSaturation;
     float TonePathToWhite;
-    Float2 Dummy;
+    float PostTonemapGrade; // 1 = grade-only LDR LUT (no tonemap); Medpole tonemaps per-pixel in the composite
+    float Dummy;
 
     void Init(const PostProcessSettings& settings, GPUTexture*& lut)
     {
-        Dummy = Float2::Zero;
+        Dummy = 0.0f;
         auto& toneMapping = settings.ToneMapping;
+        // Default here; the real per-mode value is assigned in RenderLUT AFTER the DefaultData "grading unused"
+        // compare, so this tonemap-derived flag can never skew that grading-only comparison.
+        PostTonemapGrade = 0.0f;
         auto& colorGrading = settings.ColorGrading;
         // White Balance
         WhiteTemp = toneMapping.WhiteTemperature;
@@ -188,6 +192,12 @@ GPUTexture* ColorGradingPass::RenderLUT(RenderContext& renderContext)
         lutTexture == nullptr &&
         toneMapping.Mode == ToneMappingMode::None)
         return nullptr;
+
+    // Medpole tonemaps analytically per-pixel in the composite, so the LUT bakes grade only (no tone curve).
+    // Assigned here - after the DefaultData compare above - so a future fix to that (currently ineffective)
+    // "is grading unused" check can't be defeated by this tonemap-derived flag. It still feeds the cache key
+    // (via CachedData below) and the CB upload, and mode switches are also caught by the explicit Mode check.
+    data.PostTonemapGrade = toneMapping.Mode == ToneMappingMode::Medpole ? 1.0f : 0.0f;
 
     // Check if can use volume texture (3D) for a LUT (faster on modern platforms, requires geometry shader)
     const auto device = GPUDevice::Instance;

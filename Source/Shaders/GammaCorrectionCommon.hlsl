@@ -75,4 +75,26 @@ float3 LinearToLog(float3 linearColor)
     return saturate(log2(linearColor) / linearRange - log2(linearGrey) / linearRange + exposureGrey / 1023.0f);
 }
 
+// MEDPOLE analytic tonemapper (Lu-substrate). Monotone rational tone curve acting on MAX(R,G,B),
+// in-gamut by construction, branchless. MUST be evaluated per-pixel - it's ~15 flops, cheaper than a
+// LUT fetch, and baking it into the 32-node grading LUT prints contour rings where the toe/shoulder
+// steepen (a linear-interpolated node can't track the curve). SSOT shared by the composite (per-pixel)
+// and the color-grading LUT bake. See medpole_operator design spec.
+float3 MedpoleToneMap(float3 color, float toe, float shoulder, float saturation, float pathToWhite)
+{
+    color = max(color, 0.0);                                     // kill negative inputs (the one load-bearing max)
+    float mx = max(color.r, max(color.g, color.b));
+    float mn = min(color.r, min(color.g, color.b));
+    float poly = (1.0 - toe) + mx * (toe + mx * shoulder);      // (1-toe) + toe*mx + shoulder*mx^2, coeffs >= 0
+    float N = mx * poly;                                        // monotone up
+    float den = 1.0 + N;                                        // rational pole, never degenerate
+    float zp = N / den;                                         // tone curve in [0,1)
+    float scale = poly / den;                                  // = zp/mx, finite at mx=0; compression proxy
+    float roll = 1.0 - pathToWhite * (1.0 - scale);           // path-to-white: 1 (shadow) -> 1-pathToWhite (highlight)
+    float w = scale * saturation * roll;                      // per-pixel desaturation weight
+    float wcap = zp / max(mx - mn, 1e-6);                     // saturation ceiling: keeps darkest channel >= 0
+    w = min(w, wcap);                                         // inert for sat<=1; pins sat>1 boost to gamut hull
+    return max(zp - w * (mx - color), 0.0);                  // recompose; out in [0, zp], the max() an inert guard
+}
+
 #endif

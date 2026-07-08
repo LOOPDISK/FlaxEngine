@@ -42,7 +42,8 @@ float ToneShoulder;
 
 float ToneSaturation;
 float TonePathToWhite;
-float2 Dummy;
+float PostTonemapGrade; // 1 = bake a grade-only LDR LUT (no tonemap, linear [0,1] input) for the per-pixel Medpole path
+float Dummy;
 META_CB_END
 
 Texture2D LutTexture : register(t0);
@@ -285,19 +286,10 @@ float3 TonemapAGX(float3 linearColor)
 // collapses to a branchless form that is IN-GAMUT BY CONSTRUCTION across the full knob range: 
 float3 TonemapMedpole(float3 color)
 {
-    color = max(color, 0.0);                                           // kill negative inputs (the one load-bearing max)
-    float mx = max(color.r, max(color.g, color.b));
-    float mn = min(color.r, min(color.g, color.b));
-    float poly = (1.0 - ToneToe) + mx * (ToneToe + mx * ToneShoulder); // = (1-toe) + toe*mx + shoulder*mx^2, all coeffs >= 0
-    float N = mx * poly;                                              // c1*mx + c2*mx^2 + c3*mx^3, monotone up
-    float den = 1.0 + N;                                             // >= 1: the rational pole, never degenerate
-    float zp = N / den;                                             // tone curve in [0,1)
-    float scale = poly / den;                                      // = zp/mx, finite at mx=0 (-> 1-toe); also compression proxy
-    float roll = 1.0 - TonePathToWhite * (1.0 - scale);           // path-to-white: 1 (shadow) -> 1-pathToWhite (highlight)
-    float w = scale * ToneSaturation * roll;                     // per-pixel desaturation weight
-    float wcap = zp / max(mx - mn, 1e-6);                       // saturation ceiling: keeps the darkest channel >= 0
-    w = min(w, wcap);                                          // inert for sat<=1; pins the sat>1 boost to the gamut hull, hue-locked
-    return max(zp - w * (mx - color), 0.0);                  // recompose; out in [0, zp] -- the max() is now an inert fp guard
+    // Delegates to the SSOT operator in GammaCorrectionCommon.hlsl. NOTE: baking Medpole into the LUT is
+    // wrong (it rings - see MedpoleToneMap comment); the composite applies it per-pixel and skips this LUT
+    // path for Medpole. Kept identical here so any residual LUT use stays byte-consistent.
+    return MedpoleToneMap(color, ToneToe, ToneShoulder, ToneSaturation, TonePathToWhite);
 }
 
 #endif
@@ -342,11 +334,20 @@ float4 CombineLUTs(float2 uv, uint layerIndex)
 #endif
 
 	// Move from encoded LUT color space to linear color
+	float3 linearColor;
+	if (PostTonemapGrade)
+	{
+		// Grade-only LDR LUT (Medpole tonemaps per-pixel): the input axis is the display [0,1] grid, no HDR log decode.
+		linearColor = encodedColor.rgb;
+	}
+	else
+	{
 #if COLOR_GRADING_LUT_LOG
-	float3 linearColor = LogToLinear(encodedColor.rgb) - LogToLinear(0); // Log
+		linearColor = LogToLinear(encodedColor.rgb) - LogToLinear(0); // Log
 #else
-	float3 linearColor = encodedColor.rgb; // Default
+		linearColor = encodedColor.rgb; // Default
 #endif
+	}
 
 	// Apply white balance
 	linearColor = WhiteBalance(linearColor);
@@ -354,8 +355,9 @@ float4 CombineLUTs(float2 uv, uint layerIndex)
 	// Apply color grading
 	linearColor = ColorGrade(linearColor);
 
-	// Apply tone mapping
-	float3 color = Tonemap(linearColor);
+	// Apply tone mapping. Skipped for the grade-only LDR LUT - baking the steep Medpole curve into 32 nodes
+	// prints contour rings, so it runs analytically per-pixel in the composite instead.
+	float3 color = PostTonemapGrade ? linearColor : Tonemap(linearColor);
 
 	// Apply LDR LUT color grading
 	{

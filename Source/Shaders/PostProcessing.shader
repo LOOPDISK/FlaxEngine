@@ -104,9 +104,14 @@ float4x4 LensFlareStarMat;
 
 float4 ViewInfo;
 float ViewFar;
+float ToneToe;
+float ToneShoulder;
+float ToneSaturation;
+
+float TonePathToWhite;
+uint ApplyMedpole; // 1 = tonemap per-pixel with Medpole before the grade (which becomes a grade-only LDR LUT)
 float DummyPadding1;
 float DummyPadding2;
-float DummyPadding3;
 
 META_CB_END
 
@@ -143,11 +148,16 @@ static const float LUTSize = 32;
 
 half3 ColorLookupTable(half3 linearColor)
 {
-	// Move from linear color to encoded LUT color space
+	// Move from linear color to encoded LUT color space. When Medpole is active the input is the already
+	// tonemapped display value [0,1] and the LUT is a grade-only LDR table, so index it linearly (no log).
+	float3 encodedColor;
+	if (ApplyMedpole)
+		encodedColor = saturate(linearColor);
+	else
 #if COLOR_GRADING_LUT_LOG
-	float3 encodedColor = LinearToLog(linearColor + LogToLinear(0)); // Log
+		encodedColor = LinearToLog(linearColor + LogToLinear(0)); // Log
 #else
-	float3 encodedColor = linearColor; // Default
+		encodedColor = linearColor; // Default
 #endif
 
 	float3 uvw = encodedColor * ((LUTSize - 1) / LUTSize) + (0.5f / LUTSize);
@@ -1149,8 +1159,15 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     }
 
 
+    // Medpole tonemaps analytically per-pixel (HDR -> display). It is cheap (~15 flops) and MUST NOT be baked
+    // into the grading LUT - 32 nodes can't represent its steep toe/shoulder curve and print contour rings.
+    // Runs before the grade so the LUT below sees a display-referred [0,1] value.
+    if (ApplyMedpole)
+        sceneColor = MedpoleToneMap(sceneColor, ToneToe, ToneShoulder, ToneSaturation, TonePathToWhite);
+
 #if !NO_GRADING_LUT
-    // Apply color grading and tone mapping
+    // Color grading. For Medpole this is a grade-only LDR LUT applied post-tonemap (display-referred grade);
+    // otherwise it's the classic grade+tonemap LUT on log-encoded HDR.
     sceneColor = ColorLookupTable(sceneColor);
 #endif
 

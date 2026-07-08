@@ -28,9 +28,10 @@
 #include "./Flax/ShadowsCommon.hlsl"
 #include "./Flax/GBufferCommon.hlsl"
 #include "./Flax/LightingCommon.hlsl"
-#if SHADOWS_CSM_DITHERING
+// Always needed: Vogel PCSS (ShadowVogelRotation) uses InterleavedGradientNoise at file scope, not
+// just the CSM dither path. Random.hlsl is pure ALU (guarded, no samplers/derivatives) so it's safe
+// in every consumer including compute shaders.
 #include "./Flax/Random.hlsl"
-#endif
 
 #if FEATURE_LEVEL >= FEATURE_LEVEL_SM5 || defined(WGSL)
 #define SAMPLE_SHADOW_MAP(shadowMap, shadowUV, sceneDepth) shadowMap.SampleCmpLevelZero(ShadowSamplerLinear, shadowUV, sceneDepth)
