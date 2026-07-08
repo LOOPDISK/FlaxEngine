@@ -166,6 +166,7 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
     _treeLayer = nullptr;
     _graphStack.Clear();
     _needsHexTileFunctions = false;
+    _needsCellBombFunctions = false;
     for (int32 i = 0; i < _layers.Count(); i++)
     {
         auto layer = _layers[i];
@@ -905,7 +906,55 @@ float3 hex2normalTexRWS(Texture2D tex, SamplerState samp, float2 st,
 }
 )"));
         }
-        
+
+        // Add cell-bombing (Voronoi detiling) functions if needed
+        if (_needsCellBombFunctions)
+        {
+            _writer.Write(TEXT(R"(
+#ifndef M_PI
+#define M_PI 3.14159265359
+#endif
+
+// Cell-bombing detile: per-cell constant UV offset from a Voronoi control texture, seams hidden by
+// blending back to the unwarped sample. Control tex: rg = offset, b = rotation seed, a = edge distance.
+// SampleGrad uses the continuous uv gradient so the per-cell offset jump never corrupts mip selection.
+// rotStrength==0 folds to translation-only (cos/sin/rot become identity at compile time).
+float4 cellBombTex(Texture2D tex, SamplerState samp, Texture2D vor, float2 uv, float2 cellUV, float seamWidth, float rotStrength)
+{
+    float2 dx = ddx(uv), dy = ddy(uv);
+    float4 cell = vor.SampleLevel(SamplerLinearWrap, cellUV, 0);
+    float ang = (cell.b * 2.0 - 1.0) * M_PI * rotStrength;
+    float cs = cos(ang), sn = sin(ang);
+    float2x2 rot = float2x2(cs, -sn, sn, cs);
+    float2 wuv = mul(rot, uv) + cell.rg;
+    float4 warped = tex.SampleGrad(samp, wuv, mul(rot, dx), mul(rot, dy));
+    float mask = 1.0 - smoothstep(0.0, max(seamWidth, 1e-4), cell.a);
+    [branch]
+    if (mask > 0.001)
+        warped = lerp(warped, tex.SampleGrad(samp, uv, dx, dy), mask);
+    return warped;
+}
+
+// Cell-bombing for tangent-space normal maps; rotates the tangent normal to match the uv rotation
+float3 cellBombNormal(Texture2D tex, SamplerState samp, Texture2D vor, float2 uv, float2 cellUV, float seamWidth, float rotStrength)
+{
+    float2 dx = ddx(uv), dy = ddy(uv);
+    float4 cell = vor.SampleLevel(SamplerLinearWrap, cellUV, 0);
+    float ang = (cell.b * 2.0 - 1.0) * M_PI * rotStrength;
+    float cs = cos(ang), sn = sin(ang);
+    float2x2 rot = float2x2(cs, -sn, sn, cs);
+    float2 wuv = mul(rot, uv) + cell.rg;
+    float3 nWarp = UnpackNormalMap(tex.SampleGrad(samp, wuv, mul(rot, dx), mul(rot, dy)).rg);
+    nWarp.xy = mul(rot, nWarp.xy);
+    float mask = 1.0 - smoothstep(0.0, max(seamWidth, 1e-4), cell.a);
+    [branch]
+    if (mask > 0.001)
+        nWarp = lerp(nWarp, UnpackNormalMap(tex.SampleGrad(samp, uv, dx, dy).rg), mask);
+    return normalize(nWarp);
+}
+)"));
+        }
+
         inputs[In_Utilities] = _writer.ToString();
         _writer.Clear();
     }

@@ -2962,9 +2962,6 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
                     // SetupLight), so statics stay in the CSM dynamic draw - visible, never dropped -
                     // until a later rebuild (invalidation / self-heal / editor edit) proves content.
                     level.Populated = level.RedrawCasterCount > 0;
-                    // TEMPORARY DIAGNOSTIC (correctness prompt item 2 - REMOVE once known): total
-                    // occluders this rebuild rasterized and whether it latched as populated.
-                    LOG(Info, "[ClipmapRebuild] level {0} R={1} casters={2} -> Populated={3}", levelIdx, R, level.RedrawCasterCount, (int32)level.Populated);
                     level.LastRedrawSunDir = clipmap.SunDir;
                     level.LastRedrawTexelSize = level.TexelSize;
                     level.LastRedrawDepthRange = level.DepthRange;
@@ -3106,72 +3103,6 @@ void ShadowsPass::RenderShadowMaps(RenderContextBatch& renderContextBatch)
             if (atlasLight.RenderDynamic && atlasLight.ContextCount > 0)
             {
                 auto& shadowContext = renderContextBatch.Contexts[atlasLight.ContextIndex + contextIndex++];
-                // TEMPORARY DIAGNOSTIC (CSM-render investigation - REMOVE): localize why clipmap-off
-                // CSM collects nothing. sDepth = casters routed into THIS cascade context by
-                // RenderList::addShadowCaster (RenderList.cpp:792). Decision tree when sDepth=0:
-                //   mainDC=0                  => whole scene wasn't collected (upstream, not shadows)
-                //   mainDC>0, sCmp != vCmp    => the :2029 static-exclusion override fired for this
-                //                                cascade (StaticShadows off or clipmap-owned) -> statics
-                //                                filtered out by the static-flags gate
-                //   mainDC>0, sMask=sCmp=vMask=vCmp=0 => static-flags gate is inert, so the frustum
-                //                                intersect or the per-cascade pixel-size cull is
-                //                                rejecting every caster (bad cascade proj / ScreenSize)
-                // sMask/sCmp = cascade view StaticFlags(Mask/Compare); vMask/vCmp = main view's.
-                {
-                    const auto& dl = shadowContext.List->DrawCallsLists[(int32)DrawCallsListType::Depth];
-                    const auto& sdl = shadowContext.List->ShadowDepthDrawCallsList;
-                    LOG(Info, "[CSMDraw] tile={0} cm={1} fb={2} depth={3} sDepth={4} mainDC={5} sMask={6} sCmp={7} vMask={8} vCmp={9} res={10}",
-                        tileIndex, (int32)useClipmapForLight,
-                        (int32)(tileIndex < clipmap.LevelCount ? clipmap.Levels[tileIndex].FallbackActive : true),
-                        dl.Indices.Count() + dl.PreBatchedDrawCalls.Count(), sdl.Indices.Count() + sdl.PreBatchedDrawCalls.Count(),
-                        renderContext.List->DrawCalls.Count(),
-                        (int32)shadowContext.View.StaticFlagsMask, (int32)shadowContext.View.StaticFlagsCompare,
-                        (int32)renderContext.View.StaticFlagsMask, (int32)renderContext.View.StaticFlagsCompare,
-                        (int32)(shadowContext.View.ScreenSize.X));
-
-                    // TEMPORARY PROBE (REMOVE): re-test every collected draw call against THIS cascade's
-                    // culling frustum, on the main thread, to separate the two remaining causes of
-                    // sDepth=0 (static-flags gate already proven inert). frustum = casters whose bounds
-                    // intersect the cascade frustum (what addShadowCaster gate 2 saw); sizePass = of
-                    // those, how many also clear the per-cascade pixel-size cull (gate 4). Reading:
-                    //   frustum=0            => cascade frustum is positioned/sized wrong (ComputeCascadeSphere
-                    //                           center/radius, or a large-world origin mismatch) - it misses ALL geometry.
-                    //   frustum>0 sizePass=0 => frustum is fine; the size cull (radius/R vs MinObjectPixelSize) rejects all.
-                    //   frustum>0 sizePass>0 => neither gate rejects - the miss is the pass-mask (dm) or an
-                    //                           async/context wiring issue, not culling.
-                    // csmEye/obj0 (both Float3, origin-relative) expose any coordinate-space offset.
-                    {
-                        const float minPxSq = Math::Square(Graphics::Shadows::MinObjectPixelSize);
-                        const auto& dcs = renderContext.List->DrawCalls;
-                        int32 frustumHits = 0, sizePass = 0;
-                        Float3 obj0(0, 0, 0); float r0 = 0.0f;
-                        for (int32 k = 0; k < dcs.Count(); k++)
-                        {
-                            const DrawCall& dc = dcs.Get()[k];
-                            const BoundingSphere bs(dc.ObjectPosition, dc.ObjectRadius);
-                            if (k == 0) { obj0 = dc.ObjectPosition; r0 = dc.ObjectRadius; }
-                            if (shadowContext.View.CullingFrustum.Intersects(bs))
-                            {
-                                frustumHits++;
-                                if (RenderTools::ComputeBoundsScreenRadiusSquared(bs.Center, (float)bs.Radius, shadowContext.View) * (shadowContext.View.ScreenSize.X * shadowContext.View.ScreenSize.Y) >= minPxSq)
-                                    sizePass++;
-                            }
-                        }
-                        // Decompose the size cull for obj0: rawScr = ComputeBoundsScreenRadiusSquared
-                        // (pre-ScreenSize), then *res^2 gives the value compared to minPxSq (=4).
-                        // M11 = ortho lateral scale (= 1/cascadeRadius, so cascadeRadius=1/M11);
-                        // M34 should be 0 for ortho (nonzero => distance term wrongly divides it down);
-                        // rfss = ReferenceFovScreenScaleSq (should be 1.0 for an ortho view).
-                        const BoundingSphere bs0(obj0, r0);
-                        const float rawScr = RenderTools::ComputeBoundsScreenRadiusSquared(bs0.Center, r0, shadowContext.View);
-                        LOG(Info, "[CSMProbe] tile={0} frustum={1}/{2} sizePass={3} cascadeR={4} SS=({5},{6},{7},{8}) rawScr={9} scaled={10}",
-                            tileIndex, frustumHits, dcs.Count(), sizePass,
-                            (shadowContext.View.Projection.M11 != 0.0f ? 1.0f / shadowContext.View.Projection.M11 : -1.0f),
-                            shadowContext.View.ScreenSize.X, shadowContext.View.ScreenSize.Y,
-                            shadowContext.View.ScreenSize.Z, shadowContext.View.ScreenSize.W,
-                            rawScr, rawScr * (shadowContext.View.ScreenSize.X * shadowContext.View.ScreenSize.Y));
-                    }
-                }
                 shadowContext.List->ExecuteDrawCalls(shadowContext, DrawCallsListType::Depth);
                 shadowContext.List->ExecuteDrawCalls(shadowContext, shadowContext.List->ShadowDepthDrawCallsList, renderContext.List, nullptr);
             }

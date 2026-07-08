@@ -18,6 +18,16 @@ public enum AdvancedTriplanarScheme
     SimpleCube = 2,
 }
 
+/// <summary>
+/// Detiling mode for triplanar texture nodes. Values align with the legacy Hex Tile bool (false=None, true=Hex).
+/// </summary>
+public enum TriplanarDetileMode
+{
+    None = 0,
+    HexTile = 1,
+    CellBomb = 2,
+}
+
 
 namespace FlaxEditor.Surface.Archetypes
 {
@@ -464,18 +474,27 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Triplanar Texture",
                 Description = "Projects a texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 300),  // Tall enough to fit controls down to the Large World row (LayoutOffsetY * 11)
+                Size = new Float2(280, 380),  // Tall enough to fit inputs down to Seam Width plus the widget rows below
                 DefaultValues = new object[]
                 {
-                    Float3.One, // Scale
-                    1.0f, // Blend
-                    Float2.Zero, // Offset
-                    (int)CommonSamplerType.LinearWrap, // Sampler
-                    false, // Local
-                    false, // Enable Hex Tile
-                    1.0f, // Rotation Strength
-                    0.5f, // Contrast
-                    false, // Large World Stability
+                    Float3.One, // 0 Scale
+                    1.0f, // 1 Blend
+                    Float2.Zero, // 2 Offset
+                    (int)CommonSamplerType.LinearWrap, // 3 Sampler
+                    false, // 4 Local
+                    false, // 5 Enable Hex Tile (legacy; superseded by Detile Mode at 14)
+                    1.0f, // 6 Rotation Strength
+                    0.5f, // 7 Contrast
+                    false, // 8 Large World Stability
+                    1000.0f, // 9 LOD Distance 0
+                    2500.0f, // 10 LOD Distance 1
+                    5000.0f, // 11 LOD Distance 2
+                    0.8f, // 12 Dominant Axis Threshold
+                    0.05f, // 13 Minor Axis Threshold
+                    (int)TriplanarDetileMode.None, // 14 Detile Mode
+                    1.0f, // 15 Cell Scale
+                    0.15f, // 16 Seam Width
+                    false, // 17 Cell Bomb Rotate
                 },
                 Elements = new[]
                 {
@@ -485,17 +504,22 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float2), 6, 2),
                     NodeElementArchetype.Factory.Input(4, "Rotation Strength", true, typeof(float), 7, 6),
                     NodeElementArchetype.Factory.Input(5, "Contrast", true, typeof(float), 8, 7),
-                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),  // New input
-                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),    // New input
+                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),
+                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),
+                    NodeElementArchetype.Factory.Input(8, "Voronoi", true, typeof(FlaxEngine.Object), 4),  // Cell Bomb control texture
+                    NodeElementArchetype.Factory.Input(9, "Cell Scale", true, typeof(float), 5, 15),
+                    NodeElementArchetype.Factory.Input(10, "Seam Width", true, typeof(float), 16, 16),
                     NodeElementArchetype.Factory.Output(0, "Color", typeof(Float4), 3),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Sampler"),
-                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 8 - 1, 100, 3, typeof(CommonSamplerType)),
-                    NodeElementArchetype.Factory.Text(155, Surface.Constants.LayoutOffsetY * 9, "Local"),
-                    NodeElementArchetype.Factory.Bool(190, Surface.Constants.LayoutOffsetY * 9, 4),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 10, "Hex Tile"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 10, 5),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 11, "Large World"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 11, 8),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 11, "Sampler"),
+                    NodeElementArchetype.Factory.ComboBox(70, Surface.Constants.LayoutOffsetY * 11 - 1, 100, 3, typeof(CommonSamplerType)),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 12, "Detile"),
+                    NodeElementArchetype.Factory.ComboBox(70, Surface.Constants.LayoutOffsetY * 12 - 1, 100, 14, typeof(TriplanarDetileMode)),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 13, "Local"),
+                    NodeElementArchetype.Factory.Bool(90, Surface.Constants.LayoutOffsetY * 13, 4),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 14, "Cell Rotate"),
+                    NodeElementArchetype.Factory.Bool(90, Surface.Constants.LayoutOffsetY * 14, 17),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 15, "Large World"),
+                    NodeElementArchetype.Factory.Bool(90, Surface.Constants.LayoutOffsetY * 15, 8),
                 }
             },
             new NodeArchetype
@@ -560,18 +584,27 @@ namespace FlaxEditor.Surface.Archetypes
                 Create = (id, context, arch, groupArch) => new TriplanarSampleTextureNode(id, context, arch, groupArch),
                 Description = "Projects a normal map texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 300),  // Tall enough to fit controls down to the Large World row (LayoutOffsetY * 11)
+                Size = new Float2(280, 380),  // Tall enough to fit inputs down to Seam Width plus the widget rows below
                 DefaultValues = new object[]
                 {
-                    Float3.One, // Scale
-                    1.0f, // Blend
-                    Float2.Zero, // Offset
-                    (int)CommonSamplerType.LinearWrap, // Sampler
-                    false, // Local
-                    false, // Enable Hex Tile
-                    1.0f, // Rotation Strength
-                    0.5f, // Contrast
-                    false, // Large World Stability
+                    Float3.One, // 0 Scale
+                    1.0f, // 1 Blend
+                    Float2.Zero, // 2 Offset
+                    (int)CommonSamplerType.LinearWrap, // 3 Sampler
+                    false, // 4 Local
+                    false, // 5 Enable Hex Tile (legacy; superseded by Detile Mode at 14)
+                    1.0f, // 6 Rotation Strength
+                    0.5f, // 7 Contrast
+                    false, // 8 Large World Stability
+                    1000.0f, // 9 LOD Distance 0
+                    2500.0f, // 10 LOD Distance 1
+                    5000.0f, // 11 LOD Distance 2
+                    0.8f, // 12 Dominant Axis Threshold
+                    0.05f, // 13 Minor Axis Threshold
+                    (int)TriplanarDetileMode.None, // 14 Detile Mode
+                    1.0f, // 15 Cell Scale
+                    0.15f, // 16 Seam Width
+                    false, // 17 Cell Bomb Rotate
                 },
                 Elements = new[]
                 {
@@ -581,17 +614,22 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float2), 6, 2),
                     NodeElementArchetype.Factory.Input(4, "Rotation Strength", true, typeof(float), 7, 6),
                     NodeElementArchetype.Factory.Input(5, "Contrast", true, typeof(float), 8, 7),
-                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),  // New input
-                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),    // New input
+                    NodeElementArchetype.Factory.Input(6, "Position", true, typeof(Float3), 9),
+                    NodeElementArchetype.Factory.Input(7, "Normal", true, typeof(Float3), 10),
+                    NodeElementArchetype.Factory.Input(8, "Voronoi", true, typeof(FlaxEngine.Object), 4),  // Cell Bomb control texture
+                    NodeElementArchetype.Factory.Input(9, "Cell Scale", true, typeof(float), 5, 15),
+                    NodeElementArchetype.Factory.Input(10, "Seam Width", true, typeof(float), 16, 16),
                     NodeElementArchetype.Factory.Output(0, "Vector", typeof(Float3), 3),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Sampler"),
-                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 8 - 1, 100, 3, typeof(CommonSamplerType)),
-                    NodeElementArchetype.Factory.Text(155, Surface.Constants.LayoutOffsetY * 9, "Local"),
-                    NodeElementArchetype.Factory.Bool(190, Surface.Constants.LayoutOffsetY * 9, 4),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 10, "Hex Tile"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 10, 5),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 11, "Large World"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 11, 8),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 11, "Sampler"),
+                    NodeElementArchetype.Factory.ComboBox(70, Surface.Constants.LayoutOffsetY * 11 - 1, 100, 3, typeof(CommonSamplerType)),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 12, "Detile"),
+                    NodeElementArchetype.Factory.ComboBox(70, Surface.Constants.LayoutOffsetY * 12 - 1, 100, 14, typeof(TriplanarDetileMode)),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 13, "Local"),
+                    NodeElementArchetype.Factory.Bool(90, Surface.Constants.LayoutOffsetY * 13, 4),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 14, "Cell Rotate"),
+                    NodeElementArchetype.Factory.Bool(90, Surface.Constants.LayoutOffsetY * 14, 17),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 15, "Large World"),
+                    NodeElementArchetype.Factory.Bool(90, Surface.Constants.LayoutOffsetY * 15, 8),
                 }
             },
             new NodeArchetype

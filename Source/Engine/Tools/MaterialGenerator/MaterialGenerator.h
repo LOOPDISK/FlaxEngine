@@ -119,6 +119,7 @@ private:
     String _treeLayerVarName;
     MaterialValue _ddx, _ddy, _cameraVector;
     bool _needsHexTileFunctions = false;
+    bool _needsCellBombFunctions = false;
 
 public:
     MaterialGenerator();

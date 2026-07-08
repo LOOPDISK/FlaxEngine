@@ -998,10 +998,20 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             Value(VariantType::Float3, TEXT("input.TBN[2]"));
 
         const bool local = node->Values.Count() >= 5 ? node->Values[4].AsBool : false;
-        const bool hexTileEnabled = node->Values.Count() >= 6 ? node->Values[5].AsBool : false;
+        // Detile mode: 0=None, 1=Hex, 2=Cell Bomb (value 14). The old Hex Tile bool (value 5) predates Detile Mode
+        // and is only ever true on legacy graphs, so let it win to survive value-array padding on load
+        const bool hexLegacy = node->Values.Count() >= 6 ? node->Values[5].AsBool : false;
+        int32 detileMode = node->Values.Count() >= 15 ? node->Values[14].AsInt : 0;
+        if (hexLegacy)
+            detileMode = 1;
+        const bool hexTileEnabled = detileMode == 1;
+        const bool cellBombEnabled = detileMode == 2;
         const auto rotationStrength = tryGetValue(node->TryGetBox(7), node->Values.Count() >= 7 ? node->Values[6] : 1.0f).AsFloat();
         const auto contrast = tryGetValue(node->TryGetBox(8), node->Values.Count() >= 8 ? node->Values[7] : 0.5f).AsFloat();
         const bool largeWorldStability = node->Values.Count() >= 9 ? node->Values[8].AsBool : false;
+        const auto cellScale = tryGetValue(node->TryGetBox(5), node->Values.Count() >= 16 ? node->Values[15] : 1.0f).AsFloat();
+        const auto seamWidth = tryGetValue(node->TryGetBox(16), node->Values.Count() >= 17 ? node->Values[16] : 0.15f).AsFloat();
+        const bool cellBombRotate = node->Values.Count() >= 18 ? node->Values[17].AsBool : false;
         const auto customPositionBox = node->TryGetBox(9);
         String positionExpression;
         const bool hasCustomPosition = customPositionBox && customPositionBox->HasConnection();
@@ -1057,6 +1067,21 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         {
             _needsHexTileFunctions = true;
         }
+
+        // Cell Bomb mode needs a Voronoi control texture (box 4); rotation reuses the Rotation Strength input
+        MaterialValue voronoi;
+        if (cellBombEnabled)
+        {
+            auto voronoiBox = node->TryGetBox(4);
+            if (!voronoiBox || !voronoiBox->HasConnection())
+            {
+                OnError(node, box, TEXT("Cell Bomb mode requires a Voronoi texture."));
+                return;
+            }
+            voronoi = eatBox(voronoiBox->GetParent<Node>(), voronoiBox->FirstConnection());
+            _needsCellBombFunctions = true;
+        }
+        const String cellRotStrength = cellBombRotate ? rotationStrength.Value : String(TEXT("0.0"));
 
         // Prepare position and normal strings for local space conversion if needed
         String positionStr = positionValue.Value;
@@ -1301,6 +1326,78 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 .Replace(TEXT("%MINOR_THRESHOLD%"), minorAxisThreshold.Value)
 .Build();
         }
+        else if (cellBombEnabled)
+        {
+            // Cell-bomb detiling: warp each projection's UV per Voronoi cell, disabled past LOD_DIST1
+            triplanarTexture = ShaderStringBuilder()
+                .Code(TEXT(R"(
+    {
+        float3 tiling = %SCALE% * 0.001f;
+        float3 position = (%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling));
+        position = position * tiling;
+        float3 normal = normalize(%NORMAL%);
+
+        float distanceToCamera = length(input.WorldPosition.xyz - ViewPos.xyz);
+        [branch]
+        if (distanceToCamera > %LOD_DIST1%)
+        {
+            float3 absNormal = abs(normal);
+            if (absNormal.x > absNormal.y && absNormal.x > absNormal.z)
+                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.yz + %OFFSET%, 3);
+            else if (absNormal.y > absNormal.z)
+                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.xz + %OFFSET%, 3);
+            else
+                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.xy + %OFFSET%, 3);
+        }
+        else
+        {
+            float3 blendWeights = pow(abs(normal), %BLEND%);
+            blendWeights /= dot(blendWeights, float3(1, 1, 1));
+
+            if (blendWeights.x > %DOMINANT_THRESHOLD%)
+                %RESULT% = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.yz + %OFFSET%, position.yz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+            else if (blendWeights.y > %DOMINANT_THRESHOLD%)
+                %RESULT% = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xz + %OFFSET%, position.xz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+            else if (blendWeights.z > %DOMINANT_THRESHOLD%)
+                %RESULT% = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xy + %OFFSET%, position.xy * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+            else
+            {
+                float4 xProjection = float4(0,0,0,0);
+                float4 yProjection = float4(0,0,0,0);
+                float4 zProjection = float4(0,0,0,0);
+
+                [branch]
+                if (blendWeights.x > %MINOR_THRESHOLD%)
+                    xProjection = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.yz + %OFFSET%, position.yz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+                [branch]
+                if (blendWeights.y > %MINOR_THRESHOLD%)
+                    yProjection = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xz + %OFFSET%, position.xz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+                [branch]
+                if (blendWeights.z > %MINOR_THRESHOLD%)
+                    zProjection = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xy + %OFFSET%, position.xy * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+
+                %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
+            }
+        }
+    }
+)"))
+.Replace(TEXT("%TEXTURE%"), texture.Value)
+.Replace(TEXT("%VORONOI%"), voronoi.Value)
+.Replace(TEXT("%SCALE%"), scale.Value)
+.Replace(TEXT("%BLEND%"), blend.Value)
+.Replace(TEXT("%OFFSET%"), offset.Value)
+.Replace(TEXT("%RESULT%"), result.Value)
+.Replace(TEXT("%POSITION%"), positionStr)
+.Replace(TEXT("%NORMAL%"), normalStr)
+.Replace(TEXT("%SAMPLER%"), samplerName)
+.Replace(TEXT("%CELLSCALE%"), cellScale.Value)
+.Replace(TEXT("%SEAMWIDTH%"), seamWidth.Value)
+.Replace(TEXT("%ROTSTRENGTH%"), cellRotStrength)
+.Replace(TEXT("%LOD_DIST1%"), lodDistance1.Value)
+.Replace(TEXT("%DOMINANT_THRESHOLD%"), dominantAxisThreshold.Value)
+.Replace(TEXT("%MINOR_THRESHOLD%"), minorAxisThreshold.Value)
+.Build();
+        }
 
         _writer.Write(*triplanarTexture);
         value = result;
@@ -1352,10 +1449,20 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             Value(VariantType::Float3, TEXT("input.TBN[2]"));
 
         const bool local = node->Values.Count() >= 5 ? node->Values[4].AsBool : false;
-        const bool hexTileEnabled = node->Values.Count() >= 6 ? node->Values[5].AsBool : false;
+        // Detile mode: 0=None, 1=Hex, 2=Cell Bomb (value 14). The old Hex Tile bool (value 5) predates Detile Mode
+        // and is only ever true on legacy graphs, so let it win to survive value-array padding on load
+        const bool hexLegacy = node->Values.Count() >= 6 ? node->Values[5].AsBool : false;
+        int32 detileMode = node->Values.Count() >= 15 ? node->Values[14].AsInt : 0;
+        if (hexLegacy)
+            detileMode = 1;
+        const bool hexTileEnabled = detileMode == 1;
+        const bool cellBombEnabled = detileMode == 2;
         const auto rotationStrength = tryGetValue(node->TryGetBox(7), node->Values.Count() >= 7 ? node->Values[6] : 1.0f).AsFloat();
         const auto contrast = tryGetValue(node->TryGetBox(8), node->Values.Count() >= 8 ? node->Values[7] : 0.5f).AsFloat();
         const bool largeWorldStability = node->Values.Count() >= 9 ? node->Values[8].AsBool : false;
+        const auto cellScale = tryGetValue(node->TryGetBox(5), node->Values.Count() >= 16 ? node->Values[15] : 1.0f).AsFloat();
+        const auto seamWidth = tryGetValue(node->TryGetBox(16), node->Values.Count() >= 17 ? node->Values[16] : 0.15f).AsFloat();
+        const bool cellBombRotate = node->Values.Count() >= 18 ? node->Values[17].AsBool : false;
         const auto customPositionBox = node->TryGetBox(9);
         String positionExpression;
         const bool hasCustomPosition = customPositionBox && customPositionBox->HasConnection();
@@ -1388,6 +1495,21 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         {
             _needsHexTileFunctions = true;
         }
+
+        // Cell Bomb mode needs a Voronoi control texture (box 4); rotation reuses the Rotation Strength input
+        MaterialValue voronoi;
+        if (cellBombEnabled)
+        {
+            auto voronoiBox = node->TryGetBox(4);
+            if (!voronoiBox || !voronoiBox->HasConnection())
+            {
+                OnError(node, box, TEXT("Cell Bomb mode requires a Voronoi texture."));
+                return;
+            }
+            voronoi = eatBox(voronoiBox->GetParent<Node>(), voronoiBox->FirstConnection());
+            _needsCellBombFunctions = true;
+        }
+        const String cellRotStrength = cellBombRotate ? rotationStrength.Value : String(TEXT("0.0"));
 
         const Char* samplerName;
         const int32 samplerIndex = node->Values[3].AsInt;
@@ -1474,6 +1596,57 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 .Replace(TEXT("%SAMPLER%"), samplerName)
 .Replace(TEXT("%HEXTILE_FUNC%"), hexTileFunction)
 .Replace(TEXT("%LARGE_WORLD_OFFSET%"), largeWorldOffsetExpr)
+.Build();
+        }
+        else if (cellBombEnabled)
+        {
+            // Cell-bomb detiling for normal maps
+            triplanarNormalMap = ShaderStringBuilder()
+                .Code(TEXT(R"(
+        {
+            float3 tiling = %SCALE% * 0.001f;
+            float3 position = (%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling));
+            position = position * tiling;
+            float3 normal = normalize(%NORMAL%);
+
+            float3 blendWeights = pow(abs(normal), %BLEND%);
+            blendWeights /= dot(blendWeights, float3(1, 1, 1));
+
+            float3 tnormalX = cellBombNormal(%TEXTURE%, %SAMPLER%, %VORONOI%, position.yz + %OFFSET%, position.yz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+            float3 tnormalY = cellBombNormal(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xz + %OFFSET%, position.xz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+            float3 tnormalZ = cellBombNormal(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xy + %OFFSET%, position.xy * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+
+            // Apply proper whiteout blend
+            normal = normalize(input.TBN[2]);
+            float3 axisSign = sign(normal);
+            float2 sumX = tnormalX.xy + normal.zy;
+            float2 sumY = tnormalY.xy + normal.xz;
+            float2 sumZ = tnormalZ.xy + normal.xy;
+            tnormalX = float3(sumX, sqrt(1.0 - saturate(dot(sumX, sumX))) * axisSign.x);
+            tnormalY = float3(sumY, sqrt(1.0 - saturate(dot(sumY, sumY))) * axisSign.y);
+            tnormalZ = float3(sumZ, sqrt(1.0 - saturate(dot(sumZ, sumZ))) * axisSign.z);
+
+            float3 blendedNormal = normalize(
+                tnormalX.zyx * blendWeights.x +
+                tnormalY.xzy * blendWeights.y +
+                tnormalZ.xyz * blendWeights.z
+            );
+
+            %RESULT% = normalize(TransformWorldVectorToTangent(input, blendedNormal));
+        }
+)"))
+.Replace(TEXT("%TEXTURE%"), texture.Value)
+.Replace(TEXT("%VORONOI%"), voronoi.Value)
+.Replace(TEXT("%SCALE%"), scale.Value)
+.Replace(TEXT("%BLEND%"), blend.Value)
+.Replace(TEXT("%OFFSET%"), offset.Value)
+.Replace(TEXT("%RESULT%"), result.Value)
+.Replace(TEXT("%POSITION%"), positionStr)
+.Replace(TEXT("%NORMAL%"), normalStr)
+.Replace(TEXT("%SAMPLER%"), samplerName)
+.Replace(TEXT("%CELLSCALE%"), cellScale.Value)
+.Replace(TEXT("%SEAMWIDTH%"), seamWidth.Value)
+.Replace(TEXT("%ROTSTRENGTH%"), cellRotStrength)
 .Build();
         }
         else
