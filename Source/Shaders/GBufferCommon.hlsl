@@ -28,6 +28,16 @@ bool IsSubsurfaceMode(int shadingModel)
     return shadingModel == SHADING_MODEL_SUBSURFACE || shadingModel == SHADING_MODEL_FOLIAGE;
 }
 
+// MGS2 hypermatte: push authored roughness toward 1 (broad, low-energy lobe). This is the
+// ratpole-native matte lever -- matte lives in lobe WIDTH, not in scaled reflectance -- so it
+// dims AND softens the highlight, blurs IBL (feeds the probe mip), and drives the grazing gate
+// to 0, all energy-consistently. 0 = physical, higher = flatter. Applied once at GBuffer decode.
+#define MATTE_AMOUNT 0.6
+float ApplyMatteRoughness(float roughness)
+{
+    return lerp(roughness, 1.0, MATTE_AMOUNT);
+}
+
 float3 GetDiffuseColor(float3 color, float metalness)
 {
     return color * (1.0 - metalness);

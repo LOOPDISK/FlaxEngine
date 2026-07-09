@@ -148,6 +148,11 @@ public:
     MaterialLayer* GetLayer(const Guid& id, Node* caller);
 
     /// <summary>
+    /// Set when a layer/base material dependency could not be loaded because it was still (re)loading (transient race), rather than a genuine graph error. Signals the caller to retry instead of baking a broken (black) shader.
+    /// </summary>
+    bool LayerLoadFailed = false;
+
+    /// <summary>
     /// Generate material source code (first layer should be the base one)
     /// </summary>
     /// <param name="source">Output source code</param>

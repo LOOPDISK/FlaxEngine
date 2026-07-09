@@ -474,7 +474,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Triplanar Texture",
                 Description = "Projects a texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 380),  // Tall enough to fit inputs down to Seam Width plus the widget rows below
+                Size = new Float2(280, 450),  // Tall enough to fit inputs down to Seam Width plus the widget rows below
                 DefaultValues = new object[]
                 {
                     Float3.One, // 0 Scale
@@ -584,7 +584,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Create = (id, context, arch, groupArch) => new TriplanarSampleTextureNode(id, context, arch, groupArch),
                 Description = "Projects a normal map texture using world-space coordinates with triplanar mapping.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(280, 380),  // Tall enough to fit inputs down to Seam Width plus the widget rows below
+                Size = new Float2(280, 450),  // Tall enough to fit inputs down to Seam Width plus the widget rows below
                 DefaultValues = new object[]
                 {
                     Float3.One, // 0 Scale
@@ -651,7 +651,7 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Advanced Triplanar",
                 Description = "Projects textures using various triplanar schemes with optional heightmap blending.",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(300, 320),
+                Size = new Float2(300, 450),
                 DefaultValues = new object[]
                 {
                     Float3.One, // Scale

@@ -172,6 +172,9 @@ Asset::LoadResult Material::load()
         || !HasChunk(SHADER_FILE_CHUNK_SOURCE)
 #endif
         || HasDependenciesModified()
+#if USE_EDITOR
+        || _forceGenerate
+#endif
 #if COMPILE_WITH_DEV_ENV
         // Set to true to enable force GPU shader regeneration (don't commit it)
         || false
@@ -292,6 +295,17 @@ Asset::LoadResult Material::load()
         MaterialInfo info = _shaderHeader.Material.Info;
         if (generator.Generate(source, info, materialParamsChunk->Data))
         {
+#if USE_EDITOR
+            if (generator.LayerLoadFailed)
+            {
+                // A base/layer material was still (re)loading (transient race), not a real graph error. Don't bake a
+                // black shader: keep _forceGenerate set (not cleared below) so the retry regenerates once the dependency
+                // is ready. The dependency link is preserved (ClearDependencies() is skipped by this early return), so the
+                // base re-notifies this material when it finishes loading, triggering that retry.
+                LOG(Warning, "Material \'{0}\' has a layer dependency still loading; deferring generation for retry.", name);
+                return LoadResult::CannotLoadData;
+            }
+#endif
             LOG(Error, "Cannot generate material source code for \'{0}\'. Please see log for more info.", name);
             return LoadResult::Failed;
         }
@@ -338,6 +352,11 @@ Asset::LoadResult Material::load()
 #if COMPILE_WITH_SHADER_CACHE_MANAGER
         // Invalidate shader cache
         ShaderCacheManager::RemoveCache(GetID());
+#endif
+
+#if USE_EDITOR
+        // Regeneration succeeded - clear the forced flag (left set on failure so the next reload retries)
+        _forceGenerate = false;
 #endif
     }
 
@@ -455,6 +474,8 @@ void Material::OnDependencyModified(BinaryAsset* asset)
 {
     BinaryAsset::OnDependencyModified(asset);
 
+    // Force shader regeneration on reload: the mtime-based HasDependenciesModified() check can miss same-tick re-saves, but here we know the dependency changed
+    _forceGenerate = true;
     Reload();
 }
 

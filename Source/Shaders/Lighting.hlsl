@@ -57,24 +57,26 @@ LightSample StandardShading(GBufferSample gBuffer, float energy, float3 L, float
     // 1. Calculate Specular Term
     float3 specularColor = GetSpecularColor(gBuffer);
 
-    // Standard Schlick Fresnel (Blender/UE4 Standard)
-    // We dampen F90 on rough surfaces to prevent "crunchy" artifacts at grazing angles.
-    float f90 = saturate(1.0 - gBuffer.Roughness);
-    float3 F = specularColor + (f90 - specularColor) * pow(1.0 - VoH, 5.0);
-
+    // Fresnel as a convex blend (ratpole), not a multiplier: lerp a colored body (stays tinted,
+    // bounded by specularColor) toward an achromatic white mirror at grazing. The mirror term is
+    // gated by gloss so rough lobes get NO edge-brightening; only near-mirror lobes rim up.
     float D = D_GGX(gBuffer.Roughness, NoH) * energy;
     float Vis = Vis_SmithJointApprox(gBuffer.Roughness, NoV, NoL);
-    
-    float3 SpecularTerm = (D * Vis) * F;
+    float DVis = D * Vis;
 
-    // [FIX] Horizon Occlusion for Rough Surfaces
-    // Fade out specular at grazing angles to prevent "crunchy" artifacts at the shadow terminator.
-    // For rough surfaces, the microfacet model can sustain brightness up to the terminator; 
-    // this forces a fade (horizon occlusion) similar to diffuse.
-    float horizonFade = saturate(NoL * 4.5); 
+    float b = Pow5(1.0 - VoH);                               // Schlick grazing weight, used as a lerp
+    float gate = SpecularGrazingGate(gBuffer.Roughness);
+    float3 body = specularColor * DVis;                     // no F0->1 blowup, tint preserved head-on
+    float graz = gate * DVis;                               // achromatic white grazing fill
+
+    float3 SpecularTerm = body * (1.0 - b) + graz.xxx * b;
+
+    // Terminator insurance (different axis to the gate): fade rough specular as the light grazes
+    // (NoL->0) so GGX doesn't sustain a hard specular crunch at the shadow terminator.
+    float horizonFade = saturate(NoL * 4.5);
     SpecularTerm *= lerp(1.0, horizonFade, gBuffer.Roughness);
 
-    lighting.Specular = SpecularTerm;
+    lighting.Specular = SpecularTerm; // matte comes from the roughness remap at decode, not an energy cut
 
     // 2. ENERGY CONSERVATION (Anti-Crunch Version)
     // We approximate how much energy was lost due to microfacet shadowing.

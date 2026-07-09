@@ -7,6 +7,7 @@
 #include "Engine/Core/Math/Matrix.h"
 #include "Engine/Content/Assets/MaterialInstance.h"
 #include "Engine/Content/Assets/Material.h"
+#include "Engine/Content/Content.h"
 #include "Engine/Serialization/MemoryReadStream.h"
 #include "Engine/Engine/Engine.h"
 
@@ -49,10 +50,24 @@ MaterialLayer* MaterialGenerator::GetLayer(const Guid& id, Node* caller)
             return layer;
     }
 
-    // Load asset
+    // Load asset.
+    // A base/layer material that is concurrently (re)loading has a brief window where WaitForLoaded reports
+    // failure: Reload() clears the loading task before startLoading() reattaches a new one. Baking the shader
+    // during that window samples this layer as zero -> the dependent renders black (and gets saved that way).
+    // Retry until the base reaches a terminal state (loaded, or genuinely failed) to ride out that window.
     Asset* asset = Assets.Load<MaterialBase>(id);
+    for (int32 retry = 0; asset == nullptr && retry < 1000; retry++)
+    {
+        Asset* pending = Content::GetAsset(id);
+        if (pending == nullptr || pending->LastLoadFailed())
+            break; // Asset does not exist or genuinely failed to load - a real error, don't spin
+        Platform::Sleep(1);
+        asset = Assets.Load<MaterialBase>(id);
+    }
     if (asset == nullptr)
     {
+        // Transient load failure (dependency still (re)loading). Signal the caller to retry rather than bake black.
+        LayerLoadFailed = true;
         OnError(caller, nullptr, TEXT("Failed to load material asset."));
         return nullptr;
     }
@@ -64,6 +79,8 @@ MaterialLayer* MaterialGenerator::GetLayer(const Guid& id, Node* caller)
     {
         if (iterator->WaitForLoaded())
         {
+            // Transient: base (or an instance in its chain) was mid-reload. Retry rather than bake black.
+            LayerLoadFailed = true;
             OnError(caller, nullptr, TEXT("Material asset load failed."));
             return nullptr;
         }

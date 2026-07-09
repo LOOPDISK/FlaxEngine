@@ -1033,7 +1033,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         {
             normalExpression = local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]");
         }
-        const bool useLargeWorldOffset = !hasCustomPosition || !local;
+        const bool useLargeWorldOffset = !hasCustomPosition && !local;
         const Char* largeWorldOffsetExpr = useLargeWorldOffset ? TEXT(" + GetLargeWorldsTileOffset(1.0f / length(tiling))") : TEXT("");
 
         // LOD parameters (could be exposed as node values in future)
@@ -1093,131 +1093,40 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             normalStr = String::Format(TEXT("TransformWorldVectorToLocal(input, {0})"), normalValue.Value);
         }
 
-        // Optimized triplanar implementation with LOD and dominant axis optimization
+        // Large Worlds tile offset only stabilizes world-space tiling; skip it for custom/local (object-space) positions so moving/skinned meshes don't swim
+        positionStr += largeWorldOffsetExpr;
+
+        // Triplanar sampling - branchless 3-tap blend with explicit-gradient (mip-correct) samples
+        // PS uses SampleGrad from hoisted derivatives (valid under any control flow); VS/DS fall back to mip 0
+        const Char* tapYZ = canUseSample ? TEXT("SampleGrad(%SAMPLER%, position.yz + %OFFSET%, dpdx.yz, dpdy.yz)") : TEXT("SampleLevel(%SAMPLER%, position.yz + %OFFSET%, 0)");
+        const Char* tapXZ = canUseSample ? TEXT("SampleGrad(%SAMPLER%, position.xz + %OFFSET%, dpdx.xz, dpdy.xz)") : TEXT("SampleLevel(%SAMPLER%, position.xz + %OFFSET%, 0)");
+        const Char* tapXY = canUseSample ? TEXT("SampleGrad(%SAMPLER%, position.xy + %OFFSET%, dpdx.xy, dpdy.xy)") : TEXT("SampleLevel(%SAMPLER%, position.xy + %OFFSET%, 0)");
+        const Char* gradDecl = canUseSample ? TEXT("        // Hoist UV derivatives in uniform flow so every tap mips correctly\n        float3 dpdx = ddx(position);\n        float3 dpdy = ddy(position);\n") : TEXT("");
         String triplanarTexture = ShaderStringBuilder()
             .Code(TEXT(R"(
     {
-        // Get position and normal for triplanar mapping
+        // Triplanar mapping position and normal
         float3 tiling = %SCALE% * 0.001f;
-        float3 position = (%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling));
+        float3 position = (%POSITION%);
         position = position * tiling;
         float3 normal = normalize(%NORMAL%);
 
-        // Calculate distance to camera for LOD
-        float distanceToCamera = length(input.WorldPosition.xyz - ViewPos.xyz);
-        
-        // LOD Level 2: Far distance - single sample
-        if (distanceToCamera > %LOD_DIST2%)
-        {
-            // Use dominant axis only at far distances
-            float3 absNormal = abs(normal);
-            if (absNormal.x > absNormal.y && absNormal.x > absNormal.z)
-                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.yz + %OFFSET%, 3);
-            else if (absNormal.y > absNormal.z)
-                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.xz + %OFFSET%, 3);
-            else
-                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.xy + %OFFSET%, 3);
-        }
-        else
-        {
-            // Compute triplanar blend weights using power distribution
-            float3 blendWeights = pow(abs(normal), %BLEND%);
-            blendWeights /= dot(blendWeights, float3(1, 1, 1));
-            
-            // LOD Level 1: Medium distance - reduced quality
-            if (distanceToCamera > %LOD_DIST1%)
-            {
-                // Two-axis blend for medium distance
-                float4 xProjection = float4(0,0,0,0);
-                float4 yProjection = float4(0,0,0,0);
-                float4 zProjection = float4(0,0,0,0);
-                
-                // Sample only the two dominant axes
-                if (blendWeights.x < %MINOR_THRESHOLD%)
-                {
-                    // Skip X axis
-                    yProjection = %TEXTURE%.SampleLevel(%SAMPLER%, position.xz + %OFFSET%, 1);
-                    zProjection = %TEXTURE%.SampleLevel(%SAMPLER%, position.xy + %OFFSET%, 1);
-                    float normalizeFactor = 1.0 / (blendWeights.y + blendWeights.z);
-                    %RESULT% = yProjection * blendWeights.y * normalizeFactor + 
-                              zProjection * blendWeights.z * normalizeFactor;
-                }
-                else if (blendWeights.y < %MINOR_THRESHOLD%)
-                {
-                    // Skip Y axis
-                    xProjection = %TEXTURE%.SampleLevel(%SAMPLER%, position.yz + %OFFSET%, 1);
-                    zProjection = %TEXTURE%.SampleLevel(%SAMPLER%, position.xy + %OFFSET%, 1);
-                    float normalizeFactor = 1.0 / (blendWeights.x + blendWeights.z);
-                    %RESULT% = xProjection * blendWeights.x * normalizeFactor + 
-                              zProjection * blendWeights.z * normalizeFactor;
-                }
-                else if (blendWeights.z < %MINOR_THRESHOLD%)
-                {
-                    // Skip Z axis
-                    xProjection = %TEXTURE%.SampleLevel(%SAMPLER%, position.yz + %OFFSET%, 1);
-                    yProjection = %TEXTURE%.SampleLevel(%SAMPLER%, position.xz + %OFFSET%, 1);
-                    float normalizeFactor = 1.0 / (blendWeights.x + blendWeights.y);
-                    %RESULT% = xProjection * blendWeights.x * normalizeFactor + 
-                              yProjection * blendWeights.y * normalizeFactor;
-                }
-                else
-                {
-                    // All three axes needed
-                    xProjection = %TEXTURE%.SampleLevel(%SAMPLER%, position.yz + %OFFSET%, 1);
-                    yProjection = %TEXTURE%.SampleLevel(%SAMPLER%, position.xz + %OFFSET%, 1);
-                    zProjection = %TEXTURE%.SampleLevel(%SAMPLER%, position.xy + %OFFSET%, 1);
-                    %RESULT% = xProjection * blendWeights.x + 
-                              yProjection * blendWeights.y + 
-                              zProjection * blendWeights.z;
-                }
-            }
-            // LOD Level 0: Near distance - full quality
-            else
-            {
-                // Dominant axis optimization for near distance
-                if (blendWeights.x > %DOMINANT_THRESHOLD%)
-                {
-                    // X axis dominates - single sample
-                    %RESULT% = %TEXTURE%.%SAMPLE%(%SAMPLER%, position.yz + %OFFSET%%SAMPLE_ARGS%);
-                }
-                else if (blendWeights.y > %DOMINANT_THRESHOLD%)
-                {
-                    // Y axis dominates - single sample
-                    %RESULT% = %TEXTURE%.%SAMPLE%(%SAMPLER%, position.xz + %OFFSET%%SAMPLE_ARGS%);
-                }
-                else if (blendWeights.z > %DOMINANT_THRESHOLD%)
-                {
-                    // Z axis dominates - single sample
-                    %RESULT% = %TEXTURE%.%SAMPLE%(%SAMPLER%, position.xy + %OFFSET%%SAMPLE_ARGS%);
-                }
-                else
-                {
-                    // Full triplanar blend needed
-                    float4 xProjection = float4(0,0,0,0);
-                    float4 yProjection = float4(0,0,0,0);
-                    float4 zProjection = float4(0,0,0,0);
-                    
-                    // Skip minor axes to save texture samples
-                    [branch]
-                    if (blendWeights.x > %MINOR_THRESHOLD%)
-                        xProjection = %TEXTURE%.%SAMPLE%(%SAMPLER%, position.yz + %OFFSET%%SAMPLE_ARGS%);
-                    
-                    [branch]
-                    if (blendWeights.y > %MINOR_THRESHOLD%)
-                        yProjection = %TEXTURE%.%SAMPLE%(%SAMPLER%, position.xz + %OFFSET%%SAMPLE_ARGS%);
-                    
-                    [branch]
-                    if (blendWeights.z > %MINOR_THRESHOLD%)
-                        zProjection = %TEXTURE%.%SAMPLE%(%SAMPLER%, position.xy + %OFFSET%%SAMPLE_ARGS%);
-                    
-                    %RESULT% = xProjection * blendWeights.x + 
-                              yProjection * blendWeights.y + 
-                              zProjection * blendWeights.z;
-                }
-            }
-        }
+        // Blend weights from surface normal
+        float3 blendWeights = pow(abs(normal), %BLEND%);
+        blendWeights /= dot(blendWeights, float3(1, 1, 1));
+
+%GRAD_DECL%
+        // Always blend all three projections
+        float4 xProjection = %TEXTURE%.%TAP_YZ%;
+        float4 yProjection = %TEXTURE%.%TAP_XZ%;
+        float4 zProjection = %TEXTURE%.%TAP_XY%;
+        %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
     }
 )"))
+.Replace(TEXT("%TAP_YZ%"), tapYZ)
+.Replace(TEXT("%TAP_XZ%"), tapXZ)
+.Replace(TEXT("%TAP_XY%"), tapXY)
+.Replace(TEXT("%GRAD_DECL%"), gradDecl)
 .Replace(TEXT("%TEXTURE%"), texture.Value)
 .Replace(TEXT("%SCALE%"), scale.Value)
 .Replace(TEXT("%BLEND%"), blend.Value)
@@ -1226,86 +1135,57 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
 .Replace(TEXT("%POSITION%"), positionStr)
 .Replace(TEXT("%NORMAL%"), normalStr)
 .Replace(TEXT("%SAMPLER%"), samplerName)
-.Replace(TEXT("%SAMPLE%"), canUseSample ? TEXT("Sample") : TEXT("SampleLevel"))
-.Replace(TEXT("%SAMPLE_ARGS%"), canUseSample ? TEXT("") : TEXT(", 0"))
-.Replace(TEXT("%LOD_DIST1%"), lodDistance1.Value)
-.Replace(TEXT("%LOD_DIST2%"), lodDistance2.Value)
-.Replace(TEXT("%DOMINANT_THRESHOLD%"), dominantAxisThreshold.Value)
-.Replace(TEXT("%MINOR_THRESHOLD%"), minorAxisThreshold.Value)
 .Build();
 
-        // Use hex tile version if enabled and within range
+        // Use hex tile version if enabled
         if (hexTileEnabled)
         {
             triplanarTexture = ShaderStringBuilder()
                 .Code(TEXT(R"(
     {
-        // Get position and normal for triplanar mapping
+        // Triplanar mapping position and normal
         float3 tiling = %SCALE% * 0.001f;
-        float3 position = (%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling));
+        float3 position = (%POSITION%);
         position = position * tiling;
         float3 normal = normalize(%NORMAL%);
-        
-        // Calculate distance for LOD and hex tile cutoff
-        float distanceToCamera = length(input.WorldPosition.xyz - ViewPos.xyz);
-        
-        // Disable hex tiling at far distances
-        [branch]
-        if (distanceToCamera > %LOD_DIST1%)
+
+        // Blend weights from surface normal
+        float3 blendWeights = pow(abs(normal), %BLEND%);
+        blendWeights /= dot(blendWeights, float3(1, 1, 1));
+
+        // Hex tile sampling with dominant axis optimization
+        if (blendWeights.x > %DOMINANT_THRESHOLD%)
         {
-            // Fall back to simple sampling at distance
-            float3 absNormal = abs(normal);
-            if (absNormal.x > absNormal.y && absNormal.x > absNormal.z)
-                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.yz + %OFFSET%, 3);
-            else if (absNormal.y > absNormal.z)
-                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.xz + %OFFSET%, 3);
-            else
-                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.xy + %OFFSET%, 3);
+            %RESULT% = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.yz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
+        }
+        else if (blendWeights.y > %DOMINANT_THRESHOLD%)
+        {
+            %RESULT% = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
+        }
+        else if (blendWeights.z > %DOMINANT_THRESHOLD%)
+        {
+            %RESULT% = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xy + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
         }
         else
         {
-            // Compute triplanar blend weights
-            float3 blendWeights = pow(abs(normal), %BLEND%);
-            blendWeights /= dot(blendWeights, float3(1, 1, 1));
-            
-            // Optimized hex tile sampling with dominant axis check
-            if (blendWeights.x > %DOMINANT_THRESHOLD%)
-            {
-                // X axis dominates
-                %RESULT% = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.yz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
-            }
-            else if (blendWeights.y > %DOMINANT_THRESHOLD%)
-            {
-                // Y axis dominates
-                %RESULT% = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
-            }
-            else if (blendWeights.z > %DOMINANT_THRESHOLD%)
-            {
-                // Z axis dominates
-                %RESULT% = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xy + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
-            }
-            else
-            {
-                // Full hex tile triplanar (expensive but high quality)
-                float4 xProjection = float4(0,0,0,0);
-                float4 yProjection = float4(0,0,0,0);
-                float4 zProjection = float4(0,0,0,0);
-                
-                // Only sample axes with significant contribution
-                [branch]
-                if (blendWeights.x > %MINOR_THRESHOLD%)
-                    xProjection = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.yz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
-                
-                [branch]
-                if (blendWeights.y > %MINOR_THRESHOLD%)
-                    yProjection = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
-                
-                [branch]
-                if (blendWeights.z > %MINOR_THRESHOLD%)
-                    zProjection = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xy + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
-                
-                %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
-            }
+            // Full hex tile blend - only sample significant axes
+            float4 xProjection = float4(0,0,0,0);
+            float4 yProjection = float4(0,0,0,0);
+            float4 zProjection = float4(0,0,0,0);
+
+            [branch]
+            if (blendWeights.x > %MINOR_THRESHOLD%)
+                xProjection = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.yz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
+
+            [branch]
+            if (blendWeights.y > %MINOR_THRESHOLD%)
+                yProjection = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xz + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
+
+            [branch]
+            if (blendWeights.z > %MINOR_THRESHOLD%)
+                zProjection = %HEX_FUNCTION%(%TEXTURE%, %SAMPLER%, position.xy + %OFFSET%%EXTRA_PARAMS%, %ROT_STRENGTH%, %CONTRAST%);
+
+            %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
         }
     }
 )"))
@@ -1328,56 +1208,43 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         }
         else if (cellBombEnabled)
         {
-            // Cell-bomb detiling: warp each projection's UV per Voronoi cell, disabled past LOD_DIST1
+            // Cell-bomb detiling: warp each projection's UV per Voronoi cell
             triplanarTexture = ShaderStringBuilder()
                 .Code(TEXT(R"(
     {
+        // Cell-bomb detiling: warp each projection's UV per Voronoi cell
         float3 tiling = %SCALE% * 0.001f;
-        float3 position = (%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling));
+        float3 position = (%POSITION%);
         position = position * tiling;
         float3 normal = normalize(%NORMAL%);
 
-        float distanceToCamera = length(input.WorldPosition.xyz - ViewPos.xyz);
-        [branch]
-        if (distanceToCamera > %LOD_DIST1%)
-        {
-            float3 absNormal = abs(normal);
-            if (absNormal.x > absNormal.y && absNormal.x > absNormal.z)
-                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.yz + %OFFSET%, 3);
-            else if (absNormal.y > absNormal.z)
-                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.xz + %OFFSET%, 3);
-            else
-                %RESULT% = %TEXTURE%.SampleLevel(%SAMPLER%, position.xy + %OFFSET%, 3);
-        }
+        // Blend weights from surface normal
+        float3 blendWeights = pow(abs(normal), %BLEND%);
+        blendWeights /= dot(blendWeights, float3(1, 1, 1));
+
+        if (blendWeights.x > %DOMINANT_THRESHOLD%)
+            %RESULT% = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.yz + %OFFSET%, position.yz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+        else if (blendWeights.y > %DOMINANT_THRESHOLD%)
+            %RESULT% = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xz + %OFFSET%, position.xz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+        else if (blendWeights.z > %DOMINANT_THRESHOLD%)
+            %RESULT% = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xy + %OFFSET%, position.xy * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
         else
         {
-            float3 blendWeights = pow(abs(normal), %BLEND%);
-            blendWeights /= dot(blendWeights, float3(1, 1, 1));
+            float4 xProjection = float4(0,0,0,0);
+            float4 yProjection = float4(0,0,0,0);
+            float4 zProjection = float4(0,0,0,0);
 
-            if (blendWeights.x > %DOMINANT_THRESHOLD%)
-                %RESULT% = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.yz + %OFFSET%, position.yz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
-            else if (blendWeights.y > %DOMINANT_THRESHOLD%)
-                %RESULT% = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xz + %OFFSET%, position.xz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
-            else if (blendWeights.z > %DOMINANT_THRESHOLD%)
-                %RESULT% = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xy + %OFFSET%, position.xy * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
-            else
-            {
-                float4 xProjection = float4(0,0,0,0);
-                float4 yProjection = float4(0,0,0,0);
-                float4 zProjection = float4(0,0,0,0);
+            [branch]
+            if (blendWeights.x > %MINOR_THRESHOLD%)
+                xProjection = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.yz + %OFFSET%, position.yz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+            [branch]
+            if (blendWeights.y > %MINOR_THRESHOLD%)
+                yProjection = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xz + %OFFSET%, position.xz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
+            [branch]
+            if (blendWeights.z > %MINOR_THRESHOLD%)
+                zProjection = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xy + %OFFSET%, position.xy * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
 
-                [branch]
-                if (blendWeights.x > %MINOR_THRESHOLD%)
-                    xProjection = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.yz + %OFFSET%, position.yz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
-                [branch]
-                if (blendWeights.y > %MINOR_THRESHOLD%)
-                    yProjection = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xz + %OFFSET%, position.xz * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
-                [branch]
-                if (blendWeights.z > %MINOR_THRESHOLD%)
-                    zProjection = cellBombTex(%TEXTURE%, %SAMPLER%, %VORONOI%, position.xy + %OFFSET%, position.xy * %CELLSCALE%, %SEAMWIDTH%, %ROTSTRENGTH%);
-
-                %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
-            }
+            %RESULT% = xProjection * blendWeights.x + yProjection * blendWeights.y + zProjection * blendWeights.z;
         }
     }
 )"))
@@ -1487,7 +1354,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             normalExpression = local ? TEXT("TransformWorldVectorToLocal(input, input.TBN[2])") : TEXT("input.TBN[2]");
             axisNormalExpression = TEXT("input.TBN[2]");
         }
-        const bool useLargeWorldOffset = !hasCustomPosition || !local;
+        const bool useLargeWorldOffset = !hasCustomPosition && !local;
         const Char* largeWorldOffsetExpr = useLargeWorldOffset ? TEXT(" + GetLargeWorldsTileOffset(1.0f / length(tiling))") : TEXT("");
 
         // Mark that hex tile functions are needed for this material
@@ -1540,6 +1407,9 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
             normalStr = String::Format(TEXT("TransformWorldVectorToLocal(input, {0})"), normalValue.Value);
         }
 
+        // Large Worlds tile offset only stabilizes world-space tiling; skip it for custom/local (object-space) positions so moving/skinned meshes don't swim
+        positionStr += largeWorldOffsetExpr;
+
         String triplanarNormalMap;
         if (hexTileEnabled)
         {
@@ -1550,7 +1420,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         {
             // Get position and normal for triplanar mapping
             float3 tiling = %SCALE% * 0.001f;
-            float3 position = (%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling));
+            float3 position = (%POSITION%);
             position = position * tiling;
             float3 normal = normalize(%NORMAL%);
 
@@ -1605,7 +1475,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                 .Code(TEXT(R"(
         {
             float3 tiling = %SCALE% * 0.001f;
-            float3 position = (%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling));
+            float3 position = (%POSITION%);
             position = position * tiling;
             float3 normal = normalize(%NORMAL%);
 
@@ -1657,7 +1527,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         {
             // Get position and normal for triplanar mapping
             float3 tiling = %SCALE% * 0.001f;
-            float3 position = (%POSITION%) + GetLargeWorldsTileOffset(1.0f / length(tiling));
+            float3 position = (%POSITION%);
             position = position * tiling;
             float3 normal = normalize(%NORMAL%);
 

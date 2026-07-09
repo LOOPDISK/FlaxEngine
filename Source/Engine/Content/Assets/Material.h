@@ -16,6 +16,9 @@ API_CLASS(NoSpawn) class FLAXENGINE_API Material : public ShaderAssetTypeBase<Ma
 
 private:
     MaterialShader* _materialShader = nullptr;
+#if USE_EDITOR
+    bool _forceGenerate = false; // Set when a layer/function dependency changed so load() regenerates regardless of mtime granularity
+#endif
 
 public:
     /// <summary>

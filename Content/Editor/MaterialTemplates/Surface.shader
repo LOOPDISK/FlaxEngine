@@ -375,7 +375,7 @@ VertexOutput VS(ModelInput input)
 	materialInput.TwoSidedSign = object.WorldDeterminantSign;
 	materialInput.SvPosition = output.Position;
 	materialInput.PreSkinnedPosition = input.Position.xyz;
-	materialInput.PreSkinnedNormal = tangentToLocal[2].xyz;
+	materialInput.PreSkinnedNormal = input.Normal.xyz * 2.0 - 1.0;
 	materialInput.Object = object;
 	Material material = GetMaterialVS(materialInput);
 #endif
@@ -564,7 +564,7 @@ VertexOutput VS_Skinned(ModelInput_Skinned input)
 	materialInput.TwoSidedSign = object.WorldDeterminantSign;
 	materialInput.SvPosition = output.Position;
 	materialInput.PreSkinnedPosition = input.Position.xyz;
-	materialInput.PreSkinnedNormal = tangentToLocal[2].xyz;
+	materialInput.PreSkinnedNormal = input.Normal.xyz * 2.0 - 1.0;
 	materialInput.Object = object;
 	Material material = GetMaterialVS(materialInput);
 #endif

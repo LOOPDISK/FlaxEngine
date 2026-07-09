@@ -248,7 +248,7 @@ namespace FlaxEditor.Surface
                 else if (child is SurfaceNodeElementControl elementControl)
                 {
                     leftWidth = Mathf.Max(leftWidth, elementControl.Width + 8f);
-                    leftHeight = Mathf.Max(leftHeight, elementControl.Height);
+                    leftHeight = Mathf.Max(leftHeight, elementControl.Bottom - Constants.NodeMarginY - Constants.NodeHeaderHeight);
                 }
                 // Other controls in the node
                 else if (child is Control control)

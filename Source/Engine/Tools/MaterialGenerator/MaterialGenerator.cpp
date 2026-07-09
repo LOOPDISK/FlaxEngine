@@ -167,6 +167,7 @@ bool MaterialGenerator::Generate(WriteStream& source, MaterialInfo& materialInfo
     _graphStack.Clear();
     _needsHexTileFunctions = false;
     _needsCellBombFunctions = false;
+    LayerLoadFailed = false;
     for (int32 i = 0; i < _layers.Count(); i++)
     {
         auto layer = _layers[i];
@@ -1055,7 +1056,8 @@ float3 cellBombNormal(Texture2D tex, SamplerState samp, Texture2D vor, float2 uv
         source.WriteByte(0);
     }
 
-    return false;
+    // Report failure if a layer/base dependency was transiently unavailable so the caller retries instead of using this black shader
+    return LayerLoadFailed;
 }
 
 void MaterialGenerator::clearCache()
