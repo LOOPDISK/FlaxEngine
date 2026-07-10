@@ -137,7 +137,9 @@ float4 GetExponentialHeightFog(ExponentialHeightFogData exponentialHeightFog, fl
     // Combine base fog color with Mie-scattered directional light
     float3 inscatteringColor = baseFogColor;
 
-    // Disable fog after a certain distance
+    // Disable fog after a certain distance. Uses planar view-Z (sceneDistance), not radial: a hard
+    // cutoff on radial distance carves a screen-centered bowl (radial dips to a min dead-center), while
+    // planar depth is ~uniform across a screen-filling surface.
     FLATTEN
     if (exponentialHeightFog.FogCutoffDistance > 0 && sceneDistance > exponentialHeightFog.FogCutoffDistance)
     {

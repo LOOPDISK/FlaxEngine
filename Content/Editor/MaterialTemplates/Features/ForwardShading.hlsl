@@ -159,13 +159,13 @@ void PS_Forward(
 
 #endif
 
-#if USE_FOG && MATERIAL_SHADING_MODEL != SHADING_MODEL_UNLIT
-	// Calculate exponential height fog
+#if USE_FOG
+	// Calculate exponential height fog (unlit included - gBuffer is unavailable here so derive view depth directly)
 #if DIRECTX && FEATURE_LEVEL < FEATURE_LEVEL_SM6
 	// TODO: fix D3D11/D3D10 bug with incorrect distance
 	float fogSceneDistance = distance(materialInput.WorldPosition, ViewPos);
 #else
-	float fogSceneDistance = gBuffer.ViewPos.z;
+	float fogSceneDistance = mul(float4(materialInput.WorldPosition, 1), ViewMatrix).z;
 #endif
 	float fogSkipDistance = max(ExponentialHeightFog.VolumetricFogMaxDistance - 100, 0);
 	float4 fog = GetExponentialHeightFog(ExponentialHeightFog, materialInput.WorldPosition, ViewPos, fogSkipDistance, fogSceneDistance);
@@ -183,7 +183,9 @@ void PS_Forward(
 #elif MATERIAL_BLEND == MATERIAL_BLEND_TRANSPARENT
 	output = float4(output.rgb * fog.a + fog.rgb, output.a);
 #elif MATERIAL_BLEND == MATERIAL_BLEND_ADDITIVE
-	output = float4(output.rgb * fog.a + fog.rgb, output.a * fog.a);
+	// Additive light emits, it doesn't occlude - only attenuate by transmittance. Adding fog.rgb would
+	// tint the whole quad (emissive fades via color, not alpha) and reveal the flat mesh.
+	output = float4(output.rgb * fog.a, output.a);
 #elif MATERIAL_BLEND == MATERIAL_BLEND_MULTIPLY
 	output = float4(lerp(float3(1, 1, 1), output.rgb, fog.aaa * fog.aaa), output.a);
 #endif

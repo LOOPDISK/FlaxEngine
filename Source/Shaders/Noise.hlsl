@@ -74,6 +74,22 @@ float3 QuantizeColor(float3 color, float noise, float3 error)
     return color + delta * noise;
 }
 
+// Triangular-PDF output dither for the final HDR->display quantization. 'error' = per-channel float
+// format ULP fraction (2^-mantissaBits); 'outputLSB' = the display's step in the encoded domain
+// (1/255 for 8-bit sRGB). Dithers to whichever quantizer is coarser per channel: the format-relative
+// ULP under-dithers the uniform 8-bit backbuffer in darks (where fog/sky bands), so we take the max.
+// 'tpdf' must be zero-mean triangular in [-1,1] (e.g. two independent uniforms differenced) - TPDF, not
+// single-sample RPDF, makes the residual quantization error signal-independent, which is what removes
+// contour banding on smooth ramps rather than just softening it.
+float3 DitherColorTPDF(float3 color, float tpdf, float3 error, float outputLSB)
+{
+    float3 ulp = color * error;
+    ulp.x = asfloat(asuint(ulp.x) & ~0x007fffff);
+    ulp.y = asfloat(asuint(ulp.y) & ~0x007fffff);
+    ulp.z = asfloat(asuint(ulp.z) & ~0x007fffff);
+    return color + max(ulp, outputLSB) * tpdf;
+}
+
 float rand2dTo1d(float2 value, float2 dotDir = float2(12.9898, 78.233))
 {
     // https://www.ronja-tutorials.com/post/024-white-noise/

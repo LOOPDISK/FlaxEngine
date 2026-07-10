@@ -1138,6 +1138,14 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     // Sample base scene color (Input0)
     float3 sceneColor = Input0.Sample(SamplerLinearClamp, input.TexCoord).rgb;
 
+    // Break upstream R11G11B10 banding (fog/sky ramps baked into the HDR light buffer) by dithering the
+    // HDR read at its own float ULP BEFORE tonemapping. Output dither alone can't fix this: the gradient
+    // is already quantized in the light buffer and the steep Medpole/fog curves stretch one HDR step into
+    // several display LSBs (the concentric rings). Static TPDF from decorrelated IGN so stills don't shimmer.
+    float2 px = input.TexCoord * InputSize;
+    float tpdfIn = InterleavedGradientNoise(px, 0) - InterleavedGradientNoise(px + 41.0, 0); // triangular [-1,1]
+    sceneColor = DitherColorTPDF(sceneColor, tpdfIn, QuantizationError, 0.0); // no display floor - dither HDR ULP only
+
     // Apply post-exposure
     sceneColor *= PostExposure;
 
@@ -1208,9 +1216,13 @@ float4 PS_Composite(Quad_VS2PS input) : SV_Target
     // Saturate color since it will be rendered to the screen
     sceneColor = saturate(sceneColor);
 
-    // Apply quantization error to reduce banding artifacts due to R11G11B10 format
-    float noise = rand2dTo1d(input.TexCoord);
-    sceneColor = QuantizeColor(sceneColor, noise, QuantizationError);
+    // Output dither to kill banding on smooth ramps (fog/sky). Zero-mean triangular-PDF noise from two
+    // decorrelated IGN samples (static: frame 0, so screenshots don't shimmer), sized to the coarser of
+    // the float ULP and the 8-bit display LSB. QuantizationError alone matched only the R11G11B10 store,
+    // which under-dithers the uniform 8-bit backbuffer in darks - exactly where fog banding shows.
+    const float OUTPUT_LSB = 1.0 / 255.0; // 8-bit sRGB backbuffer step (use 1/1023 for 10-bit output)
+    float tpdfOut = InterleavedGradientNoise(px + 17.0, 0) - InterleavedGradientNoise(px + 59.0, 0); // decorrelated from input dither
+    sceneColor = DitherColorTPDF(sceneColor, tpdfOut, QuantizationError, OUTPUT_LSB);
 
     return float4(sceneColor, 1.0);
 }

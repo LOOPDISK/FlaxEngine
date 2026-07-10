@@ -400,7 +400,7 @@ float2 ShadowVogelDisk(int i, int n, float rot)
 // Each tap compares against the receiver PLANE (receiverDepth extrapolated along the gradient), so
 // a sloped receiver's own surface doesn't register as a blocker across the disk. Depth is point-
 // sampled: linear-filtering raw depth across discontinuities corrupts the blocker average.
-float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, float receiverDepth, float searchRadiusAtlasUV, float2 receiverPlaneBias, float rot)
+float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, float receiverDepth, float searchRadiusAtlasUV, float2 receiverPlaneBias, float rot, float maxPlaneBias)
 {
     float blockerSum = 0.0;
     float blockerCount = 0.0;
@@ -409,7 +409,7 @@ float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, f
     {
         float2 offset = ShadowVogelDisk(i, PCSS_BLOCKER_TAPS, rot) * searchRadiusAtlasUV;
         float d = shadowMap.SampleLevel(SamplerPointClamp, atlasUV + offset, 0).r;
-        if (d < receiverDepth + dot(offset, receiverPlaneBias))
+        if (d < receiverDepth + clamp(dot(offset, receiverPlaneBias), -maxPlaneBias, maxPlaneBias))
         {
             blockerSum += d;
             blockerCount += 1.0;
@@ -420,14 +420,14 @@ float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, f
 
 // Variable-radius Vogel PCF in atlas UV (rotated per pixel). Radius is the disk radius (atlas-UV units).
 // Per-tap references follow the receiver plane along the gradient.
-float SamplePCF_VogelDirectional(Texture2D<float> shadowMap, float2 atlasUV, float sceneDepth, float radiusAtlasUV, float2 receiverPlaneBias, float rot)
+float SamplePCF_VogelDirectional(Texture2D<float> shadowMap, float2 atlasUV, float sceneDepth, float radiusAtlasUV, float2 receiverPlaneBias, float rot, float maxPlaneBias)
 {
     float sum = 0.0;
     UNROLL
     for (int i = 0; i < PCSS_PCF_TAPS; i++)
     {
         float2 offset = ShadowVogelDisk(i, PCSS_PCF_TAPS, rot) * radiusAtlasUV;
-        sum += SAMPLE_SHADOW_MAP(shadowMap, atlasUV + offset, sceneDepth + dot(offset, receiverPlaneBias));
+        sum += SAMPLE_SHADOW_MAP(shadowMap, atlasUV + offset, sceneDepth + clamp(dot(offset, receiverPlaneBias), -maxPlaneBias, maxPlaneBias));
     }
     return sum * (1.0 / float(PCSS_PCF_TAPS));
 }
@@ -452,9 +452,18 @@ float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, fl
     float worldPerDepth = GetShadowTileWorldPerDepthUnit(tile);  // cm per normalized depth (cascade depth span)
     float worldToAtlasUV = tileScale / worldPerUV;              // convert world cm -> atlas UV
 
+    // Bound the per-tap receiver-plane extrapolation to a world-space depth. The linear plane model is
+    // only valid for small offsets, but a single big cascade makes the blocker/PCF disk a large fraction
+    // of the atlas, so the ledge taps run far past where it holds: uphill they over-count the receiver
+    // as its own blocker (acne + salt-and-pepper grain on grazing ground), downhill they under-count and
+    // miss real occluders (light-leak streaks on walls parallel to the light). Capping the depth reach in
+    // world units (cascade-invariant) kills both without touching the penumbra size. Raise to loosen.
+    const float PCSS_MAX_PLANE_BIAS_WORLD = 100.0f; // cm of depth a single tap's plane bias may track
+    float maxPlaneBias = PCSS_MAX_PLANE_BIAS_WORLD / worldPerDepth;
+
     // Blocker search over the cascade's depth span (the widest plausible penumbra), sized in world.
     float searchRadiusAtlasUV = lightSize * worldPerDepth * worldToAtlasUV;
-    float avgBlocker = FindBlockerDepth_Directional(shadowMap, atlasUV, receiverDepth, searchRadiusAtlasUV, receiverPlaneBias, rot);
+    float avgBlocker = FindBlockerDepth_Directional(shadowMap, atlasUV, receiverDepth, searchRadiusAtlasUV, receiverPlaneBias, rot, maxPlaneBias);
     if (avgBlocker < 0.0)
         return 1.0; // No blockers in search disk -> fully lit
 
@@ -468,7 +477,7 @@ float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, fl
     shadowMap.GetDimensions(shadowMapSize.x, shadowMapSize.y);
     filterRadiusAtlasUV = max(filterRadiusAtlasUV, 1.0 / shadowMapSize.x);
 
-    return SamplePCF_VogelDirectional(shadowMap, atlasUV, receiverDepth, filterRadiusAtlasUV, receiverPlaneBias, rot);
+    return SamplePCF_VogelDirectional(shadowMap, atlasUV, receiverDepth, filterRadiusAtlasUV, receiverPlaneBias, rot, maxPlaneBias);
 }
 
 // Samples the shadow cascade for the given directional light on the material surface (supports subsurface shadowing)
