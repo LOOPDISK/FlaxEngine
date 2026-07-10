@@ -17,6 +17,8 @@ SkinnedMeshDrawData::~SkinnedMeshDrawData()
         SAFE_DELETE_GPU_RESOURCE(b);
     for (GPUBuffer* b : OutputVB2)
         SAFE_DELETE_GPU_RESOURCE(b);
+    for (GPUBuffer* b : OutputPreSkinVB)
+        SAFE_DELETE_GPU_RESOURCE(b);
 }
 
 void SkinnedMeshDrawData::Setup(int32 bonesCount)
@@ -50,9 +52,12 @@ void SkinnedMeshDrawData::ReleaseOutputVBs()
         SAFE_DELETE_GPU_RESOURCE(b);
     for (GPUBuffer* b : OutputVB2)
         SAFE_DELETE_GPU_RESOURCE(b);
+    for (GPUBuffer* b : OutputPreSkinVB)
+        SAFE_DELETE_GPU_RESOURCE(b);
     OutputVB0.Clear();
     OutputVB1.Clear();
     OutputVB2.Clear();
+    OutputPreSkinVB.Clear();
     OutputVersion.Clear();
 }
 

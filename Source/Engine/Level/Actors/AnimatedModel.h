@@ -197,6 +197,20 @@ public:
     API_FIELD(Attributes="EditorOrder(120), DefaultValue(null), EditorDisplay(\"Skinned Model\")")
     ScriptingObjectReference<Actor> RootMotionTarget;
 
+    /// <summary>
+    /// If checked, the model skips frustum and occlusion (HZB) culling and is always drawn. Use for first-person view models that render with a FOV override, whose real-world bounds don't match where they appear on screen.
+    /// </summary>
+    API_PROPERTY(Attributes="EditorOrder(125), DefaultValue(false), EditorDisplay(\"Skinned Model\", \"Always Draw\")")
+    FORCE_INLINE bool GetAlwaysDraw() const
+    {
+        return _drawNoCulling != 0;
+    }
+
+    /// <summary>
+    /// Sets whether the model skips culling and is always drawn.
+    /// </summary>
+    API_PROPERTY() void SetAlwaysDraw(bool value);
+
 #if USE_EDITOR
     /// <summary>
     /// If checked, the skeleton pose will be shawn during debug shapes drawing.

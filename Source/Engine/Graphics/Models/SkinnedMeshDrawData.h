@@ -53,6 +53,11 @@ public:
     Array<GPUBuffer*> OutputVB2;
 
     /// <summary>
+    /// Per-mesh compute-skinning output: bind-pose Position(12B)+packed Normal(4B) raw buffer (16 bytes/vert). Read as an SRV in the static VS by SV_VertexID. Allocated only when the mesh's material samples Pre-skinned Local Position/Normal.
+    /// </summary>
+    Array<GPUBuffer*> OutputPreSkinVB;
+
+    /// <summary>
     /// Bumped on each data change; the skinning pass skips dispatch when its output matches (dormant skeletons).
     /// </summary>
     uint64 SkinningVersion = 0;

@@ -169,12 +169,16 @@ bool GameSettings::Load()
 #endif
     }
 
-    // Preload all settings assets
+    // Preload all settings assets. Wait for each to fully load before Apply() so type::Get() can't
+    // fall back to a default-constructed instance mid-load (which seeds engine globals from defaults,
+    // e.g. Graphics::PostProcessSettings with depth haze off, until a settings change re-applies).
 #define PRELOAD_SETTINGS(type) \
     { \
         if (settings->type) \
         { \
-            Content::LoadAsync<JsonAsset>(settings->type); \
+            auto asset = Content::LoadAsync<JsonAsset>(settings->type); \
+            if (asset) \
+                asset->WaitForLoaded(); \
         } \
         else \
         { \

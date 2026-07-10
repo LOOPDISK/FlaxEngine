@@ -949,6 +949,16 @@ void AnimatedModel::UpdateBounds()
         GetSceneRendering()->UpdateActor(this, _sceneRenderingKey, ISceneRenderingListener::Bounds);
 }
 
+void AnimatedModel::SetAlwaysDraw(bool value)
+{
+    if ((_drawNoCulling != 0) == value)
+        return;
+    _drawNoCulling = value ? 1 : 0;
+    // NoCulling is cached in scene rendering at register time; refresh it here for live toggles (editor).
+    if (_sceneRenderingKey != -1)
+        GetSceneRendering()->UpdateActor(this, _sceneRenderingKey, ISceneRenderingListener::NoCulling);
+}
+
 void AnimatedModel::UpdateSockets()
 {
     const int32 count = _sockets.Count();
@@ -1363,6 +1373,11 @@ void AnimatedModel::Serialize(SerializeStream& stream, const void* otherObj)
     SERIALIZE(ShadowsMode);
     PRAGMA_ENABLE_DEPRECATION_WARNINGS
     SERIALIZE(RootMotionTarget);
+    if (!other || GetAlwaysDraw() != other->GetAlwaysDraw())
+    {
+        stream.JKEY("AlwaysDraw");
+        stream.Bool(GetAlwaysDraw());
+    }
 
     stream.JKEY("Buffer");
     stream.Object(&Entries, other ? &other->Entries : nullptr);
@@ -1390,6 +1405,11 @@ void AnimatedModel::Deserialize(DeserializeStream& stream, ISerializeModifier* m
     DESERIALIZE(ShadowsMode);
     PRAGMA_ENABLE_DEPRECATION_WARNINGS
     DESERIALIZE(RootMotionTarget);
+    {
+        const auto e = stream.FindMember("AlwaysDraw");
+        if (e != stream.MemberEnd() && e->value.IsBool())
+            SetAlwaysDraw(e->value.GetBool());
+    }
 
     Entries.DeserializeIfExists(stream, "Buffer", modifier);
 

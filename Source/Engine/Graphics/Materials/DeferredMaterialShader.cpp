@@ -102,8 +102,13 @@ void DeferredMaterialShader::Bind(BindParameters& params)
         cullMode = cullMode == CullMode::Normal ? CullMode::Inverted : CullMode::Normal;
     }
     ASSERT_LOW_LAYER(!(useSkinning && params.Instanced)); // No support for instancing skinned meshes
-    const auto cache = params.Instanced ? &_cacheInstanced : &_cache;
-    PipelineStateCache* psCache = cache->GetPS(view.Pass, useLightmap, useSkinning, perBoneMotionBlur);
+    // Compute-skinned mesh whose material samples Pre-skinned nodes: bind the bind-pose buffer for the pre-skin static-VS
+    // variant. t1 is free here (Surface.Skinning is null on the compute-skin path, so BoneMatrices isn't bound). Non-instanced.
+    const bool usePreSkin = drawCall.Surface.PreSkinnedVB != nullptr;
+    if (usePreSkin)
+        context->BindSR(1, drawCall.Surface.PreSkinnedVB->View());
+    const auto cache = (params.Instanced && !usePreSkin) ? &_cacheInstanced : &_cache;
+    PipelineStateCache* psCache = cache->GetPS(view.Pass, useLightmap, useSkinning, perBoneMotionBlur, usePreSkin);
     ASSERT(psCache);
     GPUPipelineState* state = psCache->GetPS(cullMode, wireframe);
 
@@ -172,6 +177,13 @@ bool DeferredMaterialShader::Load()
     psDesc.VS = _shader->GetVS("VS_Skinned");
     psDesc.PS = _shader->GetPS("PS_GBuffer");
     _cache.DefaultSkinned.Init(psDesc);
+
+    // GBuffer Pass for compute-skinned meshes sampling Pre-skinned nodes: static VS permutation (USE_PRESKINNED) that
+    // fetches bind-pose Position/Normal from the pre-skin buffer by SV_VertexID. Non-instanced only (compute-skin doesn't batch).
+    psDesc.VS = _shader->GetVS("VS", 2);
+    failed |= psDesc.VS == nullptr;
+    psDesc.PS = _shader->GetPS("PS_GBuffer");
+    _cache.DefaultPreSkinned.Init(psDesc);
 
     psDesc.StencilEnable = false;
     psDesc.StencilPassOp = StencilOperation::Keep;

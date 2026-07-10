@@ -46,6 +46,7 @@ namespace
 #define SKINNING_OUTPUT0_STRIDE 12 // Position R32G32B32_Float
 #define SKINNING_OUTPUT1_STRIDE 16 // TexCoord + Normal + Tangent + TexCoord1
 #define SKINNING_OUTPUT2_STRIDE 4  // Color R8G8B8A8_UNorm
+#define SKINNING_OUTPUTPS_STRIDE 16 // Pre-skin bind-pose: Position 12B + packed Normal 4B
 
 GPU_CB_STRUCT(SkinningCBData {
     uint32 VertexCount;
@@ -67,6 +68,7 @@ GPU_CB_STRUCT(SkinningCBData {
 #define SKINNING_FLAG_INDICES_R16G16B16A16_UINT     0x2u
 #define SKINNING_FLAG_POSITION_R16G16B16A16_FLOAT   0x4u
 #define SKINNING_FLAG_HAS_VERTEX_COLOR              0x8u
+#define SKINNING_FLAG_WRITE_PRESKIN                 0x10u
 
 namespace
 {
@@ -156,11 +158,13 @@ namespace
             const int32 oldCount = skinning->OutputVB0.Count();
             skinning->OutputVB0.Resize(slot + 1);
             skinning->OutputVB1.Resize(slot + 1);
+            skinning->OutputPreSkinVB.Resize(slot + 1);
             skinning->OutputVersion.Resize(slot + 1);
             for (int32 i = oldCount; i <= slot; i++)
             {
                 skinning->OutputVB0[i] = nullptr;
                 skinning->OutputVB1[i] = nullptr;
+                skinning->OutputPreSkinVB[i] = nullptr; // allocated lazily only when a pre-skin material needs it
                 skinning->OutputVersion[i] = 0;
             }
         }
@@ -179,6 +183,17 @@ namespace
         GPUBuffer* buf = GPUDevice::Instance->CreateBuffer(name);
         auto desc = GPUBufferDescription::Buffer(vertexCount * stride, ComputeSkinVBFlags, PixelFormat::R32_Typeless, nullptr, stride, GPUResourceUsage::Default);
         desc.VertexLayout = layout;
+        if (buf && !buf->Init(desc))
+            return buf;
+        SAFE_DELETE_GPU_RESOURCE(buf);
+        return nullptr;
+    }
+
+    // Create the pre-skin (bind-pose) raw buffer: CS UAV write + VS ByteAddressBuffer read, so no vertex layout. Null on failure.
+    GPUBuffer* CreateComputeSkinPreSkinVB(uint32 vertexCount)
+    {
+        GPUBuffer* buf = GPUDevice::Instance->CreateBuffer(TEXT("ComputeSkin PreSkin"));
+        auto desc = GPUBufferDescription::Buffer(vertexCount * SKINNING_OUTPUTPS_STRIDE, GPUBufferFlags::UnorderedAccess | GPUBufferFlags::RawBuffer | GPUBufferFlags::ShaderResource, PixelFormat::R32_Typeless, nullptr, sizeof(uint32), GPUResourceUsage::Default);
         if (buf && !buf->Init(desc))
             return buf;
         SAFE_DELETE_GPU_RESOURCE(buf);
@@ -267,11 +282,12 @@ void SkinningPass::OnShaderReloading(Asset* obj)
 }
 #endif
 
-bool SkinningPass::PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMesh* mesh, int32 slot, GPUBuffer*& outVB0, GPUBuffer*& outVB1, GPUBuffer*& outVB2)
+bool SkinningPass::PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMesh* mesh, int32 slot, bool needPreSkin, GPUBuffer*& outVB0, GPUBuffer*& outVB1, GPUBuffer*& outVB2, GPUBuffer*& outPreSkin)
 {
     outVB0 = nullptr;
     outVB1 = nullptr;
     outVB2 = nullptr;
+    outPreSkin = nullptr;
     if (checkIfSkipPass() || !skinning || !mesh || slot < 0)
         return false;
     if (!skinning->IsReady())
@@ -291,33 +307,50 @@ bool SkinningPass::PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMe
 
     // Lazy alloc under a lock (concurrent Draws; CreateBuffer isn't thread-safe); existing buffers skip the lock below.
     if (skinning->OutputVB0.Count() <= slot || skinning->OutputVB0[slot] == nullptr || skinning->OutputVB1[slot] == nullptr ||
-        (hasVertexColor && (skinning->OutputVB2.Count() <= slot || skinning->OutputVB2[slot] == nullptr)))
+        (hasVertexColor && (skinning->OutputVB2.Count() <= slot || skinning->OutputVB2[slot] == nullptr)) ||
+        (needPreSkin && (skinning->OutputPreSkinVB.Count() <= slot || skinning->OutputPreSkinVB[slot] == nullptr)))
     {
         ScopeLock lock(_allocLock);
         EnsureComputeSkinSlots(skinning, slot, hasVertexColor);
+        bool allocatedOutput = false;
         if (skinning->OutputVB0[slot] == nullptr)
         {
             skinning->OutputVB0[slot] = CreateComputeSkinVB(TEXT("ComputeSkin VB0"), vertexCount, SKINNING_OUTPUT0_STRIDE, GetComputeSkinVB0Layout());
             if (skinning->OutputVB0[slot] == nullptr)
                 return false;
+            allocatedOutput = true;
         }
         if (skinning->OutputVB1[slot] == nullptr)
         {
             skinning->OutputVB1[slot] = CreateComputeSkinVB(TEXT("ComputeSkin VB1"), vertexCount, SKINNING_OUTPUT1_STRIDE, GetComputeSkinVB1Layout());
             if (skinning->OutputVB1[slot] == nullptr)
                 return false;
+            allocatedOutput = true;
         }
         if (hasVertexColor && skinning->OutputVB2[slot] == nullptr)
         {
             skinning->OutputVB2[slot] = CreateComputeSkinVB(TEXT("ComputeSkin VB2"), vertexCount, SKINNING_OUTPUT2_STRIDE, GetComputeSkinVB2Layout());
             if (skinning->OutputVB2[slot] == nullptr)
                 return false;
+            allocatedOutput = true;
         }
+        // Pre-skin bind-pose buffer: only for materials sampling Pre-skinned nodes; alloc failure degrades to deformed pre-skin rather than failing the whole draw
+        if (needPreSkin && skinning->OutputPreSkinVB[slot] == nullptr)
+        {
+            skinning->OutputPreSkinVB[slot] = CreateComputeSkinPreSkinVB(vertexCount);
+            if (skinning->OutputPreSkinVB[slot] != nullptr)
+                allocatedOutput = true;
+        }
+        // A fresh buffer is uninitialized until the CS writes it; a resident slot (dormant skeleton, or needPreSkin appearing
+        // after the material loaded) would skip the dispatch and leave garbage - invalidate so this frame's dispatch rewrites it
+        if (allocatedOutput)
+            skinning->OutputVersion[slot] = skinning->SkinningVersion - 1;
     }
 
     outVB0 = skinning->OutputVB0[slot];
     outVB1 = skinning->OutputVB1[slot];
     outVB2 = (hasVertexColor && slot < skinning->OutputVB2.Count()) ? skinning->OutputVB2[slot] : nullptr;
+    outPreSkin = (needPreSkin && slot < skinning->OutputPreSkinVB.Count()) ? skinning->OutputPreSkinVB[slot] : nullptr;
 
     // Enqueue if the cached output is stale (dormant-skip). OutputVersion advances only once the dispatch
     // actually runs (see DispatchOne), so a dropped dispatch retries next frame instead of locking the pose.
@@ -481,6 +514,11 @@ void SkinningPass::DispatchOne(GPUContext* context, const PendingDispatch& p, GP
         return;
     }
 
+    // Pre-skin bind-pose output: only present when a Pre-skinned-sampling material requested it (else the CS skips u3).
+    GPUBuffer* outputPreSkin = (p.Slot < p.Skinning->OutputPreSkinVB.Count()) ? p.Skinning->OutputPreSkinVB[p.Slot] : nullptr;
+    if (outputPreSkin != nullptr)
+        cb.Flags |= SKINNING_FLAG_WRITE_PRESKIN;
+
     context->UpdateCB(cbResource, &cb);
     context->BindCB(0, cbResource);
     // Hoisted: skip rebinding bones when this dispatch shares the previous one's actor (see FlushPending).
@@ -492,6 +530,9 @@ void SkinningPass::DispatchOne(GPUContext* context, const PendingDispatch& p, GP
     // VB2 (Color) only bound when the source has Color; the CS skips u2 otherwise.
     if (p.Slot < p.Skinning->OutputVB2.Count() && p.Skinning->OutputVB2[p.Slot] != nullptr)
         context->BindUA(2, p.Skinning->OutputVB2[p.Slot]->View());
+    // Pre-skin bind-pose VB (u3) only bound when a material needs it; the CS gate (FLAG_WRITE_PRESKIN) matches.
+    if (outputPreSkin != nullptr)
+        context->BindUA(3, outputPreSkin->View());
 
     const uint32 groups = (vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE;
     context->Dispatch(_csSkin, groups, 1, 1);

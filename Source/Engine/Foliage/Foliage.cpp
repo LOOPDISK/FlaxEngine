@@ -627,11 +627,14 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Me
             auto& drawCall = drawCallsList.Get()[meshIndex];
             drawCall.Material = nullptr; // DrawInstance skips draw calls from meshes with unset material
 
-            // Check entry visibility
-            const auto& entry = type.Entries[mesh.GetMaterialSlotIndex()];
+            // Check entry visibility (guard against Entries not yet synced to the model during async reload)
+            const int32 slotIndex = mesh.GetMaterialSlotIndex();
+            if (slotIndex >= type.Entries.Count())
+                continue;
+            const auto& entry = type.Entries[slotIndex];
             if (!entry.Visible || !mesh.IsInitialized())
                 continue;
-            const MaterialSlot& slot = type.Model->MaterialSlots[mesh.GetMaterialSlotIndex()];
+            const MaterialSlot& slot = type.Model->MaterialSlots[slotIndex];
 
             // Select material
             MaterialBase* material;
@@ -666,8 +669,11 @@ void Foliage::DrawType(RenderContext& renderContext, const FoliageType& type, Me
         if (batch.Instances.IsEmpty())
             continue;
         const auto& mesh = *e.Key.Geo;
-        const auto& entry = type.Entries[mesh.GetMaterialSlotIndex()];
-        const MaterialSlot& slot = type.Model->MaterialSlots[mesh.GetMaterialSlotIndex()];
+        const int32 slotIndex = mesh.GetMaterialSlotIndex();
+        if (slotIndex >= type.Entries.Count())
+            continue;
+        const auto& entry = type.Entries[slotIndex];
+        const MaterialSlot& slot = type.Model->MaterialSlots[slotIndex];
         const auto shadowsMode = entry.ShadowsMode & slot.ShadowsMode;
         const auto drawModes = typeDrawModes & renderContext.View.GetShadowsDrawPassMask(shadowsMode) & batch.DrawCall.Material->GetDrawModes();
 

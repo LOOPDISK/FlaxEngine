@@ -194,6 +194,7 @@ struct DrawCall
             Float3 GeometrySize; // Object geometry size in the world (unscaled).
             float LODDitherFactor; // The model LOD transition dither progress.
             Matrix PrevWorld;
+            GPUBuffer* PreSkinnedVB; // Compute-skinning bind-pose Position+Normal buffer; non-null only when the material samples Pre-skinned nodes. Selects the pre-skin static-VS variant.
         } Surface;
 
         struct

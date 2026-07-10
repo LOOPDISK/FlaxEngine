@@ -25,6 +25,34 @@ Buffer<float4> BoneMatrices : register(t1);
 Buffer<float4> PrevBoneMatrices : register(t2);
 #endif
 #endif
+#if USE_PRESKINNED
+// Compute-skinned meshes render via the static VS from deformed VBs, so bind-pose Pre-skinned Local Position/Normal
+// aren't in the vertex stream. The skinning CS writes them here (Position 12B + packed Normal 4B per vertex); fetch by
+// SV_VertexID. Reuses t1 - USE_SKINNING is never set in this permutation (compute-skin nulls Surface.Skinning).
+ByteAddressBuffer PreSkinnedVB : register(t1);
+float3 LoadPreSkinnedPosition(uint vertexId)
+{
+    return asfloat(PreSkinnedVB.Load3(vertexId * 16));
+}
+float3 LoadPreSkinnedNormal(uint vertexId)
+{
+    // Unpack R10G10B10A2_UNORM -> [-1,1] (matches SkinningCS PackR10G10B10A2_UNORM(normal*0.5+0.5)).
+    uint raw = PreSkinnedVB.Load(vertexId * 16 + 12);
+    float3 n = float3((raw & 0x3FFu), ((raw >> 10) & 0x3FFu), ((raw >> 20) & 0x3FFu)) / 1023.0;
+    return n * 2.0 - 1.0;
+}
+#endif
+
+// Source of Pre-skinned Local Position/Normal. Compute-skin path (USE_PRESKINNED): fetch bind-pose from the pre-skin
+// buffer by vertex id. Everything else (static meshes, VS-time skinning): the vertex stream IS the bind pose. The vid
+// arg is dropped when unused, so callers without SV_VertexID still compile.
+#if USE_PRESKINNED
+#define GET_PRESKINNED_POSITION(input, vid) LoadPreSkinnedPosition(vid)
+#define GET_PRESKINNED_NORMAL(input, vid) LoadPreSkinnedNormal(vid)
+#else
+#define GET_PRESKINNED_POSITION(input, vid) ((input).Position.xyz)
+#define GET_PRESKINNED_NORMAL(input, vid) ((input).Normal.xyz * 2.0 - 1.0)
+#endif
 
 // Geometry data passed though the graphics rendering stages up to the pixel shader
 struct GeometryData
@@ -315,9 +343,11 @@ float3x3 CalcTangentToWorld(float4x4 world, float3x3 tangentToLocal)
 }
 
 // Vertex Shader function for GBuffer Pass and Depth Pass (with full vertex data)
+// USE_PRESKINNED=1 (permutation index 2): compute-skinned mesh whose material samples Pre-skinned nodes; fetch bind-pose by SV_VertexID.
 META_VS(true, FEATURE_LEVEL_ES2)
 META_PERMUTATION_1(USE_INSTANCING=0)
 META_PERMUTATION_1(USE_INSTANCING=1)
+META_PERMUTATION_2(USE_INSTANCING=0, USE_PRESKINNED=1)
 META_VS_IN_ELEMENT(POSITION, 0, R32G32B32_FLOAT,   0, 0,     PER_VERTEX, 0, true)
 META_VS_IN_ELEMENT(TEXCOORD, 0, R16G16_FLOAT,      1, 0,     PER_VERTEX, 0, true)
 META_VS_IN_ELEMENT(NORMAL,   0, R10G10B10A2_UNORM, 1, ALIGN, PER_VERTEX, 0, true)
@@ -325,7 +355,11 @@ META_VS_IN_ELEMENT(TANGENT,  0, R10G10B10A2_UNORM, 1, ALIGN, PER_VERTEX, 0, true
 META_VS_IN_ELEMENT(TEXCOORD, 1, R16G16_FLOAT,      1, ALIGN, PER_VERTEX, 0, true)
 META_VS_IN_ELEMENT(COLOR,    0, R8G8B8A8_UNORM,    2, 0,     PER_VERTEX, 0, USE_VERTEX_COLOR)
 META_VS_IN_ELEMENT(ATTRIBUTE,0, R32_UINT,          3, 0,     PER_INSTANCE, 1, USE_INSTANCING)
-VertexOutput VS(ModelInput input)
+VertexOutput VS(ModelInput input
+#if USE_PRESKINNED
+	, uint svVertexId : SV_VertexID
+#endif
+)
 {
 	VertexOutput output;
 
@@ -374,8 +408,8 @@ VertexOutput VS(ModelInput input)
 	MaterialInput materialInput = GetGeometryMaterialInput(output.Geometry);
 	materialInput.TwoSidedSign = object.WorldDeterminantSign;
 	materialInput.SvPosition = output.Position;
-	materialInput.PreSkinnedPosition = input.Position.xyz;
-	materialInput.PreSkinnedNormal = input.Normal.xyz * 2.0 - 1.0;
+	materialInput.PreSkinnedPosition = GET_PRESKINNED_POSITION(input, svVertexId);
+	materialInput.PreSkinnedNormal = GET_PRESKINNED_NORMAL(input, svVertexId);
 	materialInput.Object = object;
 	Material material = GetMaterialVS(materialInput);
 #endif
@@ -513,7 +547,12 @@ META_VS_IN_ELEMENT(NORMAL,       0, R10G10B10A2_UNORM, 0, ALIGN, PER_VERTEX, 0, 
 META_VS_IN_ELEMENT(TANGENT,      0, R10G10B10A2_UNORM, 0, ALIGN, PER_VERTEX, 0, true)
 META_VS_IN_ELEMENT(BLENDINDICES, 0, R8G8B8A8_UINT,     0, ALIGN, PER_VERTEX, 0, true)
 META_VS_IN_ELEMENT(BLENDWEIGHTS, 0, R16G16B16A16_FLOAT,0, ALIGN, PER_VERTEX, 0, true)
-VertexOutput VS_Skinned(ModelInput_Skinned input)
+VertexOutput VS_Skinned(ModelInput_Skinned input
+#if USE_PRESKINNED
+	// Never a real VS_Skinned permutation; only satisfies the shared GET_PRESKINNED_* macro when the file is compiled for VS's USE_PRESKINNED entry.
+	, uint svVertexId : SV_VertexID
+#endif
+)
 {
 	VertexOutput output;
 
@@ -563,8 +602,8 @@ VertexOutput VS_Skinned(ModelInput_Skinned input)
 	MaterialInput materialInput = GetGeometryMaterialInput(output.Geometry);
 	materialInput.TwoSidedSign = object.WorldDeterminantSign;
 	materialInput.SvPosition = output.Position;
-	materialInput.PreSkinnedPosition = input.Position.xyz;
-	materialInput.PreSkinnedNormal = input.Normal.xyz * 2.0 - 1.0;
+	materialInput.PreSkinnedPosition = GET_PRESKINNED_POSITION(input, svVertexId);
+	materialInput.PreSkinnedNormal = GET_PRESKINNED_NORMAL(input, svVertexId);
 	materialInput.Object = object;
 	Material material = GetMaterialVS(materialInput);
 #endif

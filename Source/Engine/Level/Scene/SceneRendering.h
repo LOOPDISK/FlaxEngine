@@ -63,6 +63,7 @@ public:
         StaticFlags = 8,
         AutoDelayDuringRendering = 16, // Conditionally allow updating data during rendering when writes are locked
         DrawModes = 32,
+        NoCulling = 64, // Actor's _drawNoCulling (always-draw) flag changed
         Auto = Visual | Bounds | Layer,
     };
 

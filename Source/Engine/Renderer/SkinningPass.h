@@ -33,8 +33,8 @@ public:
     /// </summary>
     bool IsReady() const { return _csSkin != nullptr; }
 
-    /// <summary>Ensures output VBs and queues this mesh's skinning dispatch (deduped per slot); false if not applicable so the caller falls back to VS-time skinning.</summary>
-    bool PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMesh* mesh, int32 slot, GPUBuffer*& outVB0, GPUBuffer*& outVB1, GPUBuffer*& outVB2);
+    /// <summary>Ensures output VBs and queues this mesh's skinning dispatch (deduped per slot); false if not applicable so the caller falls back to VS-time skinning. When needPreSkin, also allocates+returns a bind-pose Position/Normal buffer (outPreSkin) for materials sampling Pre-skinned nodes.</summary>
+    bool PrepareForDraw(SkinnedMeshDrawData* skinning, const SkinnedMesh* mesh, int32 slot, bool needPreSkin, GPUBuffer*& outVB0, GPUBuffer*& outVB1, GPUBuffer*& outVB2, GPUBuffer*& outPreSkin);
 
     /// <summary>Dispatches all work queued this frame. Call once after bone upload, before any pass reads the output VBs.</summary>
     void FlushPending(GPUContext* context);

@@ -361,6 +361,11 @@ API_ENUM(Attributes="Flags") enum class MaterialUsageFlags : uint32
     UseRefraction = 1 << 6,
 
     /// <summary>
+    /// The material samples Pre-skinned Local Position/Normal in the pixel shader. Compute-skinned meshes render via the static VS from deformed VBs, so the render must supply a separate bind-pose buffer for these to be correct (else object-space triplanar swims on animation).
+    /// </summary>
+    UsePreSkinning = 1 << 7,
+
+    /// <summary>
     /// The material is using color/surface properties (Color, Roughness, Metalness, Specular, AO). Used by decals to skip writing to GBuffer0/GBuffer2 when not needed.
     /// </summary>
     UseColor = 1 << 16,

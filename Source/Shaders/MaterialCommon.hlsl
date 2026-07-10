@@ -76,6 +76,9 @@
 #ifndef USE_WEAPON_FOV_OVERRIDE
 #define USE_WEAPON_FOV_OVERRIDE 0
 #endif
+#ifndef USE_PRESKINNED
+#define USE_PRESKINNED 0
+#endif
 
 // Object properties
 struct ObjectData

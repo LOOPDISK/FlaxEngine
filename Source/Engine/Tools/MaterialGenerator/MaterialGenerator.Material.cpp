@@ -188,12 +188,15 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         break;
     // Pre-skinned Local Position
     case 13:
+        // Compute-skinned meshes render via the static VS from deformed VBs; flag so the render binds a bind-pose buffer (see MaterialUsageFlags::UsePreSkinning).
+        _treeLayer->UsageFlags |= MaterialUsageFlags::UsePreSkinning;
         value = Value(VariantType::Float3, TEXT("input.PreSkinnedPosition"));
         if (_treeType != MaterialTreeType::VertexShader)
             value = VsToPs(node, box).AsFloat3();
         break;
     // Pre-skinned Local Normal
     case 14:
+        _treeLayer->UsageFlags |= MaterialUsageFlags::UsePreSkinning;
         value = Value(VariantType::Float3, TEXT("input.PreSkinnedNormal"));
         if (_treeType != MaterialTreeType::VertexShader)
             value = VsToPs(node, box).AsFloat3();

@@ -318,6 +318,8 @@ void SceneRendering::UpdateActor(Actor* a, int32& key, ISceneRenderingListener::
                 listener->OnSceneRenderingUpdateActor(a, e.Bounds, flags);
             if (flags & ISceneRenderingListener::Layer)
                 e.LayerMask = a->GetLayerMask();
+            if (flags & ISceneRenderingListener::NoCulling)
+                e.NoCulling = a->_drawNoCulling;
             if (flags & ISceneRenderingListener::Bounds)
             {
                 e.Bounds = a->GetSphere();

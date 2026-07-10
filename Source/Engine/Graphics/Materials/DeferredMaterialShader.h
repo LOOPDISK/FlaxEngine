@@ -14,6 +14,7 @@ private:
     {
         PipelineStateCache Default;
         PipelineStateCache DefaultSkinned;
+        PipelineStateCache DefaultPreSkinned; // GBuffer static-VS variant that fetches bind-pose from the compute-skin pre-skin buffer (Pre-skinned Local Position/Normal on compute-skinned meshes)
         PipelineStateCache DefaultLightmap;
         PipelineStateCache Depth;
         PipelineStateCache DepthSkinned;
@@ -25,7 +26,7 @@ private:
         PipelineStateCache QuadOverdrawSkinned;
 #endif
 
-        FORCE_INLINE PipelineStateCache* GetPS(const DrawPass pass, const bool useLightmap, const bool useSkinning, const bool perBoneMotionBlur)
+        FORCE_INLINE PipelineStateCache* GetPS(const DrawPass pass, const bool useLightmap, const bool useSkinning, const bool perBoneMotionBlur, const bool usePreSkin)
         {
             switch (pass)
             {
@@ -35,6 +36,9 @@ private:
             case DrawPass::GBuffer:
             case DrawPass::GBuffer | DrawPass::GlobalSurfaceAtlas:
             case DrawPass::GlobalSurfaceAtlas:
+                // Compute-skinned mesh whose material samples Pre-skinned nodes: static VS that fetches bind-pose. Never lightmapped/CPU-skinned here (compute-skin path nulls Surface.Skinning).
+                if (usePreSkin)
+                    return &DefaultPreSkinned;
                 return useLightmap ? &DefaultLightmap : (useSkinning ? &DefaultSkinned : &Default);
             case DrawPass::MotionVectors:
                 return useSkinning ? (perBoneMotionBlur ? &MotionVectorsSkinnedPerBone : &MotionVectorsSkinned) : &MotionVectors;
@@ -51,6 +55,7 @@ private:
         {
             Default.Release();
             DefaultSkinned.Release();
+            DefaultPreSkinned.Release();
             DefaultLightmap.Release();
             Depth.Release();
             DepthSkinned.Release();

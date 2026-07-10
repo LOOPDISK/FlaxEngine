@@ -132,11 +132,11 @@ void FoliageType::OnModelLoaded()
 {
     PROFILE_MEM(LevelFoliage);
 
-    // Now it's ready
-    _isReady = 1;
-
     // Prepare buffer (model may be modified so we should synchronize buffer with the actual asset)
     Entries.SetupIfInvalid(Model);
+
+    // Now it's ready - set after Entries are synced, else the render thread can pass IsReady() and index stale/empty Entries by material slot (crash)
+    _isReady = 1;
 
     // Inform foliage that instances may need to be updated (data caching, etc.)
     Foliage->OnFoliageTypeModelLoaded(Index);

@@ -21,7 +21,7 @@
 #include "Engine/Level/Scene/Lightmap.h"
 #include "Engine/Level/Actors/PostFxVolume.h"
 
-static_assert(sizeof(DrawCall) <= 288, "Too big draw call data size.");
+static_assert(sizeof(DrawCall) <= 296, "Too big draw call data size."); // 288 -> 296: Surface.PreSkinnedVB (compute-skin bind-pose buffer for Pre-skinned material nodes)
 static_assert(sizeof(DrawCall::Surface) >= sizeof(DrawCall::Terrain), "Wrong draw call data size.");
 static_assert(sizeof(DrawCall::Surface) >= sizeof(DrawCall::Particle), "Wrong draw call data size.");
 static_assert(sizeof(DrawCall::Surface) >= sizeof(DrawCall::Custom), "Wrong draw call data size.");
@@ -1275,8 +1275,10 @@ void SurfaceDrawCallHandler::GetHash(const DrawCall& drawCall, uint32& batchKey)
 bool SurfaceDrawCallHandler::CanBatch(const DrawCall& a, const DrawCall& b, DrawPass pass)
 {
     // TODO: find reason why batching static meshes with lightmap causes problems with sampling in shader (flickering when meshes in batch order gets changes due to async draw calls collection)
+    // PreSkinnedVB is per-draw bind state (t1 + VS permutation) but Bind runs once per batch - never batch pre-skin draws (compute-skinned, so Skinning==null doesn't exclude them)
     if (a.Surface.Lightmap == nullptr && b.Surface.Lightmap == nullptr &&
-        a.Surface.Skinning == nullptr && b.Surface.Skinning == nullptr)
+        a.Surface.Skinning == nullptr && b.Surface.Skinning == nullptr &&
+        a.Surface.PreSkinnedVB == nullptr && b.Surface.PreSkinnedVB == nullptr)
     {
         if (a.Material != b.Material)
         {

@@ -7,13 +7,15 @@
 
 #define OUTPUT0_STRIDE      12
 #define OUTPUT1_STRIDE      16
+#define OUTPUTPS_STRIDE     16 // Pre-skin (bind-pose): Position 12B + packed Normal 4B
 
 // Flags bits (match SkinningPass.cpp): 0x1 weights R8G8B8A8_UNorm, 0x2 indices R16G16B16A16_UInt,
-// 0x4 position R16G16B16A16_Float, 0x8 source has Color (passed through to OutputVB2).
+// 0x4 position R16G16B16A16_Float, 0x8 source has Color (passed through to OutputVB2), 0x10 write pre-skin bind-pose VB.
 #define FLAG_WEIGHTS_R8G8B8A8_UNORM       0x1u
 #define FLAG_INDICES_R16G16B16A16_UINT    0x2u
 #define FLAG_POSITION_R16G16B16A16_FLOAT  0x4u
 #define FLAG_HAS_VERTEX_COLOR             0x8u
+#define FLAG_WRITE_PRESKIN                0x10u
 
 META_CB_BEGIN(0, SkinningData)
 uint VertexCount;
@@ -39,6 +41,7 @@ ByteAddressBuffer InputVB : register(t1);
 RWByteAddressBuffer OutputVB0 : register(u0); // Position
 RWByteAddressBuffer OutputVB1 : register(u1); // TexCoord + Normal + Tangent + TexCoord1
 RWByteAddressBuffer OutputVB2 : register(u2); // Color (only written when FLAG_HAS_VERTEX_COLOR is set; unbound otherwise)
+RWByteAddressBuffer OutputPreSkin : register(u3); // Bind-pose Position(12B)+packed Normal(4B); only written+bound when FLAG_WRITE_PRESKIN is set
 
 float3x4 GetBoneMatrix(uint index)
 {
@@ -186,5 +189,15 @@ void CS_Skin(uint3 dispatchId : SV_DispatchThreadID)
     {
         uint colorRaw = InputVB.Load(base + OffsetColor);
         OutputVB2.Store(vid * 4, colorRaw);
+    }
+
+    // Write pre-skin bind-pose Position+Normal for materials sampling Pre-skinned Local Position/Normal (object-space
+    // triplanar on skinned meshes). Uses the pre-skin registers above (never touched by boneMatrix). Gated to avoid the
+    // extra buffer + stores on meshes whose material doesn't need it. Normal packed R10G10B10A2 to match input precision.
+    if (Flags & FLAG_WRITE_PRESKIN)
+    {
+        uint preSkinBase = vid * OUTPUTPS_STRIDE;
+        OutputPreSkin.Store3(preSkinBase, asuint(position));
+        OutputPreSkin.Store(preSkinBase + 12, PackR10G10B10A2_UNORM(float4(normal * 0.5 + 0.5, 0.0)));
     }
 }

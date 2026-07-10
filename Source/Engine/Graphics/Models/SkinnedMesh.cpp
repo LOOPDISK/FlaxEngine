@@ -343,14 +343,18 @@ void SkinnedMesh::Draw(const RenderContext& renderContext, const DrawInfo& info,
     GPUBuffer* skinnedOutVB0 = nullptr;
     GPUBuffer* skinnedOutVB1 = nullptr;
     GPUBuffer* skinnedOutVB2 = nullptr;
+    GPUBuffer* skinnedPreSkinVB = nullptr;
     const int32 skinSlot = (_lodIndex << 8) | (_index & 0xFF);
-    const bool useComputeSkinning = !info.Deformation && SkinningPass::Instance()->PrepareForDraw(info.Skinning, this, skinSlot, skinnedOutVB0, skinnedOutVB1, skinnedOutVB2);
+    // Materials sampling Pre-skinned Local Position/Normal need bind-pose data the deformed compute-skin VBs don't carry
+    const bool needPreSkin = EnumHasAnyFlags(material->Info().UsageFlags, MaterialUsageFlags::UsePreSkinning);
+    const bool useComputeSkinning = !info.Deformation && SkinningPass::Instance()->PrepareForDraw(info.Skinning, this, skinSlot, needPreSkin, skinnedOutVB0, skinnedOutVB1, skinnedOutVB2, skinnedPreSkinVB);
     if (useComputeSkinning)
     {
         drawCall.Geometry.VertexBuffers[0] = skinnedOutVB0;
         drawCall.Geometry.VertexBuffers[1] = skinnedOutVB1;
         drawCall.Geometry.VertexBuffers[2] = skinnedOutVB2; // nullptr when mesh has no vertex color
         drawCall.Surface.Skinning = nullptr;
+        drawCall.Surface.PreSkinnedVB = skinnedPreSkinVB; // non-null only when needPreSkin; selects the pre-skin static-VS variant in DeferredMaterialShader
     }
     else
     {
@@ -407,14 +411,18 @@ void SkinnedMesh::Draw(const RenderContextBatch& renderContextBatch, const DrawI
     GPUBuffer* skinnedOutVB0 = nullptr;
     GPUBuffer* skinnedOutVB1 = nullptr;
     GPUBuffer* skinnedOutVB2 = nullptr;
+    GPUBuffer* skinnedPreSkinVB = nullptr;
     const int32 skinSlot = (_lodIndex << 8) | (_index & 0xFF);
-    const bool useComputeSkinning = !info.Deformation && SkinningPass::Instance()->PrepareForDraw(info.Skinning, this, skinSlot, skinnedOutVB0, skinnedOutVB1, skinnedOutVB2);
+    // Materials sampling Pre-skinned Local Position/Normal need bind-pose data the deformed compute-skin VBs don't carry
+    const bool needPreSkin = EnumHasAnyFlags(material->Info().UsageFlags, MaterialUsageFlags::UsePreSkinning);
+    const bool useComputeSkinning = !info.Deformation && SkinningPass::Instance()->PrepareForDraw(info.Skinning, this, skinSlot, needPreSkin, skinnedOutVB0, skinnedOutVB1, skinnedOutVB2, skinnedPreSkinVB);
     if (useComputeSkinning)
     {
         drawCall.Geometry.VertexBuffers[0] = skinnedOutVB0;
         drawCall.Geometry.VertexBuffers[1] = skinnedOutVB1;
         drawCall.Geometry.VertexBuffers[2] = skinnedOutVB2; // nullptr when mesh has no vertex color
         drawCall.Surface.Skinning = nullptr;
+        drawCall.Surface.PreSkinnedVB = skinnedPreSkinVB; // non-null only when needPreSkin; selects the pre-skin static-VS variant in DeferredMaterialShader
     }
     else
     {
