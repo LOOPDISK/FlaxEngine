@@ -435,6 +435,20 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
             deserializeSceneObjectIndex++;
         }
 
+        // Deserialization can mark additional objects for deletion without removing
+        // them from the temporary cache. Purge those entries before Flush turns
+        // their non-null pointers into dangling pointers.
+        for (int32 i = sceneObjects->Count() - 1; i >= 0; i--)
+        {
+            SceneObject* obj = sceneObjects->At(i);
+            if (!obj || EnumHasAnyFlags(obj->Flags, ObjectFlags::WasMarkedToDelete))
+            {
+                sceneObjects.Value->RemoveAtKeepOrder(i);
+                if (i < existingObjectsCount)
+                    existingObjectsCount--;
+            }
+        }
+
         ObjectsRemovalService::Flush();
 
         // Rebuild IdsMapping after removals to exclude stale entries from deleted objects
@@ -452,12 +466,16 @@ bool PrefabInstanceData::SynchronizePrefabInstances(PrefabInstancesData& prefabI
             modifier->IdsMapping[newPrefabObjectIds[i]] = Guid::New();
         }
 
-        // Restore local changes (for the existing scene objects)
-        for (int32 i = 0; i < sceneObjects->Count(); i++)
+        // Restore local changes using the stable IDs captured before prefab
+        // synchronization. The sceneObjects cache is mutated by deserialization and
+        // object removal, so its pointers cannot be used as lookup keys here.
+        for (auto i = instance.PrefabInstanceIdToDataIndex.Begin(); i.IsNotEnd(); ++i)
         {
-            SceneObject* obj = sceneObjects->At(i);
-            int32 dataIndex;
-            if (instance.PrefabInstanceIdToDataIndex.TryGet(obj->GetSceneObjectId(), dataIndex))
+            SceneObject* obj = Scripting::FindObject<SceneObject>(i->Key);
+            if (!obj || EnumHasAnyFlags(obj->Flags, ObjectFlags::WasMarkedToDelete))
+                continue;
+            const int32 dataIndex = i->Value;
+            if (dataIndex >= 0 && dataIndex < instance.Data.Size())
             {
                 auto& data = instance.Data[dataIndex];
 #if 0
