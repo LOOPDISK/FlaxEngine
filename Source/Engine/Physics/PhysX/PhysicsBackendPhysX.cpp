@@ -1922,11 +1922,11 @@ void* PhysicsBackend::CreateScene(const PhysicsSettings& settings)
     sceneDesc.simulationEventCallback = &scenePhysX->EventsCallback;
     sceneDesc.filterShader = FilterShader;
     sceneDesc.bounceThresholdVelocity = settings.BounceThresholdVelocity;
-    // SQ tuning 2026-06-08: streamed-in static colliders sit in the secondary pruner; default
-    // eINCREMENTAL there is slow to query -> grounding-cast tail during streaming. eBVH builds a
-    // proper BVH (better query). Rate hint 100->20 migrates secondary->primary ~5x sooner,
-    // shrinking the degraded-query window (work only runs while a tree is dirty = on streaming).
-    sceneDesc.dynamicTreeSecondaryPruner = PxDynamicTreeSecondaryPruner::eBVH;
+    // Keep the incremental secondary pruner for streamed-in colliders. The PxBVH companion
+    // pruner can corrupt its tree under collider churn, crashing either while a query reads a
+    // stale shape payload or while CompanionPrunerAABBTree::build frees the previous tree.
+    // Retain the shorter rebuild rate so new objects still migrate to the primary tree quickly.
+    sceneDesc.dynamicTreeSecondaryPruner = PxDynamicTreeSecondaryPruner::eINCREMENTAL;
     sceneDesc.dynamicTreeRebuildRateHint = 20;
     if (settings.EnableEnhancedDeterminism)
         sceneDesc.flags |= PxSceneFlag::eENABLE_ENHANCED_DETERMINISM;

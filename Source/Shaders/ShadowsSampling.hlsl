@@ -125,13 +125,24 @@ float ComputeSlopeScaledBias(float authoredBias, float NoL)
 // Exact receiver-plane depth gradient dz/d(uv) in shadow projection space (Isidoro, "Shadow Mapping:
 // GPU-based Tips and Techniques"), from the full inverse-Jacobian of the shadow-space position's
 // screen derivatives. Purely geometric: exact for planar receivers under any projective tile matrix
-// (ortho cascade or perspective spot) and immune to normal maps. Returns 0 when the pixel quad
-// straddles a silhouette (degenerate Jacobian) - callers then rely on the flat epsilon alone.
-float2 ComputeReceiverPlaneDepthGradient(float3 shadowPosDDX, float3 shadowPosDDY)
+// (ortho cascade or perspective spot) and immune to normal maps. The degeneracy test is relative to
+// the derivative magnitudes: an absolute determinant epsilon makes valid planes fail when the camera
+// gets close and the world-space footprint of a pixel becomes very small.
+float2 ComputeReceiverPlaneDepthGradient(float3 shadowPosDDX, float3 shadowPosDDY, out bool isValid)
 {
     float det = shadowPosDDX.x * shadowPosDDY.y - shadowPosDDX.y * shadowPosDDY.x;
-    if (abs(det) < 1e-12f)
+    float ddxLengthSq = dot(shadowPosDDX.xy, shadowPosDDX.xy);
+    float ddyLengthSq = dot(shadowPosDDY.xy, shadowPosDDY.xy);
+    // abs(det) / (|ddx| * |ddy|) is the sine of the angle between the projected
+    // derivatives, so this rejects only an ill-conditioned Jacobian regardless of footprint scale.
+    // Take the square roots separately to keep the length product from underflowing at close range.
+    float jacobianScale = sqrt(ddxLengthSq) * sqrt(ddyLengthSq);
+    if (abs(det) <= 1e-4f * max(jacobianScale, 1e-30f))
+    {
+        isValid = false;
         return float2(0, 0);
+    }
+    isValid = true;
     float2 gradient;
     gradient.x = shadowPosDDY.y * shadowPosDDX.z - shadowPosDDX.y * shadowPosDDY.z;
     gradient.y = shadowPosDDX.x * shadowPosDDY.z - shadowPosDDY.x * shadowPosDDX.z;
@@ -166,12 +177,14 @@ float2 GetLightShadowAtlasUVWithReceiverBias(ShadowData shadow, ShadowTileData s
     // d(shadowPos)/d(screen) = WorldToShadow * d(worldPos) exactly (the /w above is a no-op here).
     float3 shadowPosDDX = mul(float4(ddxWorld, 0.0f), shadowTile.WorldToShadow).xyz;
     float3 shadowPosDDY = mul(float4(ddyWorld, 0.0f), shadowTile.WorldToShadow).xyz;
-    receiverPlaneDepthBias = ComputeReceiverPlaneDepthGradient(shadowPosDDX, shadowPosDDY) / shadowTile.ShadowToAtlas.xy;
+    bool receiverPlaneValid;
+    receiverPlaneDepthBias = ComputeReceiverPlaneDepthGradient(shadowPosDDX, shadowPosDDY, receiverPlaneValid) / shadowTile.ShadowToAtlas.xy;
 
     // The plane gradient replaces the authored slope-scaled bias: the comparison reference follows
     // the receiver surface per tap, so only the flat epsilon remains (depth-format quantization,
-    // folded into Bias on the CPU, plus any authored extra for LOD-mismatched or masked casters).
-    shadowPosition.z -= biasNorm;
+    // folded into Bias on the CPU, plus any authored extra for LOD-mismatched or masked casters). If
+    // the projected plane is genuinely degenerate, retain the slope-scaled fallback instead.
+    shadowPosition.z -= receiverPlaneValid ? biasNorm : ComputeSlopeScaledBias(biasNorm, NoL);
 #else
     // No derivatives (compute shaders) or single-tap quality that ignores the gradient: flat
     // reference with the legacy slope-scaled authored bias.
@@ -196,7 +209,8 @@ float2 GetLightShadowAtlasUVLocalWithReceiverBias(ShadowData shadow, ShadowTileD
 #if SHADOWS_USE_RECEIVER_PLANE_BIAS && SHADOWS_QUALITY != 0
     float3 shadowPosDDX = ddx(shadowPosition.xyz);
     float3 shadowPosDDY = ddy(shadowPosition.xyz);
-    receiverPlaneDepthBias = ComputeReceiverPlaneDepthGradient(shadowPosDDX, shadowPosDDY) / shadowTile.ShadowToAtlas.xy;
+    bool receiverPlaneValid;
+    receiverPlaneDepthBias = ComputeReceiverPlaneDepthGradient(shadowPosDDX, shadowPosDDY, receiverPlaneValid) / shadowTile.ShadowToAtlas.xy;
 #else
     receiverPlaneDepthBias = float2(0.0, 0.0);
 #endif
