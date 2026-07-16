@@ -244,15 +244,16 @@ namespace FlaxEditor.Surface.Archetypes
             {
                 TypeID = 5,
                 Title = "Parallax Occlusion Mapping",
-                Description = "Parallax occlusion mapping",
+                Description = "Parallax occlusion mapping with intersection information",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(260, 120),
+                Size = new Float2(260, 165),
                 DefaultValues = new object[]
                 {
                     0.05f,
                     8.0f,
                     20.0f,
-                    0
+                    0,
+                    0.25f,
                 },
                 Elements = new[]
                 {
@@ -262,8 +263,22 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(3, "Max Steps", true, typeof(float), 3, 2),
                     NodeElementArchetype.Factory.Input(4, "Heightmap Texture", true, typeof(FlaxEngine.Object), 4),
                     NodeElementArchetype.Factory.Output(0, "Parallax UVs", typeof(Float2), 5),
-                    NodeElementArchetype.Factory.Text(Surface.Constants.BoxRowHeight + 4, 5 * Surface.Constants.LayoutOffsetY, "Channel"),
-                    NodeElementArchetype.Factory.ComboBox(70, 5 * Surface.Constants.LayoutOffsetY, 50, 3, new[]
+                    NodeElementArchetype.Factory.Output(1, "UV Offset", typeof(Float2), 6),
+                    NodeElementArchetype.Factory.Output(2, "Ray Depth", typeof(float), 7),
+                    NodeElementArchetype.Factory.Output(3, "Surface Height", typeof(float), 8),
+                    NodeElementArchetype.Factory.Input(5, "Max UV Offset", true, typeof(float), 9, 4),
+                    NodeElementArchetype.Factory.Input(6, "View Vector TS", true, typeof(Float3), 10),
+
+                    NodeElementArchetype.Factory.Text(
+                        Surface.Constants.BoxRowHeight + 4,
+                        7 * Surface.Constants.LayoutOffsetY,
+                        "Channel"),
+                    NodeElementArchetype.Factory.ComboBox(
+                        70,
+                        7 * Surface.Constants.LayoutOffsetY,
+                        50,
+                        3,
+                        new[]
                     {
                         "R",
                         "G",

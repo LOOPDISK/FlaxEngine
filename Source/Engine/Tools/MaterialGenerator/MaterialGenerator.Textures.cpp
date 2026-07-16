@@ -486,92 +486,308 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
     // Parallax Occlusion Mapping
     case 5:
     {
-        auto heightTextureBox = node->GetBox(4);
-        if (!heightTextureBox->HasConnection())
+        auto parallaxUVBox = node->GetBox(5);
+        auto uvOffsetBox = node->GetBox(6);
+        auto rayDepthBox = node->GetBox(7);
+        auto surfaceHeightBox = node->GetBox(8);
+
+        if (parallaxUVBox->Cache.IsInvalid())
         {
-            value = Value::Zero;
-            // TODO: handle missing texture error
-            //OnError("No Variable Entry for height texture.", node);
+            auto heightTextureBox = node->GetBox(4);
+            if (!heightTextureBox->HasConnection())
+            {
+                OnError(node, box, TEXT("Parallax Occlusion Mapping requires a heightmap texture."));
+
+                parallaxUVBox->Cache = Value::Zero;
+                uvOffsetBox->Cache = Value::Zero;
+                rayDepthBox->Cache = Value::Zero;
+                surfaceHeightBox->Cache = Value::Zero;
+            }
+            else
+            {
+                auto heightTexture = eatBox(
+                    heightTextureBox->GetParent<Node>(),
+                    heightTextureBox->FirstConnection());
+
+                if (heightTexture.Type != VariantType::Object)
+                {
+                    OnError(node, box, TEXT("Invalid heightmap texture input."));
+
+                    parallaxUVBox->Cache = Value::Zero;
+                    uvOffsetBox->Cache = Value::Zero;
+                    rayDepthBox->Cache = Value::Zero;
+                    surfaceHeightBox->Cache = Value::Zero;
+                }
+                else
+                {
+                    const Value uvs = tryGetValue(node->GetBox(0), getUVs).AsFloat2();
+
+                    // POM cannot run outside the pixel shader because it uses derivatives
+                    // and texture sampling in a dynamic loop.
+                    if (_treeType != MaterialTreeType::PixelShader)
+                    {
+                        parallaxUVBox->Cache = uvs;
+                        uvOffsetBox->Cache = Value::Zero;
+                        rayDepthBox->Cache = Value::Zero;
+                        surfaceHeightBox->Cache = Value::One;
+                    }
+                    else
+                    {
+                        const Value scale = tryGetValue(
+                            node->GetBox(1),
+                            node->Values[0]).AsFloat();
+
+                        const Value minSteps = tryGetValue(
+                            node->GetBox(2),
+                            node->Values[1]).AsFloat();
+
+                        const Value maxSteps = tryGetValue(
+                            node->GetBox(3),
+                            node->Values[2]).AsFloat();
+
+                        // Fallback for material graphs saved before Max UV Offset was added.
+                        const Value maxUVOffset = tryGetValue(
+                            node->GetBox(9),
+                            node->Values.Count() > 4
+                            ? node->Values[4]
+                            : 0.25f).AsFloat();
+
+                        ASSERT(
+                            node->Values[3].Type == VariantType::Int &&
+                            Math::IsInRange(node->Values[3].AsInt, 0, 3));
+
+                        const auto channel = _subs[node->Values[3].AsInt];
+
+                        Value viewVectorTS;
+                        auto viewVectorBox = node->TryGetBox(10);
+
+                        if (viewVectorBox && viewVectorBox->HasConnection())
+                        {
+                            viewVectorTS = tryGetValue(
+                                viewVectorBox,
+                                Value::Zero).AsFloat3();
+                        }
+                        else
+                        {
+                            const Value cameraVectorWS = getCameraVector(node);
+
+                            viewVectorTS = writeLocal(
+                                VariantType::Float3,
+                                String::Format(
+                                    TEXT("TransformWorldVectorToTangent(input, {0})"),
+                                    cameraVectorWS.Value),
+                                node);
+                        }
+
+                        // Derivatives of the actual connected UV expression.
+                        const Value uvDx = writeLocal(
+                            VariantType::Float2,
+                            String::Format(TEXT("ddx({0})"), uvs.Value),
+                            node);
+
+                        const Value uvDy = writeLocal(
+                            VariantType::Float2,
+                            String::Format(TEXT("ddy({0})"), uvs.Value),
+                            node);
+                        // Result locals.
+                        const Value resultUV = writeLocal(
+                            VariantType::Float2,
+                            uvs.Value,
+                            node);
+
+                        const Value resultOffset = writeLocal(
+                            VariantType::Float2,
+                            TEXT("float2(0.0f, 0.0f)"),
+                            node);
+
+                        const Value resultRayDepth = writeLocal(
+                            VariantType::Float,
+                            TEXT("0.0f"),
+                            node);
+
+                        const Value resultSurfaceHeight = writeLocal(
+                            VariantType::Float,
+                            TEXT("1.0f"),
+                            node);
+
+                        const String code = ShaderStringBuilder()
+                            .Code(TEXT(R"(
+                            {
+                                // Normalize safely.
+                                float3 pomView = %VIEW_VECTOR%;
+                                pomView *= rsqrt(max(dot(pomView, pomView), 0.00000001f));
+
+                                // Preserve the sign while avoiding division by zero.
+                                float viewZSign = pomView.z < 0.0f ? -1.0f : 1.0f;
+                                float safeViewZ = viewZSign * max(abs(pomView.z), 0.02f);
+                                // More samples at grazing angles and fewer samples head-on.
+                                float minSampleCount = max(
+                                    1.0f,
+                                    min((float)(%MIN_STEPS%), (float)(%MAX_STEPS%)));
+
+                                float maxSampleCount = max(
+                                    minSampleCount,
+                                    max((float)(%MIN_STEPS%), (float)(%MAX_STEPS%)));
+
+                                float facing = saturate(abs(pomView.z));
+                                float sampleCountF = lerp(
+                                    maxSampleCount,
+                                    minSampleCount,
+                                    facing);
+
+                                int sampleCount = max(
+                                    1,
+                                    (int)(sampleCountF + 0.5f));
+
+                                // Compute the full ray offset in texture space.
+                                float2 maximumOffset =
+                                    (-pomView.xy / safeViewZ) * (%SCALE%);
+
+                                // Clamp by vector length rather than per component.
+                                float maximumOffsetLength = length(maximumOffset);
+                                float maximumOffsetLimit = max(
+                                    abs((float)(%MAX_UV_OFFSET%)),
+                                    0.00001f);
+
+                                maximumOffset *= min(
+                                    1.0f,
+                                    maximumOffsetLimit /
+                                        max(maximumOffsetLength, 0.00001f));
+
+                                float layerStep = 1.0f / (float)sampleCount;
+                                float2 offsetStep = maximumOffset / (float)sampleCount;
+
+                                float2 currentOffset = float2(0.0f, 0.0f);
+                                float currentRayHeight = 1.0f;
+
+                                float currentSampledHeight =
+                                    %HEIGHT_TEXTURE%.SampleGrad(
+                                        SamplerLinearWrap,
+                                        %INPUT_UV% + currentOffset,
+                                        %UV_DDX%,
+                                        %UV_DDY%)%HEIGHT_CHANNEL%;
+
+                                [loop]
+                                for (
+                                    int sampleIndex = 0;
+                                    sampleIndex < sampleCount;
+                                    sampleIndex++)
+                                {
+                                    // The initial sample may already lie on the surface.
+                                    if (currentSampledHeight >= currentRayHeight)
+                                        break;
+
+                                    float2 previousOffset = currentOffset;
+                                    float previousRayHeight = currentRayHeight;
+                                    float previousSampledHeight = currentSampledHeight;
+
+                                    currentOffset += offsetStep;
+
+                                    currentRayHeight = max(
+                                        0.0f,
+                                        currentRayHeight - layerStep);
+
+                                    currentSampledHeight =
+                                        %HEIGHT_TEXTURE%.SampleGrad(
+                                            SamplerLinearWrap,
+                                            %INPUT_UV% + currentOffset,
+                                            %UV_DDX%,
+                                            %UV_DDY%)%HEIGHT_CHANNEL%;
+
+                                    if (currentSampledHeight >= currentRayHeight)
+                                    {
+                                        // Refine between the last point above the surface
+                                        // and the first point beneath it.
+                                        float previousDifference =
+                                            previousSampledHeight -
+                                            previousRayHeight;
+
+                                        float currentDifference =
+                                            currentSampledHeight -
+                                            currentRayHeight;
+
+                                        float denominator = max(
+                                            currentDifference - previousDifference,
+                                            0.00001f);
+
+                                        float interpolation = saturate(
+                                            -previousDifference /
+                                            denominator);
+
+                                        currentOffset = lerp(
+                                            previousOffset,
+                                            currentOffset,
+                                            interpolation);
+
+                                        currentRayHeight = lerp(
+                                            previousRayHeight,
+                                            currentRayHeight,
+                                            interpolation);
+
+                                        currentSampledHeight = lerp(
+                                            previousSampledHeight,
+                                            currentSampledHeight,
+                                            interpolation);
+
+                                        break;
+                                    }
+                                }
+
+                                %RESULT_OFFSET% = currentOffset;
+                                %RESULT_UV% = %INPUT_UV% + currentOffset;
+                                %RESULT_RAY_DEPTH% =
+                                    saturate(1.0f - currentRayHeight);
+                                %RESULT_SURFACE_HEIGHT% =
+                                    saturate(currentSampledHeight);
+                            }
+                        )"))
+                            .Replace(TEXT("%VIEW_VECTOR%"), viewVectorTS.Value)
+                            .Replace(TEXT("%MIN_STEPS%"), minSteps.Value)
+                            .Replace(TEXT("%MAX_STEPS%"), maxSteps.Value)
+                            .Replace(TEXT("%SCALE%"), scale.Value)
+                            .Replace(TEXT("%MAX_UV_OFFSET%"), maxUVOffset.Value)
+                            .Replace(TEXT("%HEIGHT_TEXTURE%"), heightTexture.Value)
+                            .Replace(TEXT("%HEIGHT_CHANNEL%"), channel)
+                            .Replace(TEXT("%INPUT_UV%"), uvs.Value)
+                            .Replace(TEXT("%UV_DDX%"), uvDx.Value)
+                            .Replace(TEXT("%UV_DDY%"), uvDy.Value)
+                            .Replace(TEXT("%RESULT_UV%"), resultUV.Value)
+                            .Replace(TEXT("%RESULT_OFFSET%"), resultOffset.Value)
+                            .Replace(TEXT("%RESULT_RAY_DEPTH%"), resultRayDepth.Value)
+                            .Replace(
+                                TEXT("%RESULT_SURFACE_HEIGHT%"),
+                                resultSurfaceHeight.Value)
+                            .Build();
+
+                        _writer.Write(*code);
+
+                        parallaxUVBox->Cache = resultUV;
+                        uvOffsetBox->Cache = resultOffset;
+                        rayDepthBox->Cache = resultRayDepth;
+                        surfaceHeightBox->Cache = resultSurfaceHeight;
+                    }
+                }
+            }
+        }
+
+        switch (box->ID)
+        {
+        case 5:
+            value = parallaxUVBox->Cache;
+            break;
+        case 6:
+            value = uvOffsetBox->Cache;
+            break;
+        case 7:
+            value = rayDepthBox->Cache;
+            break;
+        case 8:
+            value = surfaceHeightBox->Cache;
+            break;
+        default:
+            CRASH;
             break;
         }
-        auto heightTexture = eatBox(heightTextureBox->GetParent<Node>(), heightTextureBox->FirstConnection());
-        if (heightTexture.Type != VariantType::Object)
-        {
-            value = Value::Zero;
-            // TODO: handle invalid connection data error
-            //OnError("No Variable Entry for height texture.", node);
-            break;
-        }
-        Value uvs = tryGetValue(node->GetBox(0), getUVs).AsFloat2();
-        if (_treeType != MaterialTreeType::PixelShader)
-        {
-            // Required ddx/ddy instructions are only supported in Pixel Shader
-            value = uvs;
-            break;
-        }
-        Value scale = tryGetValue(node->GetBox(1), node->Values[0]);
-        Value minSteps = tryGetValue(node->GetBox(2), node->Values[1]);
-        Value maxSteps = tryGetValue(node->GetBox(3), node->Values[2]);
-        Value result = writeLocal(VariantType::Float2, uvs.Value, node);
-        createGradients(node);
-        ASSERT(node->Values[3].Type == VariantType::Int && Math::IsInRange(node->Values[3].AsInt, 0, 3));
-        auto channel = _subs[node->Values[3].AsInt];
-        Value cameraVectorWS = getCameraVector(node);
-        Value cameraVectorTS = writeLocal(VariantType::Float3, String::Format(TEXT("TransformWorldVectorToTangent(input, {0})"), cameraVectorWS.Value), node);
-        auto code = String::Format(TEXT(
-            "	{{\n"
-            "	float vLength = length({8}.rg);\n"
-            "	float coeff0 = vLength / {8}.b;\n"
-            "	float coeff1 = coeff0 * (-({4}));\n"
-            "	float2 vNorm = {8}.rg / vLength;\n"
-            "	float2 maxOffset = (vNorm * coeff1);\n"
-
-            "	float numSamples = lerp({0}, {3}, saturate(dot({9}, input.TBN[2])));\n"
-            "	float stepSize = 1.0 / numSamples;\n"
-
-            "	float2 currOffset = 0;\n"
-            "	float2 lastOffset = 0;\n"
-            "	float currRayHeight = 1.0;\n"
-            "	float lastSampledHeight = 1;\n"
-            "	int currSample = 0;\n"
-
-            "	while (currSample < (int)numSamples)\n"
-            "	{{\n"
-            "		float currSampledHeight = {1}.SampleGrad(SamplerLinearWrap, {10} + currOffset, {5}, {6}){7};\n"
-
-            "		if (currSampledHeight > currRayHeight)\n"
-            "		{{\n"
-            "			float delta1 = currSampledHeight - currRayHeight;\n"
-            "			float delta2 = (currRayHeight + stepSize) - lastSampledHeight;\n"
-            "			float ratio = delta1 / max(delta1 + delta2, 0.00001f);\n"
-            "			currOffset = ratio * lastOffset + (1.0 - ratio) * currOffset;\n"
-            "			break;\n"
-            "		}}\n"
-
-            "		currRayHeight -= stepSize;\n"
-            "		lastOffset = currOffset;\n"
-            "		currOffset += stepSize * maxOffset;\n"
-            "		lastSampledHeight = currSampledHeight;\n"
-            "		currSample++;\n"
-            "	}}\n"
-
-            "	{2} = {10} + currOffset;\n"
-            "	}}\n"
-        ),
-            minSteps.Value, // {0}
-            heightTexture.Value, // {1}
-            result.Value, // {2}
-            maxSteps.Value, // {3}
-            scale.Value, // {4}
-            _ddx.Value, // {5}
-            _ddy.Value, // {6}
-            channel, // {7}
-            cameraVectorTS.Value, // {8}
-            cameraVectorWS.Value, // {9}
-            uvs.Value // {10}   
-        );
-        _writer.Write(*code);
-        value = result;
         break;
     }
     // Scene Texture
