@@ -123,6 +123,9 @@ void PostFxVolume::Serialize(SerializeStream& stream, const void* otherObj)
         stream.JKEY("GI");
         stream.Object(&GlobalIllumination, other ? &other->GlobalIllumination : nullptr);
 
+        stream.JKEY("DepthHaze");
+        stream.Object(&DepthHaze, other ? &other->DepthHaze : nullptr);
+
         stream.JKEY("Bloom");
         stream.Object(&Bloom, other ? &other->Bloom : nullptr);
 
@@ -175,6 +178,7 @@ void PostFxVolume::Deserialize(DeserializeStream& stream, ISerializeModifier* mo
         auto& settingsStream = settingsMember->value;
         AmbientOcclusion.DeserializeIfExists(settingsStream, "AO", modifier);
         GlobalIllumination.DeserializeIfExists(settingsStream, "GI", modifier);
+        DepthHaze.DeserializeIfExists(settingsStream, "DepthHaze", modifier);
         Bloom.DeserializeIfExists(settingsStream, "Bloom", modifier);
         ToneMapping.DeserializeIfExists(settingsStream, "ToneMapping", modifier);
         ColorGrading.DeserializeIfExists(settingsStream, "ColorGrading", modifier);
