@@ -96,6 +96,13 @@ float GetShadowTileTexelWorldSize(ShadowTileData tile, float atlasResolution)
     return worldPerUV / tileResolution;
 }
 
+// Atlas UV rectangle owned by a single shadow tile. Directional cascades have no allocation border,
+// so variable-radius filters must explicitly stay inside this rectangle or they read adjacent tiles.
+float4 GetShadowTileUVBounds(ShadowTileData tile)
+{
+    return float4(tile.ShadowToAtlas.zw, tile.ShadowToAtlas.zw + tile.ShadowToAtlas.xy);
+}
+
 float2 GetLightShadowAtlasUV(ShadowData shadow, ShadowTileData shadowTile, float3 samplePosition, out float4 shadowPosition)
 {
     // Project into shadow space (WorldToShadow is pre-multiplied to convert Clip Space to UV Space)
@@ -242,23 +249,29 @@ float SampleShadowMap(Texture2D<float> shadowMap, float2 shadowMapUV, float scen
     return result;
 }
 
-float SampleShadowMapOptimizedPCFHelper(Texture2D<float> shadowMap, float2 baseUV, float u, float v, float2 shadowMapSizeInv, float sceneDepth, float2 receiverPlaneBias = float2(0, 0))
+float SampleShadowMapOptimizedPCFHelper(Texture2D<float> shadowMap, float2 baseUV, float u, float v, float2 shadowMapSizeInv, float sceneDepth, float2 receiverPlaneBias, float4 sampleBounds)
 {
     float2 offset = float2(u, v) * shadowMapSizeInv;
-    float2 uv = baseUV + offset;
-    float biasedDepth = sceneDepth + dot(offset, receiverPlaneBias);
+    float2 uv = clamp(baseUV + offset, sampleBounds.xy, sampleBounds.zw);
+    // Follow the receiver plane by the offset actually sampled. At a tile edge the requested tap is
+    // clamped, so using its unclamped offset would compare the edge texel against the wrong plane.
+    float biasedDepth = sceneDepth + dot(uv - baseUV, receiverPlaneBias);
     return SAMPLE_SHADOW_MAP(shadowMap, uv, biasedDepth);
 }
 
 // [Shadow map sampling method used in The Witness, https://github.com/TheRealMJP/Shadows]
-float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV, float sceneDepth, float2 screenPos = float2(0, 0), float2 receiverPlaneBias = float2(0, 0))
+float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV, float sceneDepth, float2 screenPos = float2(0, 0), float2 receiverPlaneBias = float2(0, 0), float4 shadowMapUVBounds = float4(0, 0, 1, 1))
 {
-#if SHADOWS_QUALITY != 0
     float2 shadowMapSize;
     shadowMap.GetDimensions(shadowMapSize.x, shadowMapSize.y);
-
-    float2 uv = shadowMapUV.xy * shadowMapSize; // 1 unit - 1 texel
     float2 shadowMapSizeInv = 1.0f / shadowMapSize;
+    // Comparison sampling is bilinear. Keep its footprint at least half a texel inside the tile so
+    // the hardware 2x2 comparison cannot blend depth from an adjacent atlas allocation.
+    float4 sampleBounds = shadowMapUVBounds + float4(0.5f * shadowMapSizeInv, -0.5f * shadowMapSizeInv);
+    sampleBounds.zw = max(sampleBounds.zw, sampleBounds.xy);
+
+#if SHADOWS_QUALITY != 0
+    float2 uv = shadowMapUV.xy * shadowMapSize; // 1 unit - 1 texel
 
     // Add screen-space stable blue noise offset for temporal stability
     float noise = 0.0;
@@ -274,6 +287,7 @@ float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV
     float t = (uv.y + 0.5 - baseUV.y);
     baseUV -= float2(0.5, 0.5);
     baseUV *= shadowMapSizeInv;
+    baseUV = clamp(baseUV, sampleBounds.xy, sampleBounds.zw);
 
     // Re-anchor the plane reference from the pixel's exact UV to the snapped (+ jittered) kernel
     // origin, then pad by the half-texel slope a shared bilinear comparison reference can't resolve
@@ -284,7 +298,7 @@ float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV
     float sum = 0;
 #endif
 #if SHADOWS_QUALITY == 0
-    return SAMPLE_SHADOW_MAP(shadowMap, shadowMapUV, sceneDepth);
+    return SAMPLE_SHADOW_MAP(shadowMap, clamp(shadowMapUV, sampleBounds.xy, sampleBounds.zw), sceneDepth);
 #elif SHADOWS_QUALITY == 1
 	float uw0 = (3 - 2 * s);
 	float uw1 = (1 + 2 * s);
@@ -298,10 +312,10 @@ float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV
 	float v0 = (2 - t) / vw0 - 1;
 	float v1 = t / vw1 + 1;
 
-	sum += uw0 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw1 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw0 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw1 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
+    sum += uw0 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+    sum += uw1 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+    sum += uw0 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+    sum += uw1 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
 
 	return sum * 1.0f / 16;
 #elif SHADOWS_QUALITY == 2
@@ -321,17 +335,17 @@ float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV
 	float v1 = (3 + t) / vw1;
 	float v2 = t / vw2 + 2;
 
-	sum += uw0 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw1 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw2 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
+	sum += uw0 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw1 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw2 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
 
-	sum += uw0 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw1 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw2 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
+	sum += uw0 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw1 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw2 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
 
-	sum += uw0 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw1 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw2 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
+	sum += uw0 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw1 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw2 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
 
 	return sum * 1.0f / 144;
 #elif SHADOWS_QUALITY == 3
@@ -355,25 +369,25 @@ float SampleShadowMapOptimizedPCF(Texture2D<float> shadowMap, float2 shadowMapUV
 	float v2 = -(7 * t + 5) / vw2 + 1;
 	float v3 = -t / vw3 + 3;
 
-	sum += uw0 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw1 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw2 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw3 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u3, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
+	sum += uw0 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw1 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw2 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw3 * vw0 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u3, v0, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
 
-	sum += uw0 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw1 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw2 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw3 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u3, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
+	sum += uw0 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw1 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw2 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw3 * vw1 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u3, v1, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
 
-	sum += uw0 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw1 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw2 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw3 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u3, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
+	sum += uw0 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw1 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw2 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw3 * vw2 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u3, v2, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
 
-	sum += uw0 * vw3 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v3, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw1 * vw3 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v3, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw2 * vw3 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v3, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
-	sum += uw3 * vw3 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u3, v3, shadowMapSizeInv, sceneDepth, receiverPlaneBias);
+	sum += uw0 * vw3 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u0, v3, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw1 * vw3 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u1, v3, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw2 * vw3 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u2, v3, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
+	sum += uw3 * vw3 * SampleShadowMapOptimizedPCFHelper(shadowMap, baseUV, u3, v3, shadowMapSizeInv, sceneDepth, receiverPlaneBias, sampleBounds);
 
 	return sum * (1.0f / 2704);
 #else
@@ -414,7 +428,7 @@ float2 ShadowVogelDisk(int i, int n, float rot)
 // Each tap compares against the receiver PLANE (receiverDepth extrapolated along the gradient), so
 // a sloped receiver's own surface doesn't register as a blocker across the disk. Depth is point-
 // sampled: linear-filtering raw depth across discontinuities corrupts the blocker average.
-float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, float receiverDepth, float searchRadiusAtlasUV, float2 receiverPlaneBias, float rot, float maxPlaneBias)
+float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, float receiverDepth, float searchRadiusAtlasUV, float2 receiverPlaneBias, float rot, float maxPlaneBias, float4 sampleBounds)
 {
     float blockerSum = 0.0;
     float blockerCount = 0.0;
@@ -422,8 +436,10 @@ float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, f
     for (int i = 0; i < PCSS_BLOCKER_TAPS; i++)
     {
         float2 offset = ShadowVogelDisk(i, PCSS_BLOCKER_TAPS, rot) * searchRadiusAtlasUV;
-        float d = shadowMap.SampleLevel(SamplerPointClamp, atlasUV + offset, 0).r;
-        if (d < receiverDepth + clamp(dot(offset, receiverPlaneBias), -maxPlaneBias, maxPlaneBias))
+        float2 sampleUV = clamp(atlasUV + offset, sampleBounds.xy, sampleBounds.zw);
+        float2 sampledOffset = sampleUV - atlasUV;
+        float d = shadowMap.SampleLevel(SamplerPointClamp, sampleUV, 0).r;
+        if (d < receiverDepth + clamp(dot(sampledOffset, receiverPlaneBias), -maxPlaneBias, maxPlaneBias))
         {
             blockerSum += d;
             blockerCount += 1.0;
@@ -434,14 +450,16 @@ float FindBlockerDepth_Directional(Texture2D<float> shadowMap, float2 atlasUV, f
 
 // Variable-radius Vogel PCF in atlas UV (rotated per pixel). Radius is the disk radius (atlas-UV units).
 // Per-tap references follow the receiver plane along the gradient.
-float SamplePCF_VogelDirectional(Texture2D<float> shadowMap, float2 atlasUV, float sceneDepth, float radiusAtlasUV, float2 receiverPlaneBias, float rot, float maxPlaneBias)
+float SamplePCF_VogelDirectional(Texture2D<float> shadowMap, float2 atlasUV, float sceneDepth, float radiusAtlasUV, float2 receiverPlaneBias, float rot, float maxPlaneBias, float4 sampleBounds)
 {
     float sum = 0.0;
     UNROLL
     for (int i = 0; i < PCSS_PCF_TAPS; i++)
     {
         float2 offset = ShadowVogelDisk(i, PCSS_PCF_TAPS, rot) * radiusAtlasUV;
-        sum += SAMPLE_SHADOW_MAP(shadowMap, atlasUV + offset, sceneDepth + clamp(dot(offset, receiverPlaneBias), -maxPlaneBias, maxPlaneBias));
+        float2 sampleUV = clamp(atlasUV + offset, sampleBounds.xy, sampleBounds.zw);
+        float2 sampledOffset = sampleUV - atlasUV;
+        sum += SAMPLE_SHADOW_MAP(shadowMap, sampleUV, sceneDepth + clamp(dot(sampledOffset, receiverPlaneBias), -maxPlaneBias, maxPlaneBias));
     }
     return sum * (1.0 / float(PCSS_PCF_TAPS));
 }
@@ -454,6 +472,12 @@ float SamplePCF_VogelDirectional(Texture2D<float> shadowMap, float2 atlasUV, flo
 float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, float2 atlasUV, float receiverDepth, float lightSize, float2 receiverPlaneBias, float2 screenPos)
 {
     float rot = ShadowVogelRotation(screenPos);
+
+    float2 shadowMapSize;
+    shadowMap.GetDimensions(shadowMapSize.x, shadowMapSize.y);
+    float2 shadowMapSizeInv = 1.0f / shadowMapSize;
+    float4 sampleBounds = GetShadowTileUVBounds(tile) + float4(0.5f * shadowMapSizeInv, -0.5f * shadowMapSizeInv);
+    sampleBounds.zw = max(sampleBounds.zw, sampleBounds.xy);
 
     // Work in WORLD units so the penumbra matches across cascade boundaries. Doing this in cascade-UV
     // (the old way) made a fixed Softness mean a different world penumbra per cascade - each cascade
@@ -477,7 +501,7 @@ float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, fl
 
     // Blocker search over the cascade's depth span (the widest plausible penumbra), sized in world.
     float searchRadiusAtlasUV = lightSize * worldPerDepth * worldToAtlasUV;
-    float avgBlocker = FindBlockerDepth_Directional(shadowMap, atlasUV, receiverDepth, searchRadiusAtlasUV, receiverPlaneBias, rot, maxPlaneBias);
+    float avgBlocker = FindBlockerDepth_Directional(shadowMap, atlasUV, receiverDepth, searchRadiusAtlasUV, receiverPlaneBias, rot, maxPlaneBias, sampleBounds);
     if (avgBlocker < 0.0)
         return 1.0; // No blockers in search disk -> fully lit
 
@@ -487,11 +511,9 @@ float SamplePCSS_Directional(Texture2D<float> shadowMap, ShadowTileData tile, fl
     float filterRadiusAtlasUV = penumbraWorld * worldToAtlasUV;
 
     // Clamp to >= ~1 atlas texel for a stable footprint (resolution-relative, intentionally per-tile).
-    float2 shadowMapSize;
-    shadowMap.GetDimensions(shadowMapSize.x, shadowMapSize.y);
     filterRadiusAtlasUV = max(filterRadiusAtlasUV, 1.0 / shadowMapSize.x);
 
-    return SamplePCF_VogelDirectional(shadowMap, atlasUV, receiverDepth, filterRadiusAtlasUV, receiverPlaneBias, rot, maxPlaneBias);
+    return SamplePCF_VogelDirectional(shadowMap, atlasUV, receiverDepth, filterRadiusAtlasUV, receiverPlaneBias, rot, maxPlaneBias, sampleBounds);
 }
 
 // Samples the shadow cascade for the given directional light on the material surface (supports subsurface shadowing)
@@ -499,6 +521,7 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
 {
     ShadowSample result;
     ShadowTileData shadowTile = LoadShadowsBufferTile(shadowsBuffer, light.ShadowsBufferAddress, cascadeIndex);
+    float4 shadowTileUVBounds = GetShadowTileUVBounds(shadowTile);
 
     // Receiver-plane gradient is built from the raw surface world position's screen derivatives (not the
     // per-cascade biased samplePosition), so it stays continuous across cascade splits / the dither band.
@@ -519,7 +542,7 @@ ShadowSample SampleDirectionalLightShadowCascade(LightData light, Buffer<float4>
     else
     {
         // Fixed-radius Witness PCF with receiver plane bias and blue noise
-        result.SurfaceShadow = SampleShadowMapOptimizedPCF(shadowMap, shadowMapUV, shadowPosition.z, screenPos, receiverPlaneBias);
+        result.SurfaceShadow = SampleShadowMapOptimizedPCF(shadowMap, shadowMapUV, shadowPosition.z, screenPos, receiverPlaneBias, shadowTileUVBounds);
     }
 
     // Increase sharpness for higher cascades to match the fixed-radius PCF's growing texel footprint.
@@ -736,7 +759,7 @@ ShadowSample SampleLocalLightShadow(LightData light, Buffer<float4> shadowsBuffe
     float2 shadowMapUV = GetLightShadowAtlasUVLocalWithReceiverBias(shadow, shadowTile, samplePosition, shadowPosition, receiverPlaneBias);
 
     // Sample shadow map
-    result.SurfaceShadow = SampleShadowMapOptimizedPCF(shadowMap, shadowMapUV, shadowPosition.z, float2(0, 0), receiverPlaneBias);
+    result.SurfaceShadow = SampleShadowMapOptimizedPCF(shadowMap, shadowMapUV, shadowPosition.z, float2(0, 0), receiverPlaneBias, GetShadowTileUVBounds(shadowTile));
 
 #if defined(USE_GBUFFER_CUSTOM_DATA)
 	// Subsurface shadowing
