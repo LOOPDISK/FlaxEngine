@@ -349,11 +349,8 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         const auto baseNormal = tryGetValue(node->GetBox(0), getNormalZero).AsFloat3();
         const auto additionalNormal = tryGetValue(node->GetBox(1), getNormalZero).AsFloat3();
 
-        const String text1 = String::Format(TEXT("(float2({0}.xy) + float2({1}.xy) * 2.0)"), baseNormal.Value, additionalNormal.Value);
-        const auto appendXY = writeLocal(ValueType::Float2, text1, node);
-
-        const String text2 = String::Format(TEXT("float3({0}, sqrt(saturate(1.0 - dot({0}.xy, {0}.xy))))"), appendXY.Value);
-        value = writeLocal(ValueType::Float3, text2, node);
+        const String text = String::Format(TEXT("normalize(float3({0}.xy + {1}.xy, {0}.z * {1}.z))"), baseNormal.Value, additionalNormal.Value);
+        value = writeLocal(ValueType::Float3, text, node);
         break;
     }
     // Rotator
