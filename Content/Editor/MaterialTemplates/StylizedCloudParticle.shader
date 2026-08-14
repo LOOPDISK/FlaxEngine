@@ -278,8 +278,8 @@ Cloud_VS2PS VS_Model(ModelInput input, uint particleIndex : SV_InstanceID)
 	// Read particle data
 	float4x4 worldMatrix = ToMatrix4x4(WorldMatrix);
 	float3 particlePosition = GetParticleVec3(particleIndex, PositionOffset);
-	float3 particleScale = GetParticleVec3(particleIndex, ScaleOffset);
-	float3 particleRotation = GetParticleVec3(particleIndex, RotationOffset);
+	float3 particleScale = ScaleOffset != -1 ? GetParticleVec3(particleIndex, ScaleOffset) : float3(1, 1, 1);
+	float3 particleRotation = RotationOffset != -1 ? GetParticleVec3(particleIndex, RotationOffset) : float3(0, 0, 0);
 	int modelFacingMode = ModelFacingModeOffset != -1 ? GetParticleInt(particleIndex, ModelFacingModeOffset) : -1;
 	float3 position = mul(float4(particlePosition, 1), worldMatrix).xyz;
 
@@ -329,9 +329,9 @@ Cloud_VS2PS VS_Model(ModelInput input, uint particleIndex : SV_InstanceID)
 	// Compute clip space position
 	output.Position = mul(float4(worldPos, 1), ViewProjection);
 
-	// Calculate world normal
+	// Calculate world normal (full per-particle transform: rotation, facing alignment and scale)
 	half3x3 tangentToLocal = CalcTangentToLocal(input);
-	half3x3 tangentToWorld = CalcTangentToWorld(worldMatrix, tangentToLocal);
+	half3x3 tangentToWorld = CalcTangentToWorld(world, tangentToLocal);
 	output.WorldNormal = normalize(tangentToWorld[2]);
 
 	// Pass vertex attributes

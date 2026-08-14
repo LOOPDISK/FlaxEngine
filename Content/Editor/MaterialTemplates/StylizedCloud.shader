@@ -207,7 +207,7 @@ Cloud_VS2PS VS_CloudPrePass(ModelInput input)
 	output.Position = mul(worldPos, ViewProjection);
 	output.WorldPos = worldPos.xyz;
 	float3 normal = normalize(input.Normal.xyz * 2.0 - 1.0);
-	output.WorldNormal = normalize(mul(normal, (float3x3)WorldMatrix));
+	output.WorldNormal = normalize(mul(normal, RemoveScaleFromLocalToWorld((float3x3)WorldMatrix)));
 	output.TexCoord = input.TexCoord0;
 #if USE_VERTEX_COLOR
 	output.VertexColor = input.Color;
