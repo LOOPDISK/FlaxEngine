@@ -129,7 +129,11 @@ void StylizedCloudParticleMaterialShader::Bind(BindParameters& params)
     {
         GPUTexture* shadowMapAtlas = nullptr;
         GPUBufferView* shadowsBuffer = nullptr;
-        ShadowsPass::GetShadowAtlas(params.RenderContext.Buffers, shadowMapAtlas, shadowsBuffer);
+        if (view.Pass != DrawPass::Depth && view.Pass != DrawPass::WeaponDepth)
+        {
+            ShadowsPass::GetShadowAtlas(params.RenderContext.Buffers, shadowMapAtlas, shadowsBuffer);
+        }
+            
         context->BindSR(14, shadowsBuffer);
         context->BindSR(15, shadowMapAtlas);
     }

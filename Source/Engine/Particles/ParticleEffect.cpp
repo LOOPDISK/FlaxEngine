@@ -608,6 +608,8 @@ void ParticleEffect::Draw(RenderContext& renderContext)
 {
     if (renderContext.View.Pass == DrawPass::GlobalSDF || 
         renderContext.View.Pass == DrawPass::GlobalSurfaceAtlas ||
+        renderContext.View.Pass == DrawPass::Depth ||
+        renderContext.View.Pass == DrawPass::WeaponDepth ||
         EnumHasNoneFlags(renderContext.View.Flags, ViewFlags::Particles))
         return;
     _lastMinDstSqr = Math::Min(_lastMinDstSqr, Vector3::DistanceSquared(GetPosition(), renderContext.View.WorldPosition));
