@@ -429,19 +429,19 @@ struct ShadowClipmap
                 SceneDepthMinZ = (Math::Floor(sceneMinZ / bucket) - 1.0f) * bucket;
                 SceneDepthMaxZ = (Math::Ceil(sceneMaxZ / bucket) + 1.0f) * bucket;
                 SceneDepthValid = true;
-                LOG(Info, "[ShadowClipmap] scene depth interval init: [{0}, {1}] (raw [{2}, {3}])",
-                    SceneDepthMinZ, SceneDepthMaxZ, sceneMinZ, sceneMaxZ);
+                //LOG(Info, "[ShadowClipmap] scene depth interval init: [{0}, {1}] (raw [{2}, {3}])",
+                //    SceneDepthMinZ, SceneDepthMaxZ, sceneMinZ, sceneMaxZ);
             }
             else
             {
-                const float oldMinZ = SceneDepthMinZ, oldMaxZ = SceneDepthMaxZ;
+                //const float oldMinZ = SceneDepthMinZ, oldMaxZ = SceneDepthMaxZ;
                 if (sceneMinZ < SceneDepthMinZ)
                     SceneDepthMinZ = (Math::Floor(sceneMinZ / bucket) - 1.0f) * bucket;
                 if (sceneMaxZ > SceneDepthMaxZ)
                     SceneDepthMaxZ = (Math::Ceil(sceneMaxZ / bucket) + 1.0f) * bucket;
-                if (SceneDepthMinZ != oldMinZ || SceneDepthMaxZ != oldMaxZ)
-                    LOG(Info, "[ShadowClipmap] scene depth interval expand: [{0}, {1}] -> [{2}, {3}]",
-                        oldMinZ, oldMaxZ, SceneDepthMinZ, SceneDepthMaxZ);
+                //if (SceneDepthMinZ != oldMinZ || SceneDepthMaxZ != oldMaxZ)
+                //    LOG(Info, "[ShadowClipmap] scene depth interval expand: [{0}, {1}] -> [{2}, {3}]",
+                //        oldMinZ, oldMaxZ, SceneDepthMinZ, SceneDepthMaxZ);
             }
         }
 
