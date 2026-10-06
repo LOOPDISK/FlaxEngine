@@ -805,7 +805,9 @@ CreateAssetResult ImportModel::CreatePrefab(CreateAssetContext& context, const M
         // Setup node in hierarchy
         nodeToActor.Add(nodeIndex, nodeActor);
         nodeActor->SetName(node.Name);
+        nodeActor->SetLocalTransform(node.LocalTransform);
 
+#if 0
         // When use local origin is checked, it shifts everything over the same amount, including the root. This tries to work around that.
         if (!(nodeIndex == 0 && options.UseLocalOrigin))
         {
@@ -841,6 +843,7 @@ CreateAssetResult ImportModel::CreatePrefab(CreateAssetContext& context, const M
 
             nodeActor->SetLocalTransform(positionOffset);
         }
+#endif
 
         if (nodeIndex == 0)
         {

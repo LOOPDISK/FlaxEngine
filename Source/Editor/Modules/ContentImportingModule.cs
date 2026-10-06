@@ -265,6 +265,8 @@ namespace FlaxEditor.Modules
         /// <param name="settings">Import settings to override. Use null to skip this value.</param>
         private void Import(string inputPath, string outputPath, bool isInBuilt, bool skipSettingsDialog = false, object settings = null)
         {
+            inputPath = StringUtils.NormalizePath(inputPath);
+            outputPath = StringUtils.NormalizePath(outputPath);
             lock (_requests)
             {
                 _requests.Add(new Request
@@ -324,7 +326,9 @@ namespace FlaxEditor.Modules
                         }
 
                         _importBatchDone++;
+                        Profiler.BeginEvent("ImportFileEnd");
                         ImportFileEnd?.Invoke(entry, failed);
+                        Profiler.EndEvent();
                     }
                 }
                 else

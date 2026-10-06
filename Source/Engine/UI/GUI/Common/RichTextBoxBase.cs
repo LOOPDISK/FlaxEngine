@@ -30,6 +30,11 @@ namespace FlaxEngine.GUI
         public ParseTextBlocksDelegate ParseTextBlocks;
 
         /// <summary>
+        /// Gets the list of parsed text blocks.
+        /// </summary>
+        public List<TextBlock> TextBlocks => _textBlocks;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="RichTextBoxBase"/> class.
         /// </summary>
         protected RichTextBoxBase()
@@ -95,15 +100,19 @@ namespace FlaxEngine.GUI
             }
 
             // Handle case when index is outside all text ranges
-            if (index >= 0 && blockCount > 0 && index <= textBlocksSpan[0].Range.StartIndex)
+            if (index >= 0 && blockCount > 0)
             {
-                result = textBlocksSpan[0];
-                return true;
-            }
-            if (index >= 0 && blockCount > 0 && index >= textBlocksSpan[blockCount - 1].Range.StartIndex)
-            {
-                result = textBlocksSpan[blockCount - 1];
-                return true;
+                if (index <= textBlocksSpan[0].Range.StartIndex)
+                {
+                    result = textBlocksSpan[0];
+                    return true;
+                }
+
+                if (index >= textBlocksSpan[blockCount - 1].Range.StartIndex)
+                {
+                    result = textBlocksSpan[blockCount - 1];
+                    return true;
+                }
             }
 
             // If no text block is found
@@ -378,7 +387,7 @@ namespace FlaxEngine.GUI
                 {
                     var leftEdge = selection.StartIndex <= textBlock.Range.StartIndex ? textBlock.Bounds.UpperLeft : GetCharPosition(selection.StartIndex, out _);
                     var rightEdge = selection.EndIndex >= textBlock.Range.EndIndex ? textBlock.Bounds.UpperRight : GetCharPosition(selection.EndIndex, out _);
-                    float height = font.Height;
+                    float height = font.Height / DpiScale;
 #if PLATFORM_MAC && !PLATFORM_SDL
                     height /= (float)Platform.Dpi / 96.0f; // TODO: refactor DPI support on macOS to skip such hacks
 #endif
@@ -431,7 +440,7 @@ namespace FlaxEngine.GUI
                 if (textBlock.Style.UnderlineBrush != null)
                 {
                     var underLineHeight = 2.0f;
-                    var height = font.Height;
+                    var height = font.Height / DpiScale;
                     var underlineRect = new Rectangle(textBlock.Bounds.Location.X, textBlock.Bounds.Location.Y + height - underLineHeight * 0.5f, textBlock.Bounds.Width, underLineHeight);
                     textBlock.Style.UnderlineBrush.Draw(underlineRect, textBlock.Style.Color);
                 }

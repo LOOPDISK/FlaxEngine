@@ -110,18 +110,14 @@ void TerrainPatch::Init(Terrain* terrain, int16 x, int16 z)
 
 TerrainPatch::~TerrainPatch()
 {
+    if (HasCollision())
+        DestroyCollision();
 #if TERRAIN_EDITING
     SAFE_DELETE(_dataHeightmap);
     for (int32 i = 0; i < TERRAIN_MAX_SPLATMAPS_COUNT; i++)
     {
         SAFE_DELETE(_dataSplatmap[i]);
     }
-#endif
-#if TERRAIN_USE_PHYSICS_DEBUG
-    SAFE_DELETE_GPU_RESOURCE(_debugLines);
-#endif
-#if USE_EDITOR
-    SAFE_DELETE_GPU_RESOURCE(_collisionTrianglesBuffer);
 #endif
 }
 
@@ -2231,9 +2227,9 @@ void TerrainPatch::DestroyCollision()
     ScopeLock lock(_collisionLocker);
     ASSERT(HasCollision());
 
-    void* scene = _terrain->GetPhysicsScene()->GetPhysicsScene();
+    void* scene = _terrain->GetPhysicsScene() ? _terrain->GetPhysicsScene()->GetPhysicsScene() : nullptr;
     PhysicsBackend::RemoveCollider(_terrain);
-    if (_terrain->IsDuringPlay() && _terrain->IsActiveInHierarchy())
+    if (scene && _terrain->IsDuringPlay() && _terrain->IsActiveInHierarchy())
         PhysicsBackend::RemoveSceneActor(scene, _physicsActor);
     PhysicsBackend::DestroyActor(_physicsActor);
     PhysicsBackend::DestroyShape(_physicsShape);

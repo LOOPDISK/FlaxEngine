@@ -179,6 +179,11 @@ namespace FlaxEditor.Options
             /// Focus the Game Window. On play mode end restore focus to the previous window.
             /// </summary>
             GameWindowThenRestore,
+            
+            /// <summary>
+            /// Focus the Game Window. On play mode end restore focus to the editor window.
+            /// </summary>
+            GameWindowThenRestoreEditor
         }
 
         /// <summary>
@@ -189,12 +194,18 @@ namespace FlaxEditor.Options
             /// <summary>
             /// Determined automatically based on the system and any known compatibility issues with native decorations.
             /// </summary>
+#if PLATFORM_MAC && !PLATFORM_SDL
+            [HideInEditor]
+#endif
             Auto,
 
             /// <summary>
             /// Automatically choose most compatible window decorations for child windows, prefer custom decorations on main window.
             /// </summary>
             [EditorDisplay(Name = "Auto (Child Only)")]
+#if PLATFORM_MAC && !PLATFORM_SDL
+            [HideInEditor]
+#endif
             AutoChildOnly,
 
             /// <summary>
@@ -307,18 +318,18 @@ namespace FlaxEditor.Options
         [EditorDisplay("Interface"), EditorOrder(322)]
         public bool ScrollToScriptOnAdd { get; set; } = true;
 
-#if PLATFORM_SDL
+#if PLATFORM_SDL || PLATFORM_MAC
         /// <summary>
         /// Gets or sets a value indicating whether use native window title bar decorations in child windows. Editor restart required.
         /// </summary>
-#if PLATFORM_WINDOWS
+#if PLATFORM_WINDOWS || PLATFORM_MAC
         [DefaultValue(WindowDecorationsType.ClientSide)]
 #else
         [DefaultValue(WindowDecorationsType.AutoChildOnly)]
 #endif
         [EditorDisplay("Tabs & Windows"), EditorOrder(70), Tooltip("Determines whether use native window title bar decorations. Editor restart required.")]
         public WindowDecorationsType WindowDecorations { get; set; } =
-#if PLATFORM_WINDOWS
+#if PLATFORM_WINDOWS || PLATFORM_MAC
             WindowDecorationsType.ClientSide;
 #else
             WindowDecorationsType.AutoChildOnly;
@@ -514,9 +525,9 @@ namespace FlaxEditor.Options
         /// <summary>
         /// Gets or sets a value indicating what panel should be focused when play mode start.
         /// </summary>
-        [DefaultValue(PlayModeFocus.GameWindow)]
+        [DefaultValue(PlayModeFocus.GameWindowThenRestoreEditor)]
         [EditorDisplay("Play In-Editor", "Focus On Play"), EditorOrder(500), Tooltip("Set what panel to focus on play mode start.")]
-        public PlayModeFocus FocusOnPlayMode { get; set; } = PlayModeFocus.GameWindow;
+        public PlayModeFocus FocusOnPlayMode { get; set; } = PlayModeFocus.GameWindowThenRestoreEditor;
 
         /// <summary>
         /// Gets or sets a value indicating what action should be taken upon pressing the play button.

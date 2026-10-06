@@ -588,6 +588,10 @@ void ModelTool::Options::Serialize(SerializeStream& stream, const void* otherObj
     SERIALIZE(TriangleReduction);
     SERIALIZE(SloppyOptimization);
     SERIALIZE(LODTargetError);
+    SERIALIZE(LODTargetErrorAbsolute);
+    SERIALIZE(LODLockBorder);
+    SERIALIZE(LODPreserveUVs);
+    SERIALIZE(LODPreserveUVsWeight);
     SERIALIZE(ImportMaterials);
     SERIALIZE(CreateEmptyMaterialSlots);
     SERIALIZE(ImportMaterialsAsInstances);
@@ -645,6 +649,10 @@ void ModelTool::Options::Deserialize(DeserializeStream& stream, ISerializeModifi
     DESERIALIZE(TriangleReduction);
     DESERIALIZE(SloppyOptimization);
     DESERIALIZE(LODTargetError);
+    DESERIALIZE(LODTargetErrorAbsolute);
+    DESERIALIZE(LODLockBorder);
+    DESERIALIZE(LODPreserveUVs);
+    DESERIALIZE(LODPreserveUVsWeight);
     DESERIALIZE(ImportMaterials);
     DESERIALIZE(CreateEmptyMaterialSlots);
     DESERIALIZE(ImportMaterialsAsInstances);
@@ -1304,10 +1312,10 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
         }
         break;
     case ModelType::SkinnedModel:
-        if (data.LODs.Count() > 1)
+        if (data.LODs.IsEmpty() || data.LODs[0].Meshes.IsEmpty())
         {
-            LOG(Warning, "Imported skinned model has more than one LOD. Removing the lower LODs. Only single one is supported.");
-            data.LODs.Resize(1);
+            errorMsg = TEXT("Imported skinned model has no valid geometry.");
+            return true;
         }
         break;
     case ModelType::Animation:
@@ -1628,6 +1636,7 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
             }
         }
     }
+#if 0
     if (EnumHasAnyFlags(options.ImportTypes, ImportDataTypes::Geometry) && options.Type == ModelType::Prefab)
     {
         // Log original node transforms before processing
@@ -1999,6 +2008,7 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
     // Automatic LOD generation
     if (options.GenerateLODs && options.LODCount > 1 && data.LODs.HasItems() && options.TriangleReduction < 1.0f - ZeroTolerance)
     {
+        PROFILE_CPU_NAMED("GenerateLODs");
         auto lodStartTime = DateTime::NowUTC();
         meshopt_setAllocator(MeshOptAllocate, MeshOptDeallocate);
         float triangleReduction = Math::Saturate(options.TriangleReduction);
@@ -2037,21 +2047,21 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
                     continue;
                 indices.Clear();
                 indices.Resize(srcMeshIndexCount);
-                int32 dstMeshIndexCount = {};
+                int32 dstMeshIndexCount = 0;
                 if (options.SloppyOptimization)
                 {
+                    PROFILE_CPU_NAMED("meshopt_simplifySloppy");
                     dstMeshIndexCount = (int32)meshopt_simplifySloppy(indices.Get(), srcMesh->Indices.Get(), srcMeshIndexCount, (const float*)srcMesh->Positions.Get(), srcMeshVertexCount, sizeof(Float3), dstMeshIndexCountTarget, options.LODTargetError);
                 }
                 else
                 {
                     // Build simplification flags
                     unsigned int simplifyOptions = 0;
-                    if (options.LockBorder)
+                    if (options.LODLockBorder)
                         simplifyOptions |= meshopt_SimplifyLockBorder;
-                    if (options.ErrorAbsolute)
+                    if (options.LODTargetErrorAbsolute)
                         simplifyOptions |= meshopt_SimplifyErrorAbsolute;
-
-                    if (options.PreserveUVs && srcMesh->UVs.HasItems())
+                    if (options.LODPreserveUVs && srcMesh->UVs.HasItems())
                     {
                         // Pack UV channels as attributes for meshopt_simplifyWithAttributes
                         int32 uvChannelCount = srcMesh->UVs.Count();
@@ -2064,21 +2074,24 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
                         {
                             for (int32 v = 0; v < srcMeshVertexCount; v++)
                             {
-                                attributes[v * attributeCount + ch * 2 + 0] = srcMesh->UVs[ch][v].X;
-                                attributes[v * attributeCount + ch * 2 + 1] = srcMesh->UVs[ch][v].Y;
+                                Float2 uv = srcMesh->UVs[ch][v];
+                                attributes[v * attributeCount + ch * 2 + 0] = uv.X;
+                                attributes[v * attributeCount + ch * 2 + 1] = uv.Y;
                             }
-                            attributeWeights[ch * 2 + 0] = options.UVWeight;
-                            attributeWeights[ch * 2 + 1] = options.UVWeight;
+                            attributeWeights[ch * 2 + 0] = options.LODPreserveUVsWeight;
+                            attributeWeights[ch * 2 + 1] = options.LODPreserveUVsWeight;
                         }
+                        PROFILE_CPU_NAMED("meshopt_simplifyWithAttributes");
                         dstMeshIndexCount = (int32)meshopt_simplifyWithAttributes(indices.Get(), srcMesh->Indices.Get(), srcMeshIndexCount, (const float*)srcMesh->Positions.Get(), srcMeshVertexCount, sizeof(Float3), attributes.Get(), sizeof(float) * attributeCount, attributeWeights.Get(), attributeCount, nullptr, dstMeshIndexCountTarget, options.LODTargetError, simplifyOptions, nullptr);
                     }
                     else
                     {
+                        PROFILE_CPU_NAMED("meshopt_simplify");
                         dstMeshIndexCount = (int32)meshopt_simplify(indices.Get(), srcMesh->Indices.Get(), srcMeshIndexCount, (const float*)srcMesh->Positions.Get(), srcMeshVertexCount, sizeof(Float3), dstMeshIndexCountTarget, options.LODTargetError, simplifyOptions, nullptr);
                     }
                 }
-                if (dstMeshIndexCount <= 0 || dstMeshIndexCount > indices.Count())
-                    continue;
+                if (dstMeshIndexCount <= 0 || dstMeshIndexCount >= indices.Count())
+                    continue; // Skip if failed to generate LOD or it doesn't have less vertices than source
                 indices.Resize(dstMeshIndexCount);
 
                 // Generate simplified vertex buffer remapping table (use only vertices from LOD index buffer)
@@ -2295,7 +2308,7 @@ int32 ModelTool::GetNodeMetadataCount(const String& path, const String& nodeName
     ModelData data;
     String errorMsg;
 
-    if (!ImportData(path, data, options, errorMsg))
+    if (ImportData(path, data, options, errorMsg))
     {
         return -1;
     }
@@ -2317,7 +2330,7 @@ String ModelTool::GetNodeMetadataKey(const String& path, const String& nodeName,
     ModelData data;
     String errorMsg;
 
-    if (!ImportData(path, data, options, errorMsg))
+    if (ImportData(path, data, options, errorMsg))
     {
         return String::Empty;
     }
@@ -2351,7 +2364,7 @@ String ModelTool::GetNodeMetadataValue(const String& path, const String& nodeNam
     ModelData data;
     String errorMsg;
 
-    if (!ImportData(path, data, options, errorMsg))
+    if (ImportData(path, data, options, errorMsg))
     {
         return String::Empty;
     }

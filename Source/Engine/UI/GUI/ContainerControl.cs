@@ -171,6 +171,12 @@ namespace FlaxEngine.GUI
         /// </summary>
         public virtual void DisposeChildren()
         {
+            // Steal focus from children to maintain it in a hierarchy
+            if (ContainsFocus)
+            {
+                Focus();
+            }
+
             bool wasLayoutLocked = _isLayoutLocked;
             _isLayoutLocked = true;
 
@@ -910,7 +916,7 @@ namespace FlaxEngine.GUI
                     return false;
                 }
             }
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible)
@@ -928,7 +934,7 @@ namespace FlaxEngine.GUI
         public override void OnMouseEnter(Float2 location)
         {
             // Check all children collisions with mouse and fire events for them
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -948,7 +954,7 @@ namespace FlaxEngine.GUI
         public override void OnMouseMove(Float2 location)
         {
             // Check all children collisions with mouse and fire events for them
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -998,7 +1004,7 @@ namespace FlaxEngine.GUI
         public override bool OnMouseWheel(Float2 location, float delta)
         {
             // Check all children collisions with mouse and fire events for them
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -1019,7 +1025,7 @@ namespace FlaxEngine.GUI
         public override bool OnMouseDown(Float2 location, MouseButton button)
         {
             // Check all children collisions with mouse and fire events for them
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -1040,7 +1046,7 @@ namespace FlaxEngine.GUI
         public override bool OnMouseUp(Float2 location, MouseButton button)
         {
             // Check all children collisions with mouse and fire events for them
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -1061,7 +1067,7 @@ namespace FlaxEngine.GUI
         public override bool OnMouseDoubleClick(Float2 location, MouseButton button)
         {
             // Check all children collisions with mouse and fire events for them
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -1096,7 +1102,7 @@ namespace FlaxEngine.GUI
         /// <inheritdoc />
         public override void OnTouchEnter(Float2 location, int pointerId)
         {
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled && !child.IsTouchPointerOver(pointerId))
@@ -1114,7 +1120,7 @@ namespace FlaxEngine.GUI
         /// <inheritdoc />
         public override bool OnTouchDown(Float2 location, int pointerId)
         {
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -1139,7 +1145,7 @@ namespace FlaxEngine.GUI
         /// <inheritdoc />
         public override void OnTouchMove(Float2 location, int pointerId)
         {
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -1168,7 +1174,7 @@ namespace FlaxEngine.GUI
         /// <inheritdoc />
         public override bool OnTouchUp(Float2 location, int pointerId)
         {
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled && child.IsTouchPointerOver(pointerId))
@@ -1250,7 +1256,7 @@ namespace FlaxEngine.GUI
             var result = base.OnDragEnter(ref location, data);
 
             // Check all children collisions with mouse and fire events for them
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -1275,7 +1281,7 @@ namespace FlaxEngine.GUI
             var result = base.OnDragMove(ref location, data);
 
             // Check all children collisions with mouse and fire events for them
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)
@@ -1333,7 +1339,7 @@ namespace FlaxEngine.GUI
             var result = base.OnDragDrop(ref location, data);
 
             // Check all children collisions with mouse and fire events for them
-            for (int i = _children.Count - 1; i >= 0 && _children.Count > 0; i--)
+            for (int i = _children.Count - 1; i >= 0 && i < _children.Count; i--)
             {
                 var child = _children[i];
                 if (child.Visible && child.Enabled)

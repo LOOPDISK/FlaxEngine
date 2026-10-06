@@ -423,7 +423,7 @@ namespace FlaxEditor.Viewport
         /// <summary>
         /// Gets a value indicating whether this viewport has loaded dependant assets.
         /// </summary>
-        public virtual bool HasLoadedAssets => true;
+        public virtual bool HasContentLoaded => true;
 
         /// <summary>
         /// The 'View' widget button context menu.
@@ -1561,8 +1561,9 @@ namespace FlaxEditor.Viewport
             var center = Float2.Round(size * 0.5f);
             if (Mathf.Abs(_viewMousePos.X - center.X) > center.X * 0.8f || Mathf.Abs(_viewMousePos.Y - center.Y) > center.Y * 0.8f)
             {
-                _viewMousePos = center;
-                win.MousePosition = PointToWindow(_viewMousePos);
+                var windowPosition = SnapMousePositionToDevicePixels(PointToWindow(center), win.DpiScale);
+                _viewMousePos = PointFromWindow(windowPosition);
+                win.MousePosition = windowPosition * win.DpiScale;
             }
 #endif
         }
@@ -1577,6 +1578,11 @@ namespace FlaxEditor.Viewport
             win.Cursor = CursorType.Default;
             win.EndTrackingMouse();
             win.MouseMoveRelative -= OnMouseMoveRelative;
+        }
+
+        internal static Float2 SnapMousePositionToDevicePixels(Float2 position, float dpiScale)
+        {
+            return Float2.Round(position * dpiScale) / dpiScale;
         }
 
         /// <summary>
@@ -1859,8 +1865,9 @@ namespace FlaxEditor.Viewport
                 // Move mouse back to the root position
                 if (centerMouse && (_input.IsMouseRightDown || _input.IsMouseLeftDown || _input.IsMouseMiddleDown || _isVirtualMouseRightDown))
                 {
-                    var center = PointToWindow(_startPos);
-                    win.MousePosition = center;
+                    var windowPosition = SnapMousePositionToDevicePixels(PointToWindow(_startPos), win.Window.DpiScale);
+                    _startPos = PointFromWindow(windowPosition);
+                    win.MousePosition = windowPosition;
                 }
 #endif
 

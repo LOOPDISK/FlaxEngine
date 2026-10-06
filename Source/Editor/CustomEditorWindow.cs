@@ -3,6 +3,7 @@
 using FlaxEditor.CustomEditors;
 using FlaxEditor.GUI.Docking;
 using FlaxEditor.Windows;
+using FlaxEngine;
 using FlaxEngine.GUI;
 
 namespace FlaxEditor
@@ -89,7 +90,7 @@ namespace FlaxEditor
             {
                 Editor.Instance.Windows.AddToRestore(this);
             }
-            Window.Close();
+            Window.Close(ClosingReason.ScriptsReload);
             Window.Dispose();
         }
 

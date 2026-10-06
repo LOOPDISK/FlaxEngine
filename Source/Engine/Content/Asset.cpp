@@ -273,6 +273,7 @@ String Asset::ToString() const
 
 void Asset::OnDeleteObject()
 {
+    PROFILE_CPU_NAMED("Asset.Unload");
     ASSERT(IsInMainThread());
 
     // Send event to the gameplay so it can release handle to this asset
@@ -433,7 +434,7 @@ void Asset::Reload()
         // Cancel any still-running loading task (e.g. if WaitForLoaded timed out)
         Platform::AtomicStore(&_loadingTask, 0);
 
-        if (IsLoaded())
+        if (IsLoaded() || LastLoadFailed())
         {
             // Unload current data
             unload(true);

@@ -80,6 +80,8 @@ namespace FlaxEditor
         /// <param name="surface">The surface.</param>
         public void HighlightBrushSurface(BrushSurface surface)
         {
+            if (surface.Brush == null)
+                return;
             surface.Brush.GetVertices(surface.Index, out var vertices);
             if (vertices.Length > 0)
             {
@@ -123,7 +125,7 @@ namespace FlaxEditor
                     if (model == null)
                         continue;
                     staticModel.Transform.GetWorld(out world);
-                    var bounds = BoundingSphere.FromBox(staticModel.Box);
+                    var bounds = BoundingSphere.FromBox(staticModel.BoundingBox);
 
                     // Pick a proper LOD
                     Float3 center = bounds.Center - renderContext.View.Origin;

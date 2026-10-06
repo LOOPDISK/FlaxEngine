@@ -128,8 +128,9 @@ MaterialBase* StaticModel::GetMaterial(int32 meshIndex, int32 lodIndex) const
         Math::IsInRange(meshIndex, 0, model->LODs[lodIndex].Meshes.Count()));
     const auto& mesh = model->LODs[lodIndex].Meshes[meshIndex];
     const auto materialSlotIndex = mesh.GetMaterialSlotIndex();
-    MaterialBase* material = Entries[materialSlotIndex].Material.Get();
-    if (!material && Entries[materialSlotIndex].Material.GetID() == Guid::Empty)
+    const bool hasEntry = materialSlotIndex < Entries.Count();
+    MaterialBase* material = hasEntry ? Entries[materialSlotIndex].Material.Get() : nullptr;
+    if (!material && (!hasEntry || Entries[materialSlotIndex].Material.GetID() == Guid::Empty))
         material = model->MaterialSlots[materialSlotIndex].Material.Get();
     return material;
 }
@@ -472,8 +473,7 @@ void StaticModel::Serialize(SerializeStream& stream, const void* otherObj)
         stream.Rectangle(Lightmap.UVsArea);
     }
 
-    stream.JKEY("Buffer");
-    stream.Object(&Entries, other ? &other->Entries : nullptr);
+    SERIALIZE_MEMBER(Buffer, Entries);
 
     if (_vertexColorsCount)
     {
@@ -512,8 +512,7 @@ void StaticModel::Deserialize(DeserializeStream& stream, ISerializeModifier* mod
     DESERIALIZE_MEMBER(DrawModes, _drawModes);
     DESERIALIZE_MEMBER(LightmapIndex, Lightmap.TextureIndex);
     DESERIALIZE_MEMBER(LightmapArea, Lightmap.UVsArea);
-
-    Entries.DeserializeIfExists(stream, "Buffer", modifier);
+    DESERIALIZE_MEMBER(Buffer, Entries);
 
     {
         const auto member = stream.FindMember("VertexColors");
@@ -596,9 +595,10 @@ MaterialBase* StaticModel::GetMaterial(int32 entryIndex)
 {
     if (!Model || Model->WaitForLoaded())
         return nullptr;
-    CHECK_RETURN(entryIndex >= 0 && entryIndex < Entries.Count(), nullptr);
-    MaterialBase* material = Entries[entryIndex].Material.Get();
-    if (!material && Entries[entryIndex].Material.GetID() == Guid::Empty && entryIndex < Model->MaterialSlots.Count())
+    CHECK_RETURN(entryIndex >= 0 && entryIndex < Model->MaterialSlots.Count(), nullptr);
+    const bool hasEntry = entryIndex < Entries.Count();
+    MaterialBase* material = hasEntry ? Entries[entryIndex].Material.Get() : nullptr;
+    if (!material && (!hasEntry || Entries[entryIndex].Material.GetID() == Guid::Empty))
     {
         // Only fall back to model default when no material was explicitly assigned.
         // If a material was assigned but is missing, don't mask the problem with a fallback.

@@ -204,11 +204,11 @@ PhysicsScene* Physics::FindScene(const StringView& name)
 
 void Physics::DeleteScene(PhysicsScene* scene)
 {
-    if (scene == nullptr) return;
-    if (scene == Physics::DefaultScene) return;
+    if (scene == nullptr || scene == DefaultScene)
+        return;
     scene->CollectResults();
-    Physics::Scenes.Remove(scene);
-    scene->DestroyManaged();
+    Scenes.RemoveKeepOrder(scene);
+    Delete(scene);
 }
 
 bool Physics::GetAutoSimulation()

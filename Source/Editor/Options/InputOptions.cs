@@ -60,14 +60,14 @@ namespace FlaxEditor.Options
     public sealed class InputOptions
     {
         /// <summary>
-        /// Gets a value based on the current settings that indicates wether window shortcuts will be avaliable during play mode.
+        /// Gets a value based on the current settings that indicates whether window shortcuts will be available during play mode.
         /// </summary>
-        public static bool WindowShortcutsAvaliable => !Editor.IsPlayMode || Editor.Instance.Options.Options.Input.PlayModeWindowShortcutAvaliability == PlayModeShortcutAvailability.All;
+        public static bool WindowShortcutsAvailable => !Editor.IsPlayMode || Editor.Instance.Options.Options.Input.PlayModeWindowShortcutAvaliability == PlayModeShortcutAvailability.All;
 
         /// <summary>
-        /// Gets a value based on the current settings that indicates wether the profiler window shortcut will be avaliable during play mode.
+        /// Gets a value based on the current settings that indicates whether the profiler window shortcut will be available during play mode.
         /// </summary>
-        public static bool ProfilerShortcutAvaliable => WindowShortcutsAvaliable || Editor.Instance.Options.Options.Input.PlayModeWindowShortcutAvaliability == PlayModeShortcutAvailability.ProfilerOnly;
+        public static bool ProfilerShortcutAvailable => WindowShortcutsAvailable || Editor.Instance.Options.Options.Input.PlayModeWindowShortcutAvaliability == PlayModeShortcutAvailability.ProfilerOnly;
 
         #region Common
 
@@ -122,6 +122,10 @@ namespace FlaxEditor.Options
         [DefaultValue(typeof(InputBinding), "Shift+F")]
         [EditorDisplay("Common"), EditorOrder(200)]
         public InputBinding LockFocusSelection = new InputBinding(KeyboardKeys.F, KeyboardKeys.Shift);
+
+        [DefaultValue(typeof(InputBinding), "Ctrl+Alpha0")]
+        [EditorDisplay("Common"), EditorOrder(201)]
+        public InputBinding ShowEditorContents = new InputBinding(KeyboardKeys.Alpha0, KeyboardKeys.Control);
 
         [DefaultValue(typeof(InputBinding), "Ctrl+F")]
         [EditorDisplay("Common"), EditorOrder(210)]

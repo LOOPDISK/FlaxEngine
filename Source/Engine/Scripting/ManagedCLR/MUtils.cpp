@@ -3,6 +3,8 @@
 #include "MUtils.h"
 #include "MClass.h"
 #include "MCore.h"
+#include "MMethod.h"
+#include "MAssembly.h"
 #include "Engine/Core/Log.h"
 #include "Engine/Core/Types/DataContainer.h"
 #include "Engine/Core/Types/Version.h"
@@ -19,6 +21,7 @@
 #include "Engine/Core/Math/Ray.h"
 #include "Engine/Scripting/Scripting.h"
 #include "Engine/Scripting/ScriptingObject.h"
+#include "Engine/Scripting/BinaryModule.h"
 #include "Engine/Scripting/Internal/StdTypesContainer.h"
 #include "Engine/Scripting/Internal/ManagedDictionary.h"
 #include "Engine/Utilities/StringConverter.h"
@@ -609,6 +612,12 @@ MObject* MUtils::BoxVariant(const Variant& value)
         return MCore::Object::Box((void*)&value.AsData, Double3::TypeInitializer.GetClass());
     case VariantType::Double4:
         return MCore::Object::Box((void*)&value.AsData, Double4::TypeInitializer.GetClass());
+    case VariantType::Int2:
+        return MCore::Object::Box((void*)&value.AsData, Int2::TypeInitializer.GetClass());
+    case VariantType::Int3:
+        return MCore::Object::Box((void*)&value.AsData, Int3::TypeInitializer.GetClass());
+    case VariantType::Int4:
+        return MCore::Object::Box((void*)&value.AsData, Int4::TypeInitializer.GetClass());
     case VariantType::Color:
         return MCore::Object::Box((void*)&value.AsData, stdTypes.ColorClass);
     case VariantType::Guid:
@@ -889,6 +898,12 @@ MClass* MUtils::GetClass(const VariantType& value)
         return Double3::TypeInitializer.GetClass();
     case VariantType::Double4:
         return Double4::TypeInitializer.GetClass();
+    case VariantType::Int2:
+        return Int2::TypeInitializer.GetClass();
+    case VariantType::Int3:
+        return Int3::TypeInitializer.GetClass();
+    case VariantType::Int4:
+        return Int4::TypeInitializer.GetClass();
     case VariantType::Color:
         return Color::TypeInitializer.GetClass();
     case VariantType::Guid:
@@ -979,6 +994,12 @@ MClass* MUtils::GetClass(const Variant& value)
         return Double3::TypeInitializer.GetClass();
     case VariantType::Double4:
         return Double4::TypeInitializer.GetClass();
+    case VariantType::Int2:
+        return Int2::TypeInitializer.GetClass();
+    case VariantType::Int3:
+        return Int3::TypeInitializer.GetClass();
+    case VariantType::Int4:
+        return Int4::TypeInitializer.GetClass();
     case VariantType::Color:
         return stdTypes.ColorClass;
     case VariantType::Guid:
@@ -1148,6 +1169,9 @@ void* MUtils::VariantToManagedArgPtr(Variant& value, MType* type, bool& failed)
         CASE_IN_BUILD_TYPE(Double2, AsData);
         CASE_IN_BUILD_TYPE(Double3, AsData);
         CASE_IN_BUILD_TYPE(Double4, AsBlob.Data);
+        CASE_IN_BUILD_TYPE(Int2, AsData);
+        CASE_IN_BUILD_TYPE(Int3, AsData);
+        CASE_IN_BUILD_TYPE(Int4, AsData);
 #undef CASE_IN_BUILD_TYPE
         if (klass->IsValueType())
         {

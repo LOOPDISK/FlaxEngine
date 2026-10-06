@@ -45,7 +45,7 @@ namespace
 
         // Index Buffer
         {
-            if (accessor.AllocateBuffer(MeshBufferType::Index, triangleCount, indexFormat))
+            if (accessor.AllocateBuffer(MeshBufferType::Index, triangleCount * 3, indexFormat))
                 return true;
             auto indexStream = accessor.Index();
             ASSERT(indexStream.IsLinear(indexFormat));
@@ -74,8 +74,7 @@ namespace
                 return true;
 
             auto positionStream = accessor.Position();
-            ASSERT(positionStream.IsLinear(PixelFormat::R32G32B32_Float));
-            positionStream.SetLinear(vertices);
+            positionStream.Set(Span<Float3>(vertices, vertexCount));
             if (normals)
             {
                 auto normalStream = accessor.Normal();
@@ -307,7 +306,7 @@ bool SkinnedMesh::UpdateMesh(uint32 vertexCount, uint32 triangleCount, const Flo
 
 bool SkinnedMesh::UpdateMesh(uint32 vertexCount, uint32 triangleCount, const Float3* vertices, const uint32* triangles, const Int4* blendIndices, const Float4* blendWeights, const Float3* normals, const Float3* tangents, const Float2* uvs, const Color32* colors)
 {
-    return ::UpdateMesh(this, vertexCount, triangleCount, PixelFormat::R16_UInt, vertices, triangles, blendIndices, blendWeights, normals, tangents, uvs, colors);
+    return ::UpdateMesh(this, vertexCount, triangleCount, PixelFormat::R32_UInt, vertices, triangles, blendIndices, blendWeights, normals, tangents, uvs, colors);
 }
 
 void SkinnedMesh::Draw(const RenderContext& renderContext, const DrawInfo& info, float lodDitherFactor) const

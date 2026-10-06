@@ -274,7 +274,7 @@ namespace FlaxEditor.Windows.Assets
             base.OnScriptsReloadBegin();
 
             // TODO: impl hot-reload for BT to nicely refresh state (save asset, clear undo/properties, reload surface)
-            Close();
+            Close(ClosingReason.ScriptsReload);
         }
 
         private void UpdateKnowledge()
@@ -601,6 +601,9 @@ namespace FlaxEditor.Windows.Assets
 
         /// <inheritdoc />
         public IEnumerable<ScriptType> NewParameterTypes => Editor.CodeEditing.VisualScriptPropertyTypes.Get();
+
+        /// <inheritdoc />
+        public int ParamToRename { get; set; } = -1;
 
         /// <inheritdoc />
         public event Action SurfaceLoaded;

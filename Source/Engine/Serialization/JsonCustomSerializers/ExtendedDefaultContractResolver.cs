@@ -34,6 +34,15 @@ namespace FlaxEngine.Json.JsonCustomSerializers
             _attributesIgnoreList = isManagedOnly ? AttributesIgnoreListManaged : AttributesIgnoreList;
         }
 
+        private void SetupProperty(JsonProperty jsonProperty, Type type, IEnumerable<Attribute> attributes)
+        {
+            if (_flaxType.IsAssignableFrom(type))
+            {
+                jsonProperty.ReferenceLoopHandling = ReferenceLoopHandling.Serialize;
+                jsonProperty.Converter = JsonSerializer.ObjectConverter;
+            }
+        }
+
         /// <inheritdoc />
         protected override JsonContract CreateContract(Type objectType)
         {
@@ -45,10 +54,9 @@ namespace FlaxEngine.Json.JsonCustomSerializers
                 ((JsonObjectContract)contract).ItemReferenceLoopHandling = ReferenceLoopHandling.Serialize;
             }
 
-            // Enums marked with [NamedEnum] serialize as string names everywhere
-            // (standalone fields, collection items, dict values). Accepts integers on read for backward compat.
-            var enumType = Nullable.GetUnderlyingType(objectType) ?? objectType;
-            if (enumType.IsEnum && enumType.GetCustomAttribute<NamedEnumAttribute>() != null)
+            // Check if use enum serialization as string
+            var type = Nullable.GetUnderlyingType(objectType) ?? objectType;
+            if (type.IsEnum && type.GetCustomAttribute<EnumStringAttribute>() != null)
             {
                 contract.Converter = new StringEnumConverter();
             }
@@ -61,27 +69,23 @@ namespace FlaxEngine.Json.JsonCustomSerializers
         {
             var contract = base.CreateDictionaryContract(objectType);
 
-            // Override contract to save enum keys as integer, unless the enum
-            // type is marked with [NamedEnum] to opt into string key serialization
-            if (contract.DictionaryKeyType?.IsEnum ?? false)
+            // Override contract to save enums keys as integer
+            var keyType = contract.DictionaryKeyType;
+            if ((keyType?.IsEnum ?? false) && keyType.GetCustomAttribute<EnumStringAttribute>() == null)
             {
-                var enumType = contract.DictionaryKeyType;
-                if (enumType.GetCustomAttribute<NamedEnumAttribute>() == null)
+                contract.DictionaryKeyResolver = name =>
                 {
-                    contract.DictionaryKeyResolver = name =>
+                    try
                     {
-                        try
-                        {
-                            var e = Enum.Parse(enumType, name);
-                            name = Convert.ToInt32(e).ToString();
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.Logger.LogHandler.LogWrite(LogType.Warning, $"Failed to parse enum key '{name}' as {enumType.Name}: {ex.Message}");
-                        }
-                        return name;
-                    };
-                }
+                        var e = Enum.Parse(keyType, name);
+                        name = Convert.ToInt32(e).ToString();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.Logger.LogHandler.LogWrite(LogType.Warning, $"Failed to parse enum '{name}' as {keyType.Name}: {ex.Message}");
+                    }
+                    return name;
+                };
             }
 
             return contract;
@@ -121,11 +125,7 @@ namespace FlaxEngine.Json.JsonCustomSerializers
                 jsonProperty.Writable = true;
                 jsonProperty.Readable = true;
 
-                if (_flaxType.IsAssignableFrom(f.FieldType))
-                {
-                    jsonProperty.ReferenceLoopHandling = ReferenceLoopHandling.Serialize;
-                    jsonProperty.Converter = JsonSerializer.ObjectConverter;
-                }
+                SetupProperty(jsonProperty, f.FieldType, attributes);
 
                 result.Add(jsonProperty);
             }
@@ -164,11 +164,7 @@ namespace FlaxEngine.Json.JsonCustomSerializers
                 jsonProperty.Writable = true;
                 jsonProperty.Readable = !isObsolete;
 
-                if (_flaxType.IsAssignableFrom(p.PropertyType))
-                {
-                    jsonProperty.ReferenceLoopHandling = ReferenceLoopHandling.Serialize;
-                    jsonProperty.Converter = JsonSerializer.ObjectConverter;
-                }
+                SetupProperty(jsonProperty, p.PropertyType, attributes);
 
                 result.Add(jsonProperty);
             }

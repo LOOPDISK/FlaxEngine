@@ -233,7 +233,7 @@ namespace FlaxEditor.SceneGraph
         /// <returns>The points to use if the actor can be selected.</returns>
         public virtual Vector3[] GetActorSelectionPoints()
         {
-            return Actor.EditorBox.GetCorners();
+            return Actor.EditorBoundingBox.GetCorners();
         }
 
         /// <summary>
@@ -312,7 +312,7 @@ namespace FlaxEditor.SceneGraph
             // Skip actors that should not be selected
             if (hit != null && _actor != null && (_actor.HideFlags & HideFlags.DontSelect) == HideFlags.DontSelect)
             {
-                hit = parentNode;
+                hit = null;
             }
 
             return hit;

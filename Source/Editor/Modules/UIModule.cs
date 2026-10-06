@@ -304,7 +304,7 @@ namespace FlaxEditor.Modules
             //
             _toolStripBuildScenes.Enabled = (canEditScene && !isPlayMode) || Editor.StateMachine.BuildingScenesState.IsActive;
             _toolStripBuildScenes.Visible = Editor.Options.Options.General.BuildActions?.Length != 0;
-            _toolStripCook.Enabled = Editor.Windows.GameCookerWin.CanBuild(Platform.PlatformType) && !GameCooker.IsRunning;
+            _toolStripCook.Enabled = Editor.Windows.GameCookerWin.CanBuild(Platform.PlatformType) && Editor.Windows.GameCookerWin.CanCook();
             //
             var play = _toolStripPlay;
             var pause = _toolStripPause;
@@ -817,17 +817,40 @@ namespace FlaxEditor.Modules
         private void InitWindowDecorations(RootControl mainWindow)
         {
             ScriptsBuilder.GetBinariesConfiguration(out _, out _, out _, out var configuration);
-            string driver = string.Empty;
+
+            var tooltip = new System.Text.StringBuilder();
+
+            // Project info
+            tooltip.AppendLine(Editor.GameProject.Name);
+            var projectPath = Globals.ProjectFolder;
+#if PLATFORM_WINDOWS
+            projectPath = projectPath.Replace('/', '\\');
+#endif
+            tooltip.AppendLine(projectPath);
+
+            // Engine info
+            tooltip.Append("Engine Version: ").AppendLine(Globals.EngineVersion);
+            var engineNickname = Editor.EngineProject.EngineNickname;
+            if (!string.IsNullOrEmpty(engineNickname))
+                tooltip.Append($" ({engineNickname})");
+
+            // Build info
+            tooltip.AppendLine(System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
+#if USE_LARGE_WORLDS
+            tooltip.AppendLine("Large Worlds Enabled");
+#endif
+            tooltip.Append("Configuration: ").AppendLine(configuration);
+            tooltip.Append("Graphics: ").Append(GPUDevice.Instance.RendererType);
 #if PLATFORM_LINUX
-            driver = LinuxPlatform.DisplayServer;
+            var driver = LinuxPlatform.DisplayServer;
             if (!string.IsNullOrEmpty(driver))
-                driver = $" ({driver})";
+                tooltip.Append($" ({driver})");
 #endif
 
             WindowDecorations = new MainWindowDecorations(mainWindow, !Utilities.Utils.UseCustomWindowDecorations(true))
             {
                 Parent = mainWindow,
-                IconTooltipText = $"{mainWindow.RootWindow.Title}\nVersion {Globals.EngineVersion}\nConfiguration {configuration}\nGraphics {GPUDevice.Instance.RendererType}{driver}",
+                IconTooltipText = tooltip.ToString(),
             };
         }
 

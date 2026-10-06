@@ -1337,10 +1337,7 @@ namespace FlaxEditor
         {
             var scenes = Level.Scenes;
             for (int i = 0; i < scenes.Length; i++)
-            {
                 scenes[i].ClearLightmaps();
-            }
-
             Scene.MarkSceneEdited(scenes);
         }
 
@@ -1384,6 +1381,7 @@ namespace FlaxEditor
             var scenes = Level.Scenes;
             Navigation.BuildNavMesh();
             Scene.MarkSceneEdited(scenes);
+            ProgressReporting.NavMeshBuilding.DirtyScenesOnEnd = true;
         }
 
         /// <summary>
@@ -1481,6 +1479,16 @@ namespace FlaxEditor
             if (preset == null)
             {
                 Editor.LogWarning("Missing preset.");
+                if (settings.Presets != null)
+                {
+                    Editor.LogWarning("Available presets:");
+                    foreach (var p in settings.Presets)
+                    {
+                        Editor.LogWarning($"   > {p.Name}");
+                        foreach (var t in p.Targets)
+                            Editor.LogWarning($"     * {t.Name} ({t.Platform}, {t.Mode})");
+                    }
+                }
                 return true;
             }
 

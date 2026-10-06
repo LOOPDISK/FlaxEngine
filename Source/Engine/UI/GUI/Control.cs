@@ -223,9 +223,9 @@ namespace FlaxEngine.GUI
         public bool IsScrollable { get; set; } = true;
 
         /// <summary>
-        /// Gets or sets a value indicating whether the control can respond to user interaction
+        /// Gets or sets a value indicating whether the control can respond to user interaction. Disabled control remains visible but is grayed out.
         /// </summary>
-        [EditorOrder(520), Tooltip("If checked, control will receive input events of the user interaction.")]
+        [EditorOrder(520), Tooltip("If checked, control will receive input events of the user interaction. Disabled control remains visible but is grayed out.")]
         public bool Enabled
         {
             get => _isEnabled;
@@ -572,12 +572,12 @@ namespace FlaxEngine.GUI
         /// <summary>
         /// Starts the mouse tracking. Used by the scrollbars, splitters, etc.
         /// </summary>
-        /// <param name="useMouseScreenOffset">If set to <c>true</c> will use mouse screen offset.</param>
+        /// <param name="screenSpaceMouseWrap">If set to <c>true</c> will wrap when it hits a screen border.</param>
         [NoAnimate]
-        public void StartMouseCapture(bool useMouseScreenOffset = false)
+        public void StartMouseCapture(bool screenSpaceMouseWrap = false)
         {
             var parent = Root;
-            parent?.StartTrackingMouse(this, useMouseScreenOffset);
+            parent?.StartTrackingMouse(this, screenSpaceMouseWrap);
         }
 
         /// <summary>

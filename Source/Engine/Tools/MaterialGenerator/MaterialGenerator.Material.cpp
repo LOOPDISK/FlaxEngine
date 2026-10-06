@@ -140,7 +140,9 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
 
         // Write code
         _writer.Write(TEXT("{\n"));
-        _writer.Write(*code);
+        _writer.Write(code);
+        if (!code.EndsWith(TEXT("\n")) && !code.EndsWith(TEXT(" ")))
+            _writer.Write(TEXT("\n"));
         _writer.Write(TEXT("}\n"));
 
         // Link output values to boxes
@@ -321,7 +323,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
 
         // Peek the function output (function->Outputs maps the functions outputs to output nodes indices)
         const int32 outputIndex = box->ID - 16;
-        if (outputIndex < 0 || outputIndex >= function->Outputs.Count())
+        if (!function->Outputs.IsValidIndex(outputIndex) || !graph->Nodes.IsValidIndex(function->Outputs[outputIndex]))
         {
             OnError(node, box, TEXT("Invalid function output box."));
             value = Value::Zero;

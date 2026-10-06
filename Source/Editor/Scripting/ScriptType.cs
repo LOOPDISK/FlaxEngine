@@ -1,15 +1,62 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
+using FlaxEditor.Content;
+using FlaxEngine;
+using FlaxEngine.TypeConverters;
+using FlaxEngine.Utilities;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.ComponentModel.Design.Serialization;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
-using FlaxEditor.Content;
-using FlaxEngine;
-using FlaxEngine.Utilities;
+
+namespace FlaxEngine.TypeConverters
+{
+    /// <summary>
+    /// Internal ITypeDescriptorContext used to pass some context for custom TypeConvert implementations.
+    /// Allows passing CurrentType to TypeConverter.ConvertFrom method to support custom type conversion for FlaxEngine types (simpler than PropertyDescriptor.PropertyType).
+    /// </summary>
+    internal sealed class DummyTypeDescriptorContext : ITypeDescriptorContext
+    {
+        private static DummyTypeDescriptorContext _cached;
+
+        public Type CurrentType;
+
+        public static object ConvertFrom(TypeConverter converter, object value, Type type)
+        {
+            if (_cached == null)
+                _cached = new DummyTypeDescriptorContext();
+            _cached.CurrentType = type;
+            var result = converter.ConvertFrom(_cached, CultureInfo.CurrentUICulture, value);
+            _cached.CurrentType = null;
+            return result;
+        }
+
+        public object GetService(Type serviceType)
+        {
+            return null;
+        }
+
+        public void OnComponentChanged()
+        {
+        }
+
+        public bool OnComponentChanging()
+        {
+            return false;
+        }
+
+        public IContainer Container => null;
+
+        public object Instance => null;
+
+        public PropertyDescriptor PropertyDescriptor => null;
+    }
+}
 
 namespace FlaxEditor.Scripting
 {
@@ -681,7 +728,7 @@ namespace FlaxEditor.Scripting
                 if (converter.CanConvertTo(type))
                     value = converter.ConvertTo(value, type);
                 else if (converter.CanConvertFrom(valueType))
-                    value = converter.ConvertFrom(null, null, value);
+                    value = DummyTypeDescriptorContext.ConvertFrom(converter, value, type);
             }
 
             if (_managed is PropertyInfo propertyInfo)
@@ -850,6 +897,11 @@ namespace FlaxEditor.Scripting
         public bool IsVoid => _managed == typeof(void);
 
         /// <summary>
+        /// Gets a value indicating whether this type is <see cref="FlaxEngine.Object"/> (eg. script or actor).
+        /// </summary>
+        public bool IsScriptingObject => FlaxObject.IsAssignableFrom(this);
+
+        /// <summary>
         /// Gets a value indicating whether the type is static.
         /// </summary>
         public bool IsStatic => _managed != null ? _managed.IsSealed && _managed.IsAbstract : _custom != null && _custom.IsStatic;
@@ -862,7 +914,7 @@ namespace FlaxEditor.Scripting
             get
             {
                 if (_managed != null)
-                    return _managed.IsValueType || _managed.GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null) != null;
+                    return (_managed.IsValueType || _managed.GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null) != null) && !_managed.IsByRefLike;
                 return _custom?.CanCreateInstance ?? false;
             }
         }

@@ -385,7 +385,7 @@ API_STRUCT() struct FLAXENGINE_API GlobalIlluminationSettings : ISerializable
     float TemporalResponse = 0.9f;
 
     /// <summary>
-    /// Draw distance of the Global Illumination effect. Scene outside the range will use fallback irradiance.
+    /// Camera-centered draw distance of the Global Illumination effect. Scene outside the range will use fallback irradiance. DDGI automatically derives its cascade layout from this distance and the global probe spacing, so continuously blending this value can recreate probe resources and cause a visible lighting reset.
     /// </summary>
     API_FIELD(Attributes="EditorOrder(30), Limit(1000), PostProcessSetting((int)GlobalIlluminationSettingsOverride.Distance)")
     float Distance = 20000.0f;
@@ -1163,7 +1163,7 @@ API_STRUCT() struct FLAXENGINE_API EyeAdaptationSettings : ISerializable
     /// The effect rendering mode used for the exposure processing.
     /// </summary>
     API_FIELD(Attributes="EditorOrder(0), PostProcessSetting((int)EyeAdaptationSettingsOverride.Mode)")
-    EyeAdaptationMode Mode = EyeAdaptationMode::AutomaticHistogram;
+    EyeAdaptationMode Mode = EyeAdaptationMode::None;
 
     /// <summary>
     /// The speed at which the exposure changes when the scene brightness moves from a dark area to a bright area (brightness goes up).
@@ -1793,7 +1793,7 @@ API_STRUCT() struct FLAXENGINE_API MotionBlurSettings : ISerializable
     /// If checked, the motion blur effect will be rendered.
     /// </summary>
     API_FIELD(Attributes="EditorOrder(0), PostProcessSetting((int)MotionBlurSettingsOverride.Enabled)")
-    bool Enabled = true;
+    bool Enabled = false;
 
     /// <summary>
     /// The blur effect strength. A value of 0 disables it, while higher values increase the effect.

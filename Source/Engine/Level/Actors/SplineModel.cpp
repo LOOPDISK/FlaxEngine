@@ -356,9 +356,10 @@ MaterialBase* SplineModel::GetMaterial(int32 entryIndex)
         Model->WaitForLoaded();
     else
         return nullptr;
-    CHECK_RETURN(entryIndex >= 0 && entryIndex < Entries.Count(), nullptr);
-    MaterialBase* material = Entries[entryIndex].Material.Get();
-    if (!material && Entries[entryIndex].Material.GetID() == Guid::Empty)
+    CHECK_RETURN(entryIndex >= 0 && entryIndex < Model->MaterialSlots.Count(), nullptr);
+    const bool hasEntry = entryIndex < Entries.Count();
+    MaterialBase* material = hasEntry ? Entries[entryIndex].Material.Get() : nullptr;
+    if (!material && (!hasEntry || Entries[entryIndex].Material.GetID() == Guid::Empty)
     {
         material = Model->MaterialSlots[entryIndex].Material.Get();
         if (!material)
@@ -497,9 +498,7 @@ void SplineModel::Serialize(SerializeStream& stream, const void* otherObj)
     SERIALIZE_MEMBER(PreTransform, _preTransform)
     SERIALIZE(Model);
     SERIALIZE(DrawModes);
-
-    stream.JKEY("Buffer");
-    stream.Object(&Entries, other ? &other->Entries : nullptr);
+    SERIALIZE_MEMBER(Buffer, Entries);
 }
 
 void SplineModel::Deserialize(DeserializeStream& stream, ISerializeModifier* modifier)
@@ -514,8 +513,7 @@ void SplineModel::Deserialize(DeserializeStream& stream, ISerializeModifier* mod
     DESERIALIZE_MEMBER(PreTransform, _preTransform);
     DESERIALIZE(Model);
     DESERIALIZE(DrawModes);
-
-    Entries.DeserializeIfExists(stream, "Buffer", modifier);
+    DESERIALIZE_MEMBER(Buffer, Entries);
 
     // [Deprecated on 07.02.2022, expires on 07.02.2024]
     if (modifier->EngineBuild <= 6330)

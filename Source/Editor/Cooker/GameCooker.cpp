@@ -239,7 +239,7 @@ String CookingData::GetGameBinariesPath() const
         archDir = TEXT("ARM64");
         break;
     default:
-    CRASH;
+        CRASH;
         return String::Empty;
     }
 
@@ -802,7 +802,9 @@ int32 GameCookerImpl::ThreadFunction()
             Build();
         }
 
+        mutex.Lock();
         ThreadCond.Wait(mutex);
+        mutex.Unlock();
     }
 
     IsThreadRunning = false;
