@@ -1709,6 +1709,7 @@ bool ModelTool::ImportModel(const String& path, ModelData& data, Options& option
                 node.LocalTransform.Scale.Z);
         }
     }
+#endif
     if (EnumHasAnyFlags(options.ImportTypes, ImportDataTypes::Animations))
     {
         for (auto& animation : data.Animations)

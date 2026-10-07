@@ -8,9 +8,9 @@
 #include "Engine/Content/AssetReference.h"
 #include "Engine/Scripting/ScriptingObject.h"
 #include "TextLayoutOptions.h"
+#include "FontCharacterEntry.h"
 
 class FontAsset;
-struct FontCharacterEntry;
 
 // The default DPI that engine is using
 #define DefaultDPI 96

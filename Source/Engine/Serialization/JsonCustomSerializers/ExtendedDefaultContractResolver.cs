@@ -54,13 +54,6 @@ namespace FlaxEngine.Json.JsonCustomSerializers
                 ((JsonObjectContract)contract).ItemReferenceLoopHandling = ReferenceLoopHandling.Serialize;
             }
 
-            // Check if use enum serialization as string
-            var type = Nullable.GetUnderlyingType(objectType) ?? objectType;
-            if (type.IsEnum && type.GetCustomAttribute<EnumStringAttribute>() != null)
-            {
-                contract.Converter = new StringEnumConverter();
-            }
-
             return contract;
         }
 
@@ -70,19 +63,19 @@ namespace FlaxEngine.Json.JsonCustomSerializers
             var contract = base.CreateDictionaryContract(objectType);
 
             // Override contract to save enums keys as integer
-            var keyType = contract.DictionaryKeyType;
-            if ((keyType?.IsEnum ?? false) && keyType.GetCustomAttribute<EnumStringAttribute>() == null)
+            if (contract.DictionaryKeyType?.IsEnum ?? false)
             {
+                var enumType = contract.DictionaryKeyType;
                 contract.DictionaryKeyResolver = name =>
                 {
                     try
                     {
-                        var e = Enum.Parse(keyType, name);
+                        var e = Enum.Parse(enumType, name);
                         name = Convert.ToInt32(e).ToString();
                     }
-                    catch (Exception ex)
+                    catch
                     {
-                        Debug.Logger.LogHandler.LogWrite(LogType.Warning, $"Failed to parse enum '{name}' as {keyType.Name}: {ex.Message}");
+                        // Ignore errors
                     }
                     return name;
                 };
