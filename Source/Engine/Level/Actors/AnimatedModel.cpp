@@ -1459,7 +1459,7 @@ MaterialBase* AnimatedModel::GetMaterial(int32 entryIndex)
     CHECK_RETURN(entryIndex >= 0 && entryIndex < SkinnedModel->MaterialSlots.Count(), nullptr);
     const bool hasEntry = entryIndex < Entries.Count();
     MaterialBase* material = hasEntry ? Entries[entryIndex].Material.Get() : nullptr;
-    if (!material && (!hasEntry || Entries[entryIndex].Material.GetID() == Guid::Empty)
+    if (!material && (!hasEntry || Entries[entryIndex].Material.GetID() == Guid::Empty))
     {
         material = SkinnedModel->MaterialSlots[entryIndex].Material.Get();
         if (!material)
