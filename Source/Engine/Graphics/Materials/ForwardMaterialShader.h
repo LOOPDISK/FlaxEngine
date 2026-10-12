@@ -18,9 +18,11 @@ private:
         PipelineStateCache DepthSkinned;
         PipelineStateCache Distortion;
         PipelineStateCache DistortionSkinned;
-#if USE_EDITOR
+#if GPU_ENABLE_DEVELOPMENT
         PipelineStateCache QuadOverdraw;
         PipelineStateCache QuadOverdrawSkinned;
+        PipelineStateCache Wireframe;
+        PipelineStateCache WireframeSkinned;
 #endif
 
         FORCE_INLINE PipelineStateCache* GetPS(const DrawPass pass, const bool useSkinning)
@@ -34,9 +36,11 @@ private:
                 return useSkinning ? &DistortionSkinned : &Distortion;
             case DrawPass::Forward:
                 return useSkinning ? &DefaultSkinned : &Default;
-#if USE_EDITOR
+#if GPU_ENABLE_DEVELOPMENT
             case DrawPass::QuadOverdraw:
                 return useSkinning ? &QuadOverdrawSkinned : &QuadOverdraw;
+            case DrawPass::Wireframe:
+                return useSkinning ? &WireframeSkinned : &Wireframe;
 #endif
             default:
                 return nullptr;
@@ -51,13 +55,18 @@ private:
             DepthSkinned.Release();
             Distortion.Release();
             DistortionSkinned.Release();
+#if GPU_ENABLE_DEVELOPMENT
+            QuadOverdraw.Release();
+            QuadOverdrawSkinned.Release();
+            Wireframe.Release();
+            WireframeSkinned.Release();
+#endif
         }
     };
 
 private:
     Cache _cache;
     Cache _cacheInstanced;
-    DrawPass _drawModes = DrawPass::None;
 
 public:
     /// <summary>
@@ -72,7 +81,7 @@ public:
 public:
     // [MaterialShader]
     DrawPass GetDrawModes() const override;
-    bool CanUseInstancing(InstancingHandler& handler) const override;
+    bool CanUseInstancing(const RenderContext& renderContext, InstancingHandler& handler) const override;
     void Bind(BindParameters& params) override;
     void Unload() override;
 

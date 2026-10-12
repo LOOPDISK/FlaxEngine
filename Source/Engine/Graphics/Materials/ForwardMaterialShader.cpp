@@ -7,8 +7,7 @@
 #include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Graphics/GPULimits.h"
 #include "Engine/Graphics/RenderView.h"
-#include "Engine/Graphics/RenderTask.h"
-#include "Engine/Graphics/Models/SkinnedMeshDrawData.h"
+#include "Engine/Graphics/RenderContext.h"
 #include "Engine/Graphics/Shaders/GPUConstantBuffer.h"
 #include "Engine/Graphics/Shaders/GPUShader.h"
 #include "Engine/Renderer/DrawCall.h"
@@ -22,10 +21,11 @@ DrawPass ForwardMaterialShader::GetDrawModes() const
     return _drawModes;
 }
 
-bool ForwardMaterialShader::CanUseInstancing(InstancingHandler& handler) const
+bool ForwardMaterialShader::CanUseInstancing(const RenderContext& renderContext, InstancingHandler& handler) const
 {
     handler = { SurfaceDrawCallHandler::GetHash, SurfaceDrawCallHandler::CanBatch, };
-    return false; // TODO: support instancing when using ForwardShadingFeature
+    // TODO: support instancing when using ForwardShadingFeature
+    return renderContext.View.Pass == DrawPass::Depth;
 }
 
 void ForwardMaterialShader::Bind(BindParameters& params)
@@ -35,7 +35,7 @@ void ForwardMaterialShader::Bind(BindParameters& params)
     auto& view = params.RenderContext.View;
     auto& drawCall = *params.DrawCall;
     Span<byte> cb(_cbData.Get(), _cbData.Count());
-    int32 srv = 3;
+    int32 srv = 2;
 
     // Setup features
     if ((_info.FeaturesFlags & MaterialFeaturesFlags::GlobalIllumination) != MaterialFeaturesFlags::None)
@@ -57,13 +57,11 @@ void ForwardMaterialShader::Bind(BindParameters& params)
     MaterialParams::Bind(params.ParamsLink, bindMeta);
     context->BindSR(0, params.ObjectBuffer);
 
-    // Check if using mesh skinning
-    const bool useSkinning = drawCall.Surface.Skinning != nullptr;
+    // Bind skinning buffer
+    const bool useSkinning = drawCall.Surface.Skinning != DrawCall::SkinningMode::None;
     if (useSkinning)
     {
-        // Bind skinning buffer
-        ASSERT(drawCall.Surface.Skinning->IsReady());
-        context->BindSR(1, drawCall.Surface.Skinning->BoneMatrices->View());
+        context->BindSR(1, drawCall.Surface.SkinningBones->View());
     }
 
     // Bind constants
@@ -74,9 +72,7 @@ void ForwardMaterialShader::Bind(BindParameters& params)
     }
 
     // Select pipeline state based on current pass and render mode
-    const bool wireframe = (_info.FeaturesFlags & MaterialFeaturesFlags::Wireframe) != MaterialFeaturesFlags::None || view.Mode == ViewMode::Wireframe;
-    const bool isDepthPass = view.Pass == DrawPass::Depth || view.Pass == DrawPass::WeaponDepth;
-    CullMode cullMode = isDepthPass ? CullMode::TwoSided : _info.CullMode;
+    CullMode cullMode = view.Pass == DrawPass::Depth || view.Pass == DrawPass::WeaponDepth ? CullMode::TwoSided : _info.CullMode;
 #if USE_EDITOR
     if (IsRunningRadiancePass)
         cullMode = CullMode::TwoSided;
@@ -90,7 +86,7 @@ void ForwardMaterialShader::Bind(BindParameters& params)
     const auto cacheObj = params.Instanced ? &_cacheInstanced : &_cache;
     PipelineStateCache* psCache = cacheObj->GetPS(view.Pass, useSkinning);
     ASSERT(psCache);
-    GPUPipelineState* state = psCache->GetPS(cullMode, wireframe);
+    GPUPipelineState* state = psCache->GetPS(this, cullMode);
 
     // Bind pipeline
     context->SetState(state);
@@ -107,14 +103,14 @@ void ForwardMaterialShader::Unload()
 
 bool ForwardMaterialShader::Load()
 {
-    // Use WeaponDepth instead of Depth for weapon FOV override materials (no world shadow casting)
-    const bool useWeaponFOV = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride);
-    const DrawPass depthPass = useWeaponFOV ? DrawPass::WeaponDepth : DrawPass::Depth;
-    _drawModes = depthPass | DrawPass::Forward | DrawPass::QuadOverdraw;
-
+    // Weapon FOV materials write WeaponDepth instead of Depth (no world shadow casting)
+    const DrawPass depthPass = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride) ? DrawPass::WeaponDepth : DrawPass::Depth;
+    _drawModes = depthPass | DrawPass::Forward | DrawPass::QuadOverdraw | DrawPass::Wireframe;
     auto psDesc = GPUPipelineState::Description::Default;
-    psDesc.DepthEnable = (_info.FeaturesFlags & MaterialFeaturesFlags::DisableDepthTest) == MaterialFeaturesFlags::None;
-    psDesc.DepthWriteEnable = (_info.FeaturesFlags & MaterialFeaturesFlags::DisableDepthWrite) == MaterialFeaturesFlags::None;
+    psDesc.DepthEnable = EnumHasNoneFlags(_info.FeaturesFlags, MaterialFeaturesFlags::DisableDepthTest);
+    psDesc.DepthWriteEnable = EnumHasNoneFlags(_info.FeaturesFlags, MaterialFeaturesFlags::DisableDepthWrite);
+    psDesc.Wireframe = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::Wireframe);
+    psDesc.CullMode = _info.CullMode;
 
 #if GPU_ALLOW_TESSELLATION_SHADERS
     // Check if use tessellation (both material and runtime supports it)
@@ -126,18 +122,33 @@ bool ForwardMaterialShader::Load()
     }
 #endif
 
-#if USE_EDITOR
+#if GPU_ENABLE_DEVELOPMENT
     if (_shader->HasShader("PS_QuadOverdraw"))
     {
         // Quad Overdraw
+        _drawModes |= DrawPass::QuadOverdraw;
         psDesc.VS = _shader->GetVS("VS");
         psDesc.PS = _shader->GetPS("PS_QuadOverdraw");
         _cache.QuadOverdraw.Init(psDesc);
         psDesc.VS = _shader->GetVS("VS", 1);
-        _cacheInstanced.Depth.Init(psDesc);
+        _cacheInstanced.QuadOverdraw.Init(psDesc);
         psDesc.VS = _shader->GetVS("VS_Skinned");
         _cache.QuadOverdrawSkinned.Init(psDesc);
     }
+
+    // Wireframe
+    psDesc.Wireframe = true;
+    psDesc.DepthWriteEnable = false;
+    psDesc.BlendMode = BlendingMode::AlphaBlend;
+    psDesc.PS = GPUDevice::Instance->QuadShader->GetPS("PS_Wireframe");
+    psDesc.VS = _shader->GetVS("VS");
+    _cache.Wireframe.Init(psDesc);
+    psDesc.VS = _shader->GetVS("VS", 1);
+    _cacheInstanced.Wireframe.Init(psDesc);
+    psDesc.VS = _shader->GetVS("VS_Skinned");
+    _cache.WireframeSkinned.Init(psDesc);
+    psDesc.DepthWriteEnable = EnumHasNoneFlags(_info.FeaturesFlags, MaterialFeaturesFlags::DisableDepthWrite);
+    psDesc.Wireframe = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::Wireframe);
 #endif
 
     // Check if use transparent distortion pass
@@ -188,7 +199,7 @@ bool ForwardMaterialShader::Load()
     psDesc.DepthClipEnable = false;
     psDesc.DepthWriteEnable = true;
     psDesc.DepthEnable = true;
-    psDesc.DepthFunc = ComparisonFunc::Less;
+    psDesc.DepthFunc = ComparisonFunc::Default;
     psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::None;
     psDesc.HS = nullptr;
     psDesc.DS = nullptr;

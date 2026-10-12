@@ -32,6 +32,7 @@ API_CLASS(Abstract) class FLAXENGINE_API Actor : public SceneObject
     friend SceneRendering;
     friend Prefab;
     friend PrefabInstanceData;
+    friend class RenderBuffers;
 protected:
     uint16 _isActive : 1;
     uint16 _isActiveInHierarchy : 1;
@@ -39,8 +40,8 @@ protected:
     uint16 _isEnabled : 1;
     uint16 _isHierarchyDirty : 1;
     uint16 _drawNoCulling : 1;
-    uint16 _cullType : 2;
     uint16 _drawCategory : 4;
+    bool _wasCulled; // Own byte, written from draw jobs
     byte _layer;
     StaticFlags _staticFlags;
     Transform _localTransform;
@@ -49,7 +50,7 @@ protected:
     BoundingBox _box;
     String _name;
     Scene* _scene;
-    PhysicsScene* _physicsScene;
+    PhysicsScene* _physicsScene; // TODO: move it into physics-related actors (coliders, rigidbodies, etc.)
 
 private:
     // Disable copying
@@ -162,7 +163,7 @@ public:
     API_FUNCTION() void RemoveTag(const Tag& tag);
 
     /// <summary>
-    /// True if this actor was visually occluded last frame, from being behind other objects or out of the viewing frustum. This only refers to drawing on the main render task.
+    /// True if this actor was outside the main view frustum last frame. This only refers to drawing on the main render task.
     /// </summary>
     API_PROPERTY() bool WasCulled();
 
@@ -779,13 +780,7 @@ public:
 
 public:
     /// <summary>
-    /// Draws this actor. Called by Scene Rendering service. This call is more optimized than generic Draw (eg. geometry is rendered during all pass types but other actors are drawn only during GBufferFill pass).
-    /// </summary>
-    /// <param name="renderContext">The rendering context.</param>
-    virtual void Draw(RenderContext& renderContext);
-
-    /// <summary>
-    /// Draws this actor. Called by Scene Rendering service. This call is more optimized than generic Draw (eg. geometry is rendered during all pass types but other actors are drawn only during GBufferFill pass).
+    /// Draws this actor. Called by Scene Rendering to collect draw calls from objects.
     /// </summary>
     /// <param name="renderContextBatch">The rendering context batch (eg, main view and shadow projections).</param>
     virtual void Draw(RenderContextBatch& renderContextBatch);
@@ -840,7 +835,7 @@ public:
     /// Tries to find the actor of the given type in this actor hierarchy (checks this actor and all children hierarchy).
     /// </summary>
     /// <param name="type">Type of the actor to search for. Includes any actors derived from the type. Supports interface types.</param>
-    /// <param name="activeOnly">Finds only a active actor.</param>
+    /// <param name="activeOnly">Finds only an active actor.</param>
     /// <returns>Actor instance if found, null otherwise.</returns>
     API_FUNCTION() Actor* FindActor(API_PARAM(Attributes="TypeReference(typeof(Actor))") const MClass* type, bool activeOnly = false) const;
 
@@ -864,33 +859,36 @@ public:
     /// <summary>
     /// Tries to find the actor of the given type in this actor hierarchy (checks this actor and all children hierarchy).
     /// </summary>
+    /// <param name="activeOnly">Finds only an active actor.</param>
     /// <returns>Actor instance if found, null otherwise.</returns>
     template<typename T>
-    FORCE_INLINE T* FindActor() const
+    FORCE_INLINE T* FindActor(bool activeOnly = false) const
     {
-        return (T*)FindActor(T::GetStaticClass());
+        return (T*)FindActor(T::GetStaticClass(), activeOnly);
     }
 
     /// <summary>
     /// Tries to find the actor of the given type and name in this actor hierarchy (checks this actor and all children hierarchy).
     /// </summary>
     /// <param name="name">The name of the actor.</param>
+    /// <param name="activeOnly">Finds only an active actor.</param>
     /// <returns>Actor instance if found, null otherwise.</returns>
     template<typename T>
-    FORCE_INLINE T* FindActor(const StringView& name) const
+    FORCE_INLINE T* FindActor(const StringView& name, bool activeOnly = false) const
     {
-        return (T*)FindActor(T::GetStaticClass(), name);
+        return (T*)FindActor(T::GetStaticClass(), name, activeOnly);
     }
 
     /// <summary>
     /// Tries to find the actor of the given type and tag in this actor hierarchy (checks this actor and all children hierarchy).
     /// </summary>
     /// <param name="tag">The tag of the actor to search for.</param>
+    /// <param name="activeOnly">Finds only an active actor.</param>
     /// <returns>Actor instance if found, null otherwise.</returns>
     template<typename T>
-    FORCE_INLINE T* FindActor(const Tag& tag) const
+    FORCE_INLINE T* FindActor(const Tag& tag, bool activeOnly = false) const
     {
-        return (T*)FindActor(T::GetStaticClass(), tag);
+        return (T*)FindActor(T::GetStaticClass(), tag, activeOnly);
     }
 
     /// <summary>

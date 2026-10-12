@@ -362,6 +362,11 @@ public:
     /// </summary>
     Array<BinaryModuleInfo, InlinedAllocation<64>> BinaryModules;
 
+    /// <summary>
+    /// Cached version of the built binaries from project Version Control.
+    /// </summary>
+    String VersionControlInfo;
+
 public:
 
     /// <summary>

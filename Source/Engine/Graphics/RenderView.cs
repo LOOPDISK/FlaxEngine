@@ -2,6 +2,14 @@
 
 namespace FlaxEngine
 {
+    partial struct RenderContextBatch
+    {
+        /// <summary>
+        /// Gets the main rendering context (for the main view). Returns the first context, other ones are usually used for shadow map projections.
+        /// </summary>
+        public ref RenderContext MainContext => ref Contexts[0];
+    }
+
     partial struct RenderView
     {
         /// <summary>
@@ -18,6 +26,7 @@ namespace FlaxEngine
 #pragma warning restore 0612
             Flags = ViewFlags.DefaultGame;
             Mode = ViewMode.Default;
+            ViewportRect = new Float4(0, 0, 1, 1);
         }
 
         /// <summary>
@@ -116,6 +125,7 @@ namespace FlaxEngine
             Flags = camera.RenderFlags;
             Mode = camera.RenderMode;
             WeaponFOV = camera.WeaponFieldOfView;
+            ViewportRect = camera.ViewportRect;
 
             UpdateCachedData();
         }

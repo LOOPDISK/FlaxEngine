@@ -107,6 +107,10 @@ void GPUPipelineState::GetDebugName(DebugName& name) const
 
 bool GPUPipelineState::Init(const Description& desc)
 {
+#if GPU_ENABLE_DEVELOPMENT
+    CHECK_RETURN(desc.VS, true);
+#endif
+
     // Cache description in development builds
 #if !BUILD_RELEASE
     DebugDesc = desc;
@@ -128,7 +132,7 @@ bool GPUPipelineState::Init(const Description& desc)
     CHECK_STAGE(PS);
 #undef CHECK_STAGE
 
-#if USE_EDITOR
+#if GPU_ENABLE_DEVELOPMENT
     // Estimate somehow performance cost of this pipeline state for the content profiling
     const int32 textureLookupCost = 20;
     const int32 tessCost = 300;
@@ -160,7 +164,7 @@ GPUPipelineState::Description GPUPipelineState::Description::Default =
     true, // DepthWriteEnable
     true, // DepthClipEnable
     false, // DepthBoundsEnable
-    ComparisonFunc::Less, // DepthFunc
+    ComparisonFunc::Default, // DepthFunc
     false, // StencilEnable
     0xff, // StencilReadMask
     0xff, // StencilWriteMask
@@ -185,7 +189,7 @@ GPUPipelineState::Description GPUPipelineState::Description::DefaultNoDepth =
     false, // DepthWriteEnable
     false, // DepthClipEnable
     false, // DepthBoundsEnable
-    ComparisonFunc::Less, // DepthFunc
+    ComparisonFunc::Default, // DepthFunc
     false, // StencilEnable
     0xff, // StencilReadMask
     0xff, // StencilWriteMask
@@ -210,7 +214,7 @@ GPUPipelineState::Description GPUPipelineState::Description::DefaultFullscreenTr
     false, // DepthWriteEnable
     false, // DepthClipEnable
     false, // DepthBoundsEnable
-    ComparisonFunc::Less, // DepthFunc
+    ComparisonFunc::Default, // DepthFunc
     false, // StencilEnable
     0xff, // StencilReadMask
     0xff, // StencilWriteMask
@@ -357,12 +361,11 @@ GPUDevice* GPUDevice::Instance = nullptr;
 
 void GPUDevice::OnRequestingExit()
 {
-    if (Engine::FatalError != FatalErrorType::GPUCrash && 
-        Engine::FatalError != FatalErrorType::GPUHang && 
+    if (Engine::FatalError != FatalErrorType::GPUCrash &&
+        Engine::FatalError != FatalErrorType::GPUHang &&
         Engine::FatalError != FatalErrorType::GPUOutOfMemory)
         return;
-    // TODO: get and log actual GPU memory used by the engine (API-specific)
-    DumpResourcesToLog();
+    OnCrash();
 }
 
 GPUDevice::GPUDevice(RendererType type, ShaderProfile profile)
@@ -370,6 +373,9 @@ GPUDevice::GPUDevice(RendererType type, ShaderProfile profile)
     , _state(DeviceState::Missing)
     , _isRendering(false)
     , _wasVSyncUsed(false)
+#if GPU_ENABLE_DEBUG_LAYER
+    , _debugLayer(CommandLine::Options.GPUDebug.IsTrue())
+#endif
     , _drawGpuEventIndex(0)
     , _rendererType(type)
     , _shaderProfile(profile)
@@ -418,7 +424,7 @@ bool GPUDevice::LoadContent()
     _res->QuadShader = Content::LoadAsyncInternal<Shader>(TEXT("Shaders/Quad"));
     if (_res->QuadShader == nullptr || _res->QuadShader->WaitForLoaded())
         return true;
-    QuadShader = _res->QuadShader->GetShader();
+    QuadShader = _res->QuadShader->GPU;
     GPUPipelineState::Description::DefaultFullscreenTriangle.VS = QuadShader->GetVS("VS");
     _res->PS_CopyLinear = CreatePipelineState();
     GPUPipelineState::Description desc = GPUPipelineState::Description::DefaultFullscreenTriangle;
@@ -507,6 +513,7 @@ void GPUDevice::DumpResourcesToLog() const
 
     const bool printTypes[(int32)GPUResourceType::MAX] =
     {
+        // @formatter:off
         true, // RenderTarget
         true, // Texture
         true, // CubeTexture
@@ -517,6 +524,7 @@ void GPUDevice::DumpResourcesToLog() const
         false, // Descriptor
         false, // Query
         false, // Sampler
+        // @formatter:on
     };
     for (int32 typeIndex = 0; typeIndex < (int32)GPUResourceType::MAX; typeIndex++)
     {
@@ -623,6 +631,16 @@ void GPUDevice::DumpResources()
 
 extern void ClearVertexLayoutCache();
 
+bool UseVSync()
+{
+    bool vsync = Graphics::UseVSync;
+    if (CommandLine::Options.NoVSync.HasValue())
+        vsync = !CommandLine::Options.NoVSync.GetValue();
+    else if (CommandLine::Options.VSync.HasValue())
+        vsync = CommandLine::Options.VSync.GetValue();
+    return vsync;
+}
+
 void GPUDevice::preDispose()
 {
     Locker.Lock();
@@ -660,32 +678,38 @@ void GPUDevice::DrawBegin()
 
     // Clear stats
     RenderTask::TasksDoneLastFrame = 0;
+
+#if COMPILE_WITH_PROFILER
+    // External profiler
+    if (ProfilerGPU::FrameBegin)
+        ProfilerGPU::FrameBegin();
+#endif
 }
 
 void GPUDevice::DrawEnd()
 {
     PROFILE_CPU_NAMED("Present");
 
-    // Check if use VSync
-    bool useVSync = Graphics::UseVSync;
-    if (CommandLine::Options.NoVSync.HasValue())
-        useVSync = !CommandLine::Options.NoVSync.GetValue();
-    else if (CommandLine::Options.VSync.HasValue())
-        useVSync = CommandLine::Options.VSync.GetValue();
-
-    // Find index of the last rendered window task (use vsync only on the last window)
-    int32 lastWindowIndex = -1;
+    // Check if use VSync (prioritize the last window, in case of multi-window in Editor)
+    bool useVSync = UseVSync();
+    int32 vsyncTask = -1;
     for (int32 i = RenderTask::Tasks.Count() - 1; i >= 0; i--)
     {
         const auto task = RenderTask::Tasks[i];
         if (task && task->LastUsedFrame == Engine::FrameCount && task->SwapChain && task->SwapChain->IsReady())
         {
-            lastWindowIndex = i;
+            vsyncTask = i;
             break;
         }
     }
+    if (_rendererType == RendererType::Vulkan && RenderTask::Tasks.Contains(_lastVSyncTask))
+    {
+        // On Vulkan, maintain the last window that was VSynced to avoid recreating swapchain too often (eg. when using context menus or tooltips)
+        vsyncTask = RenderTask::Tasks.Find(_lastVSyncTask);
+    }
 
     // Call present on all used tasks
+    _lastVSyncTask = nullptr;
     int32 presentCount = 0;
     bool anyVSync = false;
 #if COMPILE_WITH_PROFILER
@@ -697,7 +721,7 @@ void GPUDevice::DrawEnd()
         if (task && task->LastUsedFrame == Engine::FrameCount && task->SwapChain && task->SwapChain->IsReady())
         {
             bool vsync = useVSync;
-            if (lastWindowIndex != i)
+            if (vsyncTask != i)
             {
                 // Perform VSync only on the last window
                 vsync = false;
@@ -712,6 +736,8 @@ void GPUDevice::DrawEnd()
 
             anyVSync |= vsync;
             task->OnPresent(vsync);
+            if (vsync)
+                _lastVSyncTask = task;
             presentCount++;
         }
     }
@@ -727,12 +753,20 @@ void GPUDevice::DrawEnd()
     }
 #if COMPILE_WITH_PROFILER
     const double presentEnd = Platform::GetTimeSeconds();
+    extern double LastInputLatency, LastInputReadTime;
+    LastInputLatency = (float)(presentEnd - LastInputReadTime);
     ProfilerGPU::OnPresentTime((float)((presentEnd - presentStart) * 1000.0));
 #endif
     GetMainContext()->OnPresent();
 
     _wasVSyncUsed = anyVSync;
     _isRendering = false;
+
+#if COMPILE_WITH_PROFILER
+    // External profiler
+    if (ProfilerGPU::FrameEnd)
+        ProfilerGPU::FrameEnd();
+#endif
 
     RenderTargetPool::Flush();
 }
@@ -749,6 +783,13 @@ void GPUDevice::RenderEnd()
 #if COMPILE_WITH_PROFILER
     ProfilerGPU::EndEvent(_drawGpuEventIndex);
 #endif
+}
+
+void GPUDevice::OnCrash()
+{
+    DumpResourcesToLog();
+
+    LOG(Info, "IsRendering: {}, VSync: {}, Resources: {}", IsRendering(), WasVSyncUsed(), _resources.Count());
 }
 
 GPUTasksContext* GPUDevice::CreateTasksContext()
@@ -812,6 +853,11 @@ void GPUDevice::Dispose()
     VideoOutputModes.Resize(0);
 }
 
+GPUDevice::QueueInfo GPUDevice::GetNativeQueue() const
+{
+    return QueueInfo();
+}
+
 uint64 GPUDevice::GetMemoryUsage() const
 {
     uint64 result = 0;
@@ -820,6 +866,16 @@ uint64 GPUDevice::GetMemoryUsage() const
         result += _resources[i]->GetMemoryUsage();
     _resourcesLock.Unlock();
     return result;
+}
+
+GPUMemoryStats GPUDevice::GetMemoryStats()
+{
+    GPUMemoryStats stats;
+    stats.UsedDedicatedMemory = GetMemoryUsage();
+    stats.TotalDedicatedMemory = TotalGraphicsMemory;
+    stats.UsedSystemMemory = 0;
+    stats.TotalSystemMemory = 0;
+    return stats;
 }
 
 Array<GPUResource*> GPUDevice::GetResources() const

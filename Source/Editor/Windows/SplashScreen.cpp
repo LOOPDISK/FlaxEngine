@@ -94,7 +94,7 @@ void SplashScreen::Show()
         if (font->IsLoaded())
             OnFontLoaded(font);
         else
-            font->OnLoaded.Bind<SplashScreen, &SplashScreen::OnFontLoaded>(this);
+            font->Loaded.Bind<SplashScreen, &SplashScreen::OnFontLoaded>(this);
     }
 
     // Load custom image
@@ -224,7 +224,7 @@ void SplashScreen::OnFontLoaded(Asset* asset)
     ASSERT(asset && asset->IsLoaded());
     auto font = (FontAsset*)asset;
 
-    font->OnLoaded.Unbind<SplashScreen, &SplashScreen::OnFontLoaded>(this);
+    font->Loaded.Unbind<SplashScreen, &SplashScreen::OnFontLoaded>(this);
 
     // Create fonts
     const float s = _dpiScale;

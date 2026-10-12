@@ -5,8 +5,6 @@
 #include "ModelInstanceActor.h"
 #include "Engine/Content/Assets/SkinnedModel.h"
 #include "Engine/Content/Assets/AnimationGraph.h"
-#include "Engine/Graphics/Models/SkinnedMeshDrawData.h"
-#include "Engine/Renderer/DrawCall.h"
 #include "Engine/Core/Delegate.h"
 
 class BoneSocket;
@@ -83,9 +81,25 @@ private:
         uint32 Usages;
     };
 
-    GeometryDrawStateData _drawState;
-    SkinnedMeshDrawData _skinningData;
+    struct SkinnedBones
+    {
+        uint32 GlobalBufferOffset; // In bytes
+        uint16 BonesCount;
+        uint16 IsAllocated : 1;
+        uint16 IsDirty : 1;
+        uint16 IsPrevBones : 1;
+        uint16 IsPrevFlushed : 1;
+        uint16 HasPrevBones : 1;
+
+        SkinnedBones();
+        ~SkinnedBones();
+
+        void Update(const SkeletonData& skeleton, const Array<Matrix>& nodesPose, bool perBoneMotionBlur, bool reset = false);
+        void Flush();
+    };
+
     AnimationUpdateMode _actualMode;
+    SkinnedBones _bones;
     uint32 _counter;
     Real _lastMinDstSqr;
     bool _isDuringUpdateEvent = false;
@@ -96,9 +110,6 @@ private:
     Array<int32> _masterPoseMap;
     const void* _masterPoseMapSrc = nullptr;
     const void* _masterPoseMapDst = nullptr;
-    // Last bounds inputs applied; lets a dormant-pose skip still refresh bounds when these change.
-    float _lastBoundsScale = -1.0f;
-    BoundingBox _lastCustomBounds = BoundingBox::Zero;
     Array<Pair<String, float>> _blendShapeWeights;
     Array<BlendShapeMesh> _blendShapeMeshes;
     Array<BoneSocket*> _sockets;
@@ -227,13 +238,19 @@ public:
 
     /// <summary>
     /// Validates and creates a proper skinning data.
+    /// [Deprecated in v1.13]
     /// </summary>
-    API_FUNCTION() void SetupSkinningData();
+    API_FUNCTION() DEPRECATED("Not used anymore. Does nothing.") void SetupSkinningData();
 
     /// <summary>
     /// Creates and setups the skinning data (writes the identity bones transformations).
     /// </summary>
     API_FUNCTION() void PreInitSkinningData();
+
+    /// <summary>
+    /// Gets the skeleton bones data used for skinning. It contains the reference to GPU buffer with final transformations of the skeleton nodes (bones) that are used for skinning the mesh inside vertex shader.
+    /// </summary>
+    API_PROPERTY() SkinnedMeshBones GetSkinnedMeshBones() const;
 
     /// <summary>
     /// Gets the per-node final transformations (skeleton pose).
@@ -487,7 +504,6 @@ private:
 public:
     // [ModelInstanceActor]
     bool HasContentLoaded() const override;
-    void Draw(RenderContext& renderContext) override;
     void Draw(RenderContextBatch& renderContextBatch) override;
 #if USE_EDITOR
     void OnDebugDrawSelected() override;

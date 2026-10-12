@@ -7,9 +7,10 @@
 #include "Engine/Graphics/GPUContext.h"
 #include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Graphics/RenderTask.h"
+#include "Engine/Graphics/RenderContext.h"
 #include "Engine/Graphics/Shaders/GPUShader.h"
 #include "Engine/Graphics/Shaders/GPUConstantBuffer.h"
-#include "Engine/Renderer/ShadowsPass.h"
+#include "Engine/Renderer/Lighting/ShadowsPass.h"
 
 PACK_STRUCT(struct StylizedCloudMaterialShaderData {
     Matrix WorldMatrix;
@@ -87,7 +88,7 @@ void StylizedCloudMaterialShader::Bind(BindParameters& params)
         psDesc.PS = _shader->GetPS("PS_CloudPrePass");
         psDesc.DepthEnable = true;
         psDesc.DepthWriteEnable = true;
-        psDesc.DepthFunc = ComparisonFunc::Less;
+        psDesc.DepthFunc = ComparisonFunc::Default;
         psDesc.CullMode = _info.CullMode;
         _psCloudPrePass = GPUDevice::Instance->CreatePipelineState();
         _psCloudPrePass->Init(psDesc);

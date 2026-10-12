@@ -28,11 +28,7 @@
 #include "Engine/Utilities/Crc.h"
 #include "Engine/Utilities/StringConverter.h"
 
-#if USE_NETCORE
 #define MANAGED_GC_HANDLE AsUint64
-#else
-#define MANAGED_GC_HANDLE AsUint
-#endif
 #define AsEnum AsUint64
 
 namespace
@@ -596,8 +592,8 @@ Variant::Variant(Variant&& other) noexcept
         AsAsset = other.AsAsset;
         if (AsAsset)
         {
-            AsAsset->OnUnloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(&other);
-            AsAsset->OnUnloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
+            AsAsset->Unloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(&other);
+            AsAsset->Unloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
             other.AsAsset = nullptr;
         }
         break;
@@ -727,7 +723,7 @@ Variant::Variant(Asset* v)
     {
         v->AddReference();
         Type.SetTypeName(v->GetType());
-        v->OnUnloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
+        v->Unloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
     }
 }
 
@@ -980,7 +976,7 @@ Variant::~Variant()
     case VariantType::Asset:
         if (AsAsset)
         {
-            AsAsset->OnUnloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(this);
+            AsAsset->Unloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(this);
             AsAsset->RemoveReference();
         }
         break;
@@ -1048,8 +1044,8 @@ Variant& Variant::operator=(Variant&& other)
         AsAsset = other.AsAsset;
         if (AsAsset)
         {
-            AsAsset->OnUnloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(&other);
-            AsAsset->OnUnloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
+            AsAsset->Unloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(&other);
+            AsAsset->Unloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
         }
         break;
     case VariantType::Array:
@@ -1121,7 +1117,7 @@ Variant& Variant::operator=(const Variant& other)
         if (other.AsAsset)
         {
             AsAsset->AddReference();
-            AsAsset->OnUnloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
+            AsAsset->Unloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
         }
         break;
     case VariantType::Array:
@@ -2373,7 +2369,7 @@ void Variant::SetType(const VariantType& type)
     case VariantType::Asset:
         if (AsAsset)
         {
-            AsAsset->OnUnloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(this);
+            AsAsset->Unloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(this);
             AsAsset->RemoveReference();
         }
         break;
@@ -2487,7 +2483,7 @@ void Variant::SetType(VariantType&& type)
     case VariantType::Asset:
         if (AsAsset)
         {
-            AsAsset->OnUnloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(this);
+            AsAsset->Unloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(this);
             AsAsset->RemoveReference();
         }
         break;
@@ -2720,14 +2716,14 @@ void Variant::SetAsset(Asset* asset)
         SetType(VariantType(VariantType::Asset));
     if (AsAsset)
     {
-        AsAsset->OnUnloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(this);
+        AsAsset->Unloaded.Unbind<Variant, &Variant::OnAssetUnloaded>(this);
         AsAsset->RemoveReference();
     }
     AsAsset = asset;
     if (asset)
     {
         asset->AddReference();
-        asset->OnUnloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
+        asset->Unloaded.Bind<Variant, &Variant::OnAssetUnloaded>(this);
     }
 }
 

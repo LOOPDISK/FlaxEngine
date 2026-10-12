@@ -36,6 +36,16 @@ float LinearZ2DeviceDepth(GBufferData gBuffer, float linearDepth)
     return (gBuffer.ViewInfo.w / linearDepth) + gBuffer.ViewInfo.z;
 }
 
+// Undo the weapon depth remapping (see WeaponFOVOverride.hlsl)
+float UndoWeaponDepth(float deviceDepth)
+{
+#if REVERSE_Z
+    return 1.0 - (1.0 - deviceDepth) * 100.0;
+#else
+    return deviceDepth * 100.0;
+#endif
+}
+
 // Get view space position at given pixel coordinate with given device depth
 float3 GetViewPos(GBufferData gBuffer, float2 uv, float deviceDepth)
 {
@@ -124,9 +134,9 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
 #if defined(USE_GBUFFER_CUSTOM_DATA)
     if (result.ShadingModel == SHADING_MODEL_WEAPON)
     {
-        // Weapon pixels: world position from GBuffer3, undo depth remapping (0.01x) for view position
+        // Weapon pixels: world position from GBuffer3, undo depth remapping for view position
         result.WorldPos = gBuffer3.rgb + gBuffer.ViewPos;
-        result.ViewPos = GetViewPos(gBuffer, uv, rawDepth * 100.0);
+        result.ViewPos = GetViewPos(gBuffer, uv, UndoWeaponDepth(rawDepth));
     }
     else
     {
@@ -158,10 +168,10 @@ GBufferSample SampleGBufferFast(GBufferData gBuffer, float2 uv)
 #if defined(USE_GBUFFER_CUSTOM_DATA)
     if (result.ShadingModel == SHADING_MODEL_WEAPON)
     {
-        // Weapon pixels: world position from GBuffer3, undo depth remapping (0.01x) for view position
+        // Weapon pixels: world position from GBuffer3, undo depth remapping for view position
         float4 gBuffer3 = SAMPLE_RT(GBuffer3, uv);
         result.WorldPos = gBuffer3.rgb + gBuffer.ViewPos;
-        result.ViewPos = GetViewPos(gBuffer, uv, rawDepth * 100.0);
+        result.ViewPos = GetViewPos(gBuffer, uv, UndoWeaponDepth(rawDepth));
     }
     else
     {

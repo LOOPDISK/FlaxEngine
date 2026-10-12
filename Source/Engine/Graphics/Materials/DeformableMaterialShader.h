@@ -15,8 +15,9 @@ private:
         PipelineStateCache Default;
         PipelineStateCache Depth;
         PipelineStateCache Distortion;
-#if USE_EDITOR
+#if GPU_ENABLE_DEVELOPMENT
         PipelineStateCache QuadOverdraw;
+        PipelineStateCache Wireframe;
 #endif
 
         FORCE_INLINE PipelineStateCache* GetPS(const DrawPass pass)
@@ -33,9 +34,11 @@ private:
                 return &Default;
             case DrawPass::Distortion:
                 return &Distortion;
-#if USE_EDITOR
+#if GPU_ENABLE_DEVELOPMENT
             case DrawPass::QuadOverdraw:
                 return &QuadOverdraw;
+            case DrawPass::Wireframe:
+                return &Wireframe;
 #endif
             default:
                 return nullptr;
@@ -47,15 +50,15 @@ private:
             Default.Release();
             Depth.Release();
             Distortion.Release();
-#if USE_EDITOR
+#if GPU_ENABLE_DEVELOPMENT
             QuadOverdraw.Release();
+            Wireframe.Release();
 #endif
         }
     };
 
 private:
     Cache _cache;
-    DrawPass _drawModes = DrawPass::None;
 
 public:
     DeformableMaterialShader(const StringView& name)

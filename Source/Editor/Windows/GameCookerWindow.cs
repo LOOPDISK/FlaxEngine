@@ -43,9 +43,6 @@ namespace FlaxEditor.Windows
             {
                 { PlatformType.Windows, new Windows() },
                 { PlatformType.XboxOne, new XboxOne() },
-#pragma warning disable CS0612
-                { PlatformType.UWP, new UWP() },
-#pragma warning restore CS0612
                 { PlatformType.Linux, new Linux() },
                 { PlatformType.PS4, new PS4() },
                 { PlatformType.XboxScarlett, new XboxScarlett() },
@@ -166,10 +163,6 @@ namespace FlaxEditor.Windows
 #if PLATFORM_WINDOWS
                         case BuildPlatform.Windows32:
                         case BuildPlatform.Windows64:
-#pragma warning disable CS0612
-                        case BuildPlatform.UWPx86:
-                        case BuildPlatform.UWPx64:
-#pragma warning restore CS0612
                         case BuildPlatform.LinuxX64:
                         case BuildPlatform.AndroidARM64:
                         case BuildPlatform.Web:
@@ -217,13 +210,6 @@ namespace FlaxEditor.Windows
             class Windows : Platform
             {
                 protected override BuildPlatform BuildPlatform => BuildPlatform.Windows64;
-            }
-
-            class UWP : Platform
-            {
-#pragma warning disable CS0612
-                protected override BuildPlatform BuildPlatform => BuildPlatform.UWPx64;
-#pragma warning restore CS0612
             }
 
             class XboxOne : Platform
@@ -579,12 +565,6 @@ namespace FlaxEditor.Windows
                         case PlatformType.XboxOne:
                             name = "Xbox One";
                             break;
-#pragma warning disable CS0612
-                        case PlatformType.UWP:
-                            name = "Windows Store";
-                            layout.Label("UWP (Windows Store) platform has been deprecated and is no longer supported", TextAlignment.Center).Label.TextColor = Color.Red;
-                            break;
-#pragma warning restore CS0612
                         case PlatformType.Linux:
                             name = "Linux";
                             break;

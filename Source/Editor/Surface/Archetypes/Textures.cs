@@ -328,9 +328,9 @@ namespace FlaxEditor.Surface.Archetypes
                 ConnectionsHints = ConnectionsHint.Vector,
                 DefaultValues = new object[]
                 {
-                    0,
-                    -1.0f,
-                    0,
+                    (int)CommonSamplerType.LinearClamp, // Sampler
+                    -1.0f, // Level (-1 when unused)
+                    0, // Texture Group
                     false, // Enable Hex Tile
                     1.0f, // Rotation Strength
                     0.5f, // Contrast
@@ -510,7 +510,7 @@ namespace FlaxEditor.Surface.Archetypes
                 DefaultValues = new object[]
                 {
                     (int)CommonSamplerType.LinearWrap, // Sampler
-                    -1.0f, // Level
+                    -1.0f, // Level (-1 when unused)
                     0, // Texture Group
                 },
                 Elements = new[]
