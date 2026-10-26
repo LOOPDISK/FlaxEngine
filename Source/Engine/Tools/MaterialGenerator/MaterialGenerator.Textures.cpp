@@ -774,6 +774,11 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         const bool useLevel = (levelBox && levelBox->HasConnection()) || (int32)node->Values[1] != -1;
         const bool useOffset = offsetBox->HasConnection();
         const auto offset = useOffset ? eatBox(offsetBox->GetParent<Node>(), offsetBox->FirstConnection()) : Value::Zero;
+        const auto ddxBox = node->TryGetBox(8);
+        const auto ddyBox = node->TryGetBox(9);
+        const bool useGrad = ddxBox && ddyBox && ddxBox->HasConnection() && ddyBox->HasConnection();
+        const auto ddx = useGrad ? Value::Cast(tryGetValue(ddxBox, Value::Zero), uvs.Type) : Value::Zero;
+        const auto ddy = useGrad ? Value::Cast(tryGetValue(ddyBox, Value::Zero), uvs.Type) : Value::Zero;
         const Char* samplerName;
         const int32 samplerIndex = node->Values[0].AsInt;
         if (samplerIndex == TextureGroup && node->Values.Count() > 2)
@@ -802,8 +807,8 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
         {
             // Sample Texture - check for hex tile mode
             const bool hexTileEnabled = node->Values.Count() >= 4 ? node->Values[3].AsBool : false;
-            const auto rotationStrength = tryGetValue(node->TryGetBox(4), node->Values.Count() >= 5 ? node->Values[4] : 1.0f);
-            const auto contrast = tryGetValue(node->TryGetBox(5), node->Values.Count() >= 6 ? node->Values[5] : 0.5f);
+            const auto rotationStrength = tryGetValue(node->TryGetBox(5), node->Values.Count() >= 5 ? node->Values[4] : 1.0f);
+            const auto contrast = tryGetValue(node->TryGetBox(6), node->Values.Count() >= 6 ? node->Values[5] : 0.5f);
             const bool largeWorldStability = node->Values.Count() >= 7 ? node->Values[6].AsBool : false;
 
             if (hexTileEnabled)
@@ -838,10 +843,25 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                 {
                     if (useLevel && useOffset)
                         format = TEXT("{0}.SampleLevel({1}, {2}, {3} + MaterialTextureMipBias, {4})");
+                    else if (useLevel)
+                        format = TEXT("{0}.SampleLevel({1}, {2}, {3} + MaterialTextureMipBias)");
+                    else if (useGrad && useOffset)
+                        format = TEXT("{0}.SampleGrad({1}, {2}, {5} * exp2(MaterialTextureMipBias), {6} * exp2(MaterialTextureMipBias), {4})");
+                    else if (useGrad)
+                        format = TEXT("{0}.SampleGrad({1}, {2}, {5} * exp2(MaterialTextureMipBias), {6} * exp2(MaterialTextureMipBias))");
+                    else if (!canUseSample)
+                        format = TEXT("{0}.SampleLevel({1}, {2}, MaterialTextureMipBias)");
                     else if (useOffset)
                         format = TEXT("{0}.SampleBias({1}, {2}, MaterialTextureMipBias, {4})");
                     else
                         format = TEXT("{0}.SampleBias({1}, {2}, MaterialTextureMipBias)");
+                }
+                else if (useGrad && !useLevel)
+                {
+                    if (useOffset)
+                        format = TEXT("{0}.SampleGrad({1}, {2}, {5}, {6}, {4})");
+                    else
+                        format = TEXT("{0}.SampleGrad({1}, {2}, {5}, {6})");
                 }
                 else if (useLevel || !canUseSample)
                 {
@@ -857,7 +877,7 @@ void MaterialGenerator::ProcessGroupTextures(Box* box, Node* node, Value& value)
                     else
                         format = TEXT("{0}.Sample({1}, {2})");
                 }
-                const String sampledValue = String::Format(format, texture.Value, samplerName, uvs.Value, level.Value, offset.Value);
+                const String sampledValue = String::Format(format, texture.Value, samplerName, uvs.Value, level.Value, offset.Value, ddx.Value, ddy.Value);
                 textureBox->Cache = writeLocal(VariantType::Float4, sampledValue, node);
             }
         }

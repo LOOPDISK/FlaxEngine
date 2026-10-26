@@ -598,6 +598,7 @@ void ClipLODTransition(MaterialInput input)
 META_PS(true, FEATURE_LEVEL_ES2)
 void PS_Depth(PixelInput input)
 {
+	MaterialDepthPass = true;
 	MaterialInput materialInput = GetMaterialInput(input);
 #if USE_DITHERED_LOD_TRANSITION
 	ClipLODTransition(materialInput);

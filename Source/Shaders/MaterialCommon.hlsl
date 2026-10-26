@@ -166,6 +166,9 @@ struct Material
 #endif
 };
 
+// True while the depth/shadow pass evaluates the material (constant per entry point)
+static bool MaterialDepthPass = false;
+
 // Secondary constant buffer (with per-view constants at slot 1)
 #if USE_PER_VIEW_CONSTANTS
 cbuffer ViewData : register(b1)
