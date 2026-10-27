@@ -121,7 +121,7 @@ GBufferSample SampleGBuffer(GBufferData gBuffer, float2 uv)
     // Decode GBuffer data first
     result.Color = gBuffer0.rgb;
     result.AO = gBuffer0.a;
-    result.Roughness = gBuffer2.r;
+    result.Roughness = ApplyMatteRoughness(gBuffer2.r);
     result.Metalness = gBuffer2.g;
     result.Specular = gBuffer2.b;
     result.WeaponMask = gBuffer2.a;
