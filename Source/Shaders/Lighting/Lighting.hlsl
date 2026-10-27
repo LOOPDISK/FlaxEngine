@@ -58,17 +58,11 @@ LightSample StandardShading(GBufferSample gBuffer, float energy, float3 L, float
     // 1. Calculate Specular Term
     float3 specularColor = GetSpecularColor(gBuffer);
 
-    // // Standard Schlick Fresnel (Blender/UE4 Standard)
-    // // We dampen F90 on rough surfaces to prevent "crunchy" artifacts at grazing angles.
-    // float f90 = saturate(1.0 - gBuffer.Roughness);
-    // float3 F = specularColor + (f90 - specularColor) * pow(1.0 - VoH, 5.0);
-
     float roughnessSq = Square(gBuffer.Roughness);
     float D = D_GGX(roughnessSq, NoH) * energy;
     float Vis = V_SmithJointApprox(roughnessSq, NoV, NoL);
     float DVis = D * Vis;
     
-
     //fresnel as a blend
     float b = Pow5(1.0 - VoH);
     float graz = SpecularGrazingGate(gBuffer.Roughness) * DVis;
