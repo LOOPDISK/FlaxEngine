@@ -488,17 +488,8 @@ bool MeshBase::Init(uint32 vertices, uint32 triangles, const Array<const void*, 
 #define MESH_BUFFER_NAME(postfix) String::Empty
 #endif
     vertexBuffer0 = GPUDevice::Instance->CreateBuffer(MESH_BUFFER_NAME(".VB0"));
-    {
-        auto desc0 = GPUBufferDescription::Vertex(vbLayout[0], vertices, vbData[0]);
-        // Skinnable VB0 (has blend data) gets a raw SRV so the skinning CS can bind it as a ByteAddressBuffer; rigid meshes skip it (layout still from vbLayout).
-        if (vbLayout[0]->FindElement(VertexElement::Types::BlendIndices).Format != PixelFormat::Unknown)
-        {
-            desc0.Flags |= GPUBufferFlags::ShaderResource | GPUBufferFlags::RawBuffer;
-            desc0.Format = PixelFormat::R32_Typeless;
-        }
-        if (vertexBuffer0->Init(desc0))
-            goto ERROR_LOAD_END;
-    }
+    if (vertexBuffer0->Init(GPUBufferDescription::Vertex(vbLayout[0], vertices, vbData[0])))
+        goto ERROR_LOAD_END;
     if (vbData.Count() >= 2 && vbData[1])
     {
         vertexBuffer1 = GPUDevice::Instance->CreateBuffer(MESH_BUFFER_NAME(".VB1"));
@@ -895,7 +886,7 @@ bool MeshBase::UpdateTrianglesUShort(int32 triangleCount, const MArray* triangle
     return ::UpdateTriangles<uint16>(this, triangleCount, trianglesObj);
 }
 
-MArray* MeshBase::DownloadIndexBuffer(bool forceGpu, MTypeObject* resultType, bool use16Bit)
+MArray* MeshBase::DownloadIndexBuffer(bool forceGpu, MType* resultType, bool use16Bit)
 {
     ScopeLock lock(GetModelBase()->Locker);
 
@@ -912,7 +903,7 @@ MArray* MeshBase::DownloadIndexBuffer(bool forceGpu, MTypeObject* resultType, bo
     auto indexStride = indexStream.GetStride();
 
     // Convert into managed array
-    MArray* result = MCore::Array::New(MCore::Type::GetClass(INTERNAL_TYPE_OBJECT_GET(resultType)), indexCount);
+    MArray* result = MCore::Array::New(MCore::Type::GetClass(resultType), indexCount);
     void* managedArrayPtr = MCore::Array::GetAddress(result);
     if (use16Bit)
     {

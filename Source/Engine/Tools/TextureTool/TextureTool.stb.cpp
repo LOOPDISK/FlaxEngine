@@ -339,15 +339,8 @@ bool TextureTool::ExportTextureStb(ImageType type, const StringView& path, const
     return result != 0;
 }
 
-bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, TextureData& textureData, bool& hasAlpha)
+bool TextureTool::ImportTextureStb(ImageType type, Span<byte> bytes, TextureData& textureData, bool& hasAlpha)
 {
-    Array<byte> fileData;
-    if (File::ReadAllBytes(path, fileData))
-    {
-        LOG(Warning, "Failed to read data from file.");
-        return true;
-    }
-
     switch (type)
     {
     case ImageType::PNG:
@@ -358,13 +351,12 @@ bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, Textu
     case ImageType::TGA:
     {
         int width, height, components;
-        stbi_uc* stbData = stbi_load_from_memory(fileData.Get(), fileData.Count(), &width, &height, &components, 4);
+        stbi_uc* stbData = stbi_load_from_memory(bytes.Get(), bytes.Length(), &width, &height, &components, 4);
         if (!stbData)
         {
             LOG(Warning, "Failed to load image. {0}", String(stbi_failure_reason()));
             return false;
         }
-        fileData.Resize(0);
 
         // Setup texture data
         textureData.Width = width;
@@ -399,8 +391,8 @@ bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, Textu
         // Assume 16-bit, grayscale .RAW file in little-endian byte order
 
         // Check size
-        const auto size = (int32)Math::Sqrt(fileData.Count() / 2.0f);
-        if (fileData.Count() != size * size * 2)
+        const auto size = (int32)Math::Sqrt(bytes.Length() / 2.0f);
+        if (bytes.Length() != size * size * 2)
         {
             LOG(Warning, "Invalid RAW file data size or format. Use 16-bit .RAW file in little-endian byte order (square dimensions).");
             return true;
@@ -414,10 +406,10 @@ bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, Textu
         textureData.Items.Resize(1);
         textureData.Items[0].Mips.Resize(1);
         auto& mip = textureData.Items[0].Mips[0];
-        mip.RowPitch = fileData.Count() / size;
-        mip.DepthPitch = fileData.Count();
+        mip.RowPitch = bytes.Length() / size;
+        mip.DepthPitch = bytes.Length();
         mip.Lines = size;
-        mip.Data.Copy(fileData);
+        mip.Data.Copy(bytes);
 
         break;
     }
@@ -425,11 +417,10 @@ bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, Textu
     {
 #if USE_EDITOR
         // Load exr file
-        AnsiPathTempFile tempFile(path);
         float* pixels;
         int width, height;
         const char* err = nullptr;
-        int ret = LoadEXR(&pixels, &width, &height, tempFile.Path.Get(), &err);
+        int ret = LoadEXRFromMemory(&pixels, &width, &height, bytes.Get(), bytes.Length(), &err);
         if (ret != TINYEXR_SUCCESS)
         {
             if (err)
@@ -464,7 +455,7 @@ bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, Textu
     {
 #if USE_EDITOR
         // Load image as stream of bytes
-        const unsigned char* ddsData = static_cast<const unsigned char*>(fileData.Get());
+        const unsigned char* ddsData = static_cast<const unsigned char*>(bytes.Get());
 
         // Decode header and get pointer to initial data
         ddspp::Descriptor desc;
@@ -559,7 +550,7 @@ bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, Textu
     return false;
 }
 
-bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, TextureData& textureData, const Options& options, String& errorMsg, bool& hasAlpha)
+bool TextureTool::ImportTextureStb(ImageType type, Span<byte> bytes, TextureData& textureData, const Options& options, String& errorMsg, bool& hasAlpha)
 {
     // Load image data
     if (type == ImageType::Internal)
@@ -576,7 +567,7 @@ bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, Textu
     else
     {
         stbi_set_flip_vertically_on_load_thread(options.FlipY);
-        bool failed = ImportTextureStb(type, path, textureData, hasAlpha);
+        bool failed = ImportTextureStb(type, bytes, textureData, hasAlpha);
         stbi_set_flip_vertically_on_load_thread(false);
         if (failed)
         {
@@ -584,7 +575,7 @@ bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, Textu
         }
     }
 
-    // Use two data containers for texture importing for more optimzied performance
+    // Use two data containers for texture importing for more optimized performance
     TextureData textureDataTmp;
     TextureData* textureDataSrc = &textureData;
     TextureData* textureDataDst = &textureDataTmp;
@@ -629,7 +620,7 @@ bool TextureTool::ImportTextureStb(ImageType type, const StringView& path, Textu
     }
     if (options.GenerateMipMaps && !isPowerOfTwo)
     {
-        LOG(Warning, "Cannot generate mip maps for texture '{}' that size is not power of two. Use Resize or Max Size to change dimensions.", StringUtils::GetFileName(path), width, height);
+        LOG(Warning, "Cannot generate mip maps for texture that size is not power of two ({}x{}). Use Resize or Max Size to change dimensions.", width, height);
     }
 
     // Decompress if texture is compressed (next steps need decompressed input data, for eg. mip maps generation or format changing)

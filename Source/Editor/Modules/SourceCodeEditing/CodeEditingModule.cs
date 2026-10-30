@@ -505,7 +505,7 @@ namespace FlaxEditor.Modules.SourceCodeEditing
             base.OnUpdate();
 
             // Automatic project files generation after workspace modifications
-            if (_autoGenerateScriptsProjectFiles && ScriptsBuilder.IsSourceWorkspaceDirty && !ScriptsBuilder.IsCompiling)
+            if (_autoGenerateScriptsProjectFiles && ScriptsBuilder.IsSourceWorkspaceDirty && !ScriptsBuilder.IsCompiling && Engine.HasFocus)
             {
                 // Try to delay generation when a lot of files are added at once
                 if (ScriptsBuilder.IsSourceDirtyFor(TimeSpan.FromMilliseconds(150)))
@@ -532,6 +532,7 @@ namespace FlaxEditor.Modules.SourceCodeEditing
         {
             // Invalidate cached types
             All.ClearTypes();
+            AllWithStd.ClearTypes();
             VisualScriptPropertyTypes.ClearTypes();
             Actors.ClearTypes();
             Scripts.ClearTypes();
@@ -584,7 +585,6 @@ namespace FlaxEditor.Modules.SourceCodeEditing
             var codeBase = Utils.GetAssemblyLocation(assembly);
             if (string.IsNullOrEmpty(codeBase))
                 return true;
-#if USE_NETCORE
             if (assembly.ManifestModule.FullyQualifiedName == "<In Memory Module>")
                 return false;
 
@@ -592,11 +592,6 @@ namespace FlaxEditor.Modules.SourceCodeEditing
             string repositoryUrl = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "RepositoryUrl")?.Value ?? "";
             if (repositoryUrl != "https://github.com/dotnet/runtime")
                 return true;
-#else
-            // Skip assemblies from in-build Mono directory
-            if (!codeBase.Contains("/Mono/lib/mono/"))
-                return true;
-#endif
             return false;
         }
 

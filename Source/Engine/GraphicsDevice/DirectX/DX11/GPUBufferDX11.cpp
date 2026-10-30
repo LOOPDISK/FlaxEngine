@@ -20,6 +20,7 @@ GPUBufferView* GPUBufferDX11::View() const
 
 void* GPUBufferDX11::Map(GPUResourceMapMode mode)
 {
+    CHECK_RETURN(_resource, nullptr);
     const bool isMainThread = IsInMainThread();
     if (!isMainThread)
         _device->Locker.Lock();
@@ -106,7 +107,17 @@ bool GPUBufferDX11::OnInit()
         data.SysMemPitch = bufferDesc.ByteWidth;
         data.SysMemSlicePitch = 0;
     }
-    VALIDATE_DIRECTX_CALL(_device->GetDevice()->CreateBuffer(&bufferDesc, _desc.InitData ? &data : nullptr, &_resource));
+    HRESULT result = _device->GetDevice()->CreateBuffer(&bufferDesc, _desc.InitData ? &data : nullptr, &_resource);
+    if (FAILED(result))
+    {
+        LOG(Error, "ID3D11Device::CreateBuffer failed");
+        LOG_STR(Error, _desc.ToString());
+#if GPU_ENABLE_RESOURCE_NAMING
+        LOG_STR(Error, GetName());
+#endif
+        RenderToolsDX::LogD3DResult(result, __FILE__, __LINE__, true);
+        return true;
+    }
 
     // Set state
     DX_SET_DEBUG_NAME(_resource, GetName());
@@ -122,8 +133,7 @@ bool GPUBufferDX11::OnInit()
             srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
             srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
             srvDesc.BufferEx.FirstElement = 0;
-            // Raw views address 4-byte elements over the whole buffer; Size/Stride (Stride>4) would truncate reads.
-            srvDesc.BufferEx.NumElements = _desc.Size / 4;
+            srvDesc.BufferEx.NumElements = numElements;
             srvDesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
         }
         else
@@ -148,10 +158,7 @@ bool GPUBufferDX11::OnInit()
         uavDesc.Buffer.NumElements = numElements;
         uavDesc.Buffer.Flags = 0;
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::RawBuffer))
-        {
             uavDesc.Buffer.Flags |= D3D11_BUFFER_UAV_FLAG_RAW;
-            uavDesc.Buffer.NumElements = _desc.Size / 4;
-        }
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::Append))
             uavDesc.Buffer.Flags |= D3D11_BUFFER_UAV_FLAG_APPEND;
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::Counter))

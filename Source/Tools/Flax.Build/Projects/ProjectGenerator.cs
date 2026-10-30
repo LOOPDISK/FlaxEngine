@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using Flax.Build.Projects.CMake;
 using Flax.Build.Projects.VisualStudio;
 using Flax.Build.Projects.VisualStudioCode;
 
@@ -81,34 +82,10 @@ namespace Flax.Build.Projects
         /// <returns>The generator.</returns>
         public static ProjectGenerator Create(ProjectFormat format, TargetType type)
         {
-            // Pick the newest installed Visual Studio version
+            // Visual Studio default project format is Visual Studio 2026 (.slnx)
             if (format == ProjectFormat.VisualStudio)
             {
-                if (VisualStudioInstance.HasIDE(VisualStudioVersion.VisualStudio2026))
-                {
-                    format = ProjectFormat.VisualStudio2026;
-                }
-                else if (VisualStudioInstance.HasIDE(VisualStudioVersion.VisualStudio2022))
-                {
-                    format = ProjectFormat.VisualStudio2022;
-                }
-                else if (VisualStudioInstance.HasIDE(VisualStudioVersion.VisualStudio2019))
-                {
-                    format = ProjectFormat.VisualStudio2019;
-                }
-                else if (VisualStudioInstance.HasIDE(VisualStudioVersion.VisualStudio2017))
-                {
-                    format = ProjectFormat.VisualStudio2017;
-                }
-                else if (VisualStudioInstance.HasIDE(VisualStudioVersion.VisualStudio2015))
-                {
-                    format = ProjectFormat.VisualStudio2015;
-                }
-                else
-                {
-                    Log.Warning("Failed to find default Visual Studio installation");
-                    format = ProjectFormat.VisualStudio2015;
-                }
+                format = ProjectFormat.VisualStudio2026;
             }
 
             switch (format)
@@ -150,6 +127,7 @@ namespace Flax.Build.Projects
             case ProjectFormat.VisualStudioCode: return type == TargetType.DotNet 
                 ? (ProjectGenerator)new CSProjectGenerator(VisualStudioVersion.VisualStudio2015)
                 : (ProjectGenerator)new VisualStudioCodeProjectGenerator();
+            case ProjectFormat.CMake: return new CMakeProjectGenerator();
             case ProjectFormat.XCode: return new XCodeProjectGenerator();
             case ProjectFormat.Custom:
                 if (CustomProjectTypes.TryGetValue(Configuration.ProjectFormatCustom, out var factory))

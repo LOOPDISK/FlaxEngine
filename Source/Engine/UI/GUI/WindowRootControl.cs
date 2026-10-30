@@ -119,7 +119,8 @@ namespace FlaxEngine.GUI
         /// <param name="force">True if move to the front by force, otherwise false.</param>
         public void BringToFront(bool force = false)
         {
-            _window.BringToFront(force);
+            if (_window && _window.IsVisible)
+                _window.BringToFront(force);
         }
 
         /// <summary>
@@ -193,6 +194,18 @@ namespace FlaxEngine.GUI
 
                 _window.EndTrackingMouse();
             }
+        }
+        
+        /// <inheritdoc />
+        public override void StartTextInput()
+        {
+            _window.StartTextInput();
+        }
+
+        /// <inheritdoc />
+        public override void EndTextInput()
+        {
+            _window.EndTextInput();
         }
 
         /// <inheritdoc />

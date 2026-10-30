@@ -186,7 +186,9 @@ struct FLAXENGINE_API AnimGraphSlot
     float BlendOutTime = 0.0f;
     int32 LoopCount = 0;
     bool Pause = false;
-    bool Reset = false;
+    bool Stop = false;
+    bool Rewind = false;
+    bool ActiveBlend = false;
 };
 
 /// <summary>
@@ -820,11 +822,6 @@ private:
     static ThreadLocal<AnimGraphContext*> Context;
 
 public:
-    /// <summary>
-    /// Initializes the managed runtime calls.
-    /// </summary>
-    static void initRuntime();
-
     /// <summary>
     /// Initializes a new instance of the <see cref="AnimGraphExecutor"/> class.
     /// </summary>

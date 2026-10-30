@@ -423,7 +423,7 @@ namespace FlaxEditor.Viewport
         /// <summary>
         /// Gets a value indicating whether this viewport has loaded dependant assets.
         /// </summary>
-        public virtual bool HasLoadedAssets => true;
+        public virtual bool HasContentLoaded => true;
 
         /// <summary>
         /// The 'View' widget button context menu.
@@ -1515,9 +1515,14 @@ namespace FlaxEditor.Viewport
             Matrix.Multiply(ref v, ref p, out var ivp);
             ivp.Invert();
 
-            // Create near and far points
-            var nearPoint = new Vector3(mousePosition, _nearPlane);
-            var farPoint = new Vector3(mousePosition, _farPlane);
+            // Create near and far points, with device depth of 1 and 0 respectively
+#if REVERSE_Z
+            var nearPoint = new Vector3(mousePosition, 1.0f);
+            var farPoint = new Vector3(mousePosition, 0.0f);
+#else
+            var nearPoint = new Vector3(mousePosition, 0.0f);
+            var farPoint = new Vector3(mousePosition, 1.0f);
+#endif
             viewport.Unproject(ref nearPoint, ref ivp, out nearPoint);
             viewport.Unproject(ref farPoint, ref ivp, out farPoint);
 
@@ -1561,8 +1566,9 @@ namespace FlaxEditor.Viewport
             var center = Float2.Round(size * 0.5f);
             if (Mathf.Abs(_viewMousePos.X - center.X) > center.X * 0.8f || Mathf.Abs(_viewMousePos.Y - center.Y) > center.Y * 0.8f)
             {
-                _viewMousePos = center;
-                win.MousePosition = PointToWindow(_viewMousePos);
+                var windowPosition = SnapMousePositionToDevicePixels(PointToWindow(center), win.DpiScale);
+                _viewMousePos = PointFromWindow(windowPosition);
+                win.MousePosition = windowPosition * win.DpiScale;
             }
 #endif
         }
@@ -1577,6 +1583,11 @@ namespace FlaxEditor.Viewport
             win.Cursor = CursorType.Default;
             win.EndTrackingMouse();
             win.MouseMoveRelative -= OnMouseMoveRelative;
+        }
+
+        internal static Float2 SnapMousePositionToDevicePixels(Float2 position, float dpiScale)
+        {
+            return Float2.Round(position * dpiScale) / dpiScale;
         }
 
         /// <summary>
@@ -1859,8 +1870,9 @@ namespace FlaxEditor.Viewport
                 // Move mouse back to the root position
                 if (centerMouse && (_input.IsMouseRightDown || _input.IsMouseLeftDown || _input.IsMouseMiddleDown || _isVirtualMouseRightDown))
                 {
-                    var center = PointToWindow(_startPos);
-                    win.MousePosition = center;
+                    var windowPosition = SnapMousePositionToDevicePixels(PointToWindow(_startPos), win.Window.DpiScale);
+                    _startPos = PointFromWindow(windowPosition);
+                    win.MousePosition = windowPosition;
                 }
 #endif
 
@@ -2083,11 +2095,12 @@ namespace FlaxEditor.Viewport
             new ViewModeOptions(ViewMode.Unlit, "Unlit", Editor.Instance.Options.Options.Input.Unlit),
             new ViewModeOptions(ViewMode.NoPostFx, "No PostFx", Editor.Instance.Options.Options.Input.NoPostFX),
             new ViewModeOptions(ViewMode.Wireframe, "Wireframe", Editor.Instance.Options.Options.Input.Wireframe),
+            new ViewModeOptions(ViewMode.Lighting, "Lighting"),
             new ViewModeOptions(ViewMode.LightBuffer, "Light Buffer", Editor.Instance.Options.Options.Input.LightBuffer),
             new ViewModeOptions(ViewMode.Reflections, "Reflections Buffer", Editor.Instance.Options.Options.Input.ReflectionsBuffer),
-            new ViewModeOptions(ViewMode.Depth, "Depth Buffer", Editor.Instance.Options.Options.Input.DepthBuffer),
             new ViewModeOptions("GBuffer", new[]
             {
+                new ViewModeOptions(ViewMode.Depth, "Depth Buffer", Editor.Instance.Options.Options.Input.DepthBuffer),
                 new ViewModeOptions(ViewMode.Diffuse, "Diffuse"),
                 new ViewModeOptions(ViewMode.Metalness, "Metalness"),
                 new ViewModeOptions(ViewMode.Roughness, "Roughness"),
@@ -2098,18 +2111,22 @@ namespace FlaxEditor.Viewport
                 new ViewModeOptions(ViewMode.Emissive, "Emissive Light"),
                 new ViewModeOptions(ViewMode.Normals, "Normals"),
                 new ViewModeOptions(ViewMode.AmbientOcclusion, "Ambient Occlusion"),
+                new ViewModeOptions(ViewMode.MotionVectors, "Motion Vectors", Editor.Instance.Options.Options.Input.MotionVectors),
             }),
-            new ViewModeOptions(ViewMode.MotionVectors, "Motion Vectors", Editor.Instance.Options.Options.Input.MotionVectors),
             new ViewModeOptions(ViewMode.LightmapUVsDensity, "Lightmap UVs Density", Editor.Instance.Options.Options.Input.LightmapUVDensity),
             new ViewModeOptions(ViewMode.VertexColors, "Vertex Colors", Editor.Instance.Options.Options.Input.VertexColors),
             new ViewModeOptions(ViewMode.PhysicsColliders, "Physics Colliders", Editor.Instance.Options.Options.Input.PhysicsColliders),
-            new ViewModeOptions(ViewMode.LODPreview, "LOD Preview", Editor.Instance.Options.Options.Input.LODPreview),
-            new ViewModeOptions(ViewMode.MaterialComplexity, "Material Complexity", Editor.Instance.Options.Options.Input.MaterialComplexity),
-            new ViewModeOptions(ViewMode.QuadOverdraw, "Quad Overdraw", Editor.Instance.Options.Options.Input.QuadOverdraw),
+            new ViewModeOptions("Optimization", new[]
+            {
+                new ViewModeOptions(ViewMode.LODPreview, "LOD Preview", Editor.Instance.Options.Options.Input.LODPreview),
+                new ViewModeOptions(ViewMode.MaterialComplexity, "Material Complexity", Editor.Instance.Options.Options.Input.MaterialComplexity),
+                new ViewModeOptions(ViewMode.QuadOverdraw, "Quad Overdraw", Editor.Instance.Options.Options.Input.QuadOverdraw),
+                new ViewModeOptions(ViewMode.LightOverlap, "Light Overlap"),
+                new ViewModeOptions(ViewMode.GlobalSDFOverdraw, "Global SDF Overdraw"),
+            }),
             new ViewModeOptions(ViewMode.GlobalSDF, "Global SDF", Editor.Instance.Options.Options.Input.GloablSDF),
             new ViewModeOptions(ViewMode.GlobalSurfaceAtlas, "Global Surface Atlas", Editor.Instance.Options.Options.Input.GlobalSurfaceAtlas),
             new ViewModeOptions(ViewMode.GlobalIllumination, "Global Illumination", Editor.Instance.Options.Options.Input.GlobalIllumination),
-            new ViewModeOptions(ViewMode.HierarchialZBuffer, "HZB Occluders", Editor.Instance.Options.Options.Input.HZBOccluders),
         };
 
         private void WidgetViewModeShowHideClicked(ContextMenuButton button)

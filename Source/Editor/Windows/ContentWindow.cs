@@ -67,6 +67,8 @@ namespace FlaxEditor.Windows
         private readonly Stack<ContentFolderTreeNode> _navigationRedo = new Stack<ContentFolderTreeNode>(32);
 
         private NewItem _newElement;
+        private List<string> _newFilesCache;
+        private int _newFilesCacheSize;
 
         /// <summary>
         /// Gets the toolstrip.
@@ -333,7 +335,7 @@ namespace FlaxEditor.Windows
             var menu = new ContextMenu();
             
             InterfaceOptions interfaceOptions = Editor.Instance.Options.Options.Interface;
-            bool disableUnavaliable = interfaceOptions.UnavaliableContentCreateOptions == InterfaceOptions.DisabledHidden.Disabled;
+            bool disableUnavaliable = interfaceOptions.UnavailableContentCreateOptions == InterfaceOptions.DisabledHidden.Disabled;
 
             CreateNewFolderMenu(menu, CurrentViewFolder, disableUnavaliable);
             CreateNewModuleMenu(menu, CurrentViewFolder, disableUnavaliable);
@@ -559,7 +561,7 @@ namespace FlaxEditor.Windows
         }
 
         /// <summary>
-        ///  Enables or disables vertical and horizontal scrolling on the content tree panel
+        /// Enables or disables vertical and horizontal scrolling on the content tree panel
         /// </summary>
         /// <param name="enabled">The state to set scrolling to</param>
         public void ScrollingOnTreeView(bool enabled)
@@ -571,7 +573,7 @@ namespace FlaxEditor.Windows
         }
 
         /// <summary>
-        ///  Enables or disables vertical and horizontal scrolling on the content view panel
+        /// Enables or disables vertical and horizontal scrolling on the content view panel
         /// </summary>
         /// <param name="enabled">The state to set scrolling to</param>
         public void ScrollingOnContentView(bool enabled)
@@ -598,21 +600,9 @@ namespace FlaxEditor.Windows
             // Disable scrolling in proper view
             _renameInTree = _showAllContentInTree;
             if (_renameInTree)
-            {
-                if (_contentTreePanel.VScrollBar != null)
-                    _contentTreePanel.VScrollBar.ThumbEnabled = false;
-                if (_contentTreePanel.HScrollBar != null)
-                    _contentTreePanel.HScrollBar.ThumbEnabled = false;
                 ScrollingOnTreeView(false);
-            }
             else
-            {
-                if (_contentViewPanel.VScrollBar != null)
-                    _contentViewPanel.VScrollBar.ThumbEnabled = false;
-                if (_contentViewPanel.HScrollBar != null)
-                    _contentViewPanel.HScrollBar.ThumbEnabled = false;
                 ScrollingOnContentView(false);
-            }
 
             // Show rename popup
             RenamePopup popup;
@@ -664,21 +654,9 @@ namespace FlaxEditor.Windows
         {
             // Restore scrolling in proper view
             if (_renameInTree)
-            {
-                if (_contentTreePanel.VScrollBar != null)
-                    _contentTreePanel.VScrollBar.ThumbEnabled = true;
-                if (_contentTreePanel.HScrollBar != null)
-                    _contentTreePanel.HScrollBar.ThumbEnabled = true;
                 ScrollingOnTreeView(true);
-            }
             else
-            {
-                if (_contentViewPanel.VScrollBar != null)
-                    _contentViewPanel.VScrollBar.ThumbEnabled = true;
-                if (_contentViewPanel.HScrollBar != null)
-                    _contentViewPanel.HScrollBar.ThumbEnabled = true;
                 ScrollingOnContentView(true);
-            }
             _renameInTree = false;
 
             // Check if was creating new element
@@ -704,7 +682,6 @@ namespace FlaxEditor.Windows
             // Check if can rename this item
             if (!item.CanRename)
             {
-                // Cannot
                 MessageBox.Show("Cannot rename this item.", "Cannot rename", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -718,7 +695,6 @@ namespace FlaxEditor.Windows
             // Check if name is valid
             if (!Editor.ContentEditing.IsValidAssetName(item, newShortName, out string hint))
             {
-                // Invalid name
                 MessageBox.Show("Given asset name is invalid. " + hint, "Invalid name", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -740,6 +716,7 @@ namespace FlaxEditor.Windows
             // Note: we create `_newElement` and then rename it to create new asset
             var itemFolder = item.ParentFolder;
             Action<ContentItem> endEvent = null;
+            bool lazyCreation = false;
             if (_newElement == item)
             {
                 try
@@ -750,6 +727,9 @@ namespace FlaxEditor.Windows
                     var proxy = _newElement.Proxy;
                     Editor.Log(string.Format("Creating asset {0} in {1}", proxy.Name, newPath));
                     proxy.Create(newPath, _newElement.Argument);
+
+                    // When creating item with options dialog deffer processing
+                    lazyCreation = !File.Exists(newPath);
                 }
                 catch (Exception ex)
                 {
@@ -773,14 +753,26 @@ namespace FlaxEditor.Windows
                 if (_newElement.Proxy is ScriptProxy && Editor.Instance.Options.Options.General.AutoReloadScriptsOnMainWindowFocus)
                     ScriptsBuilder.MarkWorkspaceDirty();
 
+                // Cache new file to be auto-selected after actual creation
+                _newFilesCache?.Clear();
+                _newFilesCacheSize = 0;
+                if (lazyCreation)
+                {
+                    _newFilesCache ??= new List<string>();
+                    _newFilesCache.Add(newPath);
+                    _newFilesCacheSize = 1;
+                }
+
                 // Destroy mock control
                 _newElement.ParentFolder = null;
                 _newElement.Dispose();
                 _newElement = null;
 
+#if !PLATFORM_SDL
                 // Focus content window
                 Focus();
                 RootWindow?.Focus();
+#endif
             }
 
             // Refresh database and view now
@@ -789,7 +781,8 @@ namespace FlaxEditor.Windows
             var newItem = itemFolder.FindChild(newPath);
             if (newItem == null)
             {
-                Editor.LogWarning("Failed to find the created new item.");
+                if (!lazyCreation)
+                    Editor.LogWarning("Failed to find the created new item.");
                 return;
             }
 
@@ -935,15 +928,20 @@ namespace FlaxEditor.Windows
         /// <param name="isCutting">Whether a cutting action is occuring.</param>
         public void Paste(string[] files, bool isCutting)
         {
+            var folder = CurrentViewFolder;
+
+            // Copy or move assets
             var importFiles = new List<string>();
+            var pastedFiles = new List<string>();
             foreach (var sourcePath in files)
             {
                 var item = Editor.ContentDatabase.Find(sourcePath);
                 if (item != null)
                 {
-                    var newPath = StringUtils.NormalizePath(Path.Combine(CurrentViewFolder.Path, item.FileName));
+                    var newPath = StringUtils.NormalizePath(Path.Combine(folder.Path, item.FileName));
                     if (sourcePath.Equals(newPath))
                         newPath = GetClonedAssetPath(item);
+                    pastedFiles.Add(newPath);
                     if (isCutting)
                         Editor.ContentDatabase.Move(item, newPath);
                     else
@@ -952,7 +950,25 @@ namespace FlaxEditor.Windows
                 else
                     importFiles.Add(sourcePath);
             }
-            Editor.ContentImporting.Import(importFiles, CurrentViewFolder);
+
+            // Import any new files
+            Editor.ContentImporting.Import(importFiles, folder);
+
+            // Auto-select pasted files
+            if (pastedFiles.Count != 0 && importFiles.Count == 0)
+            {
+                Editor.ContentDatabase.RefreshFolder(folder, false);
+                bool additive = false;
+                foreach (var pastedFile in pastedFiles)
+                {
+                    var pastedItem = folder.FindChild(pastedFile);
+                    if (pastedItem != null)
+                    {
+                        Select(pastedItem, true, additive);
+                        additive = true; // Clear selection on first item
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -1138,20 +1154,19 @@ namespace FlaxEditor.Windows
                 throw new ArgumentNullException();
 
             var item = Editor.ContentDatabase.Find(asset.ID);
-            if (item != null)
-                Select(item);
+            Select(item);
         }
 
         /// <summary>
-        /// Selects the specified item in the content view.
+        /// Selects the specified item in the content view. Does nothing if the current view doesn't show the folder containing that item.
         /// </summary>
         /// <param name="item">The item to select.</param>
         /// <param name="fastScroll">True of scroll to the item quickly without smoothing.</param>
-        public void Select(ContentItem item, bool fastScroll = false)
+        /// <param name="additive">True of select item in additive mode with existing selection preservation, otherwise current selection will be cleared.</param>
+        public void Select(ContentItem item, bool fastScroll = false, bool additive = false)
         {
             if (item == null)
-                throw new ArgumentNullException();
-
+                return;
             if (!_navigationUnlocked)
                 return;
             var parent = item.ParentFolder;
@@ -1169,7 +1184,7 @@ namespace FlaxEditor.Windows
                     targetNode.ExpandAllParents();
                     if (item is ContentFolder)
                     {
-                        _tree.Select(targetNode);
+                        _tree.Select(targetNode, additive);
                         _contentTreePanel.ScrollViewTo(targetNode, fastScroll);
                         targetNode.Focus();
                     }
@@ -1178,13 +1193,13 @@ namespace FlaxEditor.Windows
                         var itemNode = FindTreeItemNode(targetNode, item);
                         if (itemNode != null)
                         {
-                            _tree.Select(itemNode);
+                            _tree.Select(itemNode, additive);
                             _contentTreePanel.ScrollViewTo(itemNode, fastScroll);
                             itemNode.Focus();
                         }
                         else
                         {
-                            _tree.Select(targetNode);
+                            _tree.Select(targetNode, additive);
                         }
                     }
                 }
@@ -1195,7 +1210,7 @@ namespace FlaxEditor.Windows
             Navigate(parent.Node);
 
             // Select and scroll to cover in view
-            _view.Select(item);
+            _view.Select(item, additive);
             _contentViewPanel.ScrollViewTo(item, fastScroll);
 
             // Focus
@@ -1555,6 +1570,7 @@ namespace FlaxEditor.Windows
                     PerformLayout();
                 }
                 UpdateViewDropdownBounds();
+                ScrollNavigationBarToCurrentFolder();
             }
         }
 
@@ -1574,7 +1590,7 @@ namespace FlaxEditor.Windows
         /// <inheritdoc />
         public override void OnInit()
         {
-            // Content database events
+            // Content events
             Editor.ContentDatabase.WorkspaceModified += () => _isWorkspaceDirty = true;
             Editor.ContentDatabase.ItemAdded += OnContentDatabaseItemAdded;
             Editor.ContentDatabase.ItemRemoved += OnContentDatabaseItemRemoved;
@@ -1594,6 +1610,9 @@ namespace FlaxEditor.Windows
                 else if (_root != null)
                     ShowRoot();
             };
+            Editor.ContentImporting.ImportFileBegin += OnImportFileBegin;
+            Editor.ContentImporting.ImportFileEnd += OnImportFileEnd;
+            Editor.ContentImporting.ImportingQueueBegin += OnImportingQueueBegin;
 
             LoadExpandedFolders();
             Refresh();
@@ -1629,6 +1648,64 @@ namespace FlaxEditor.Windows
             }
 
             OnFoldersSearchBoxTextChanged();
+        }
+
+        private void OnImportFileBegin(IFileEntryAction entry)
+        {
+            // Add to auto-select cache
+            _newFilesCache ??= new List<string>();
+            _newFilesCache.Add(entry.ResultUrl);
+            _newFilesCacheSize++;
+        }
+
+        private void OnImportFileEnd(IFileEntryAction entry, bool failed)
+        {
+            if (failed)
+                return;
+            if (!Platform.IsInMainThread)
+            {
+                FlaxEngine.Scripting.InvokeOnUpdate(() => OnImportFileEnd(entry, false));
+                return;
+            }
+
+            // Refresh view (gives faster response than waiting for filesystem event)
+            //RefreshView(); // TODO: is this still needed?
+
+            // Auto-select pending items
+            if (_newFilesCache != null && _newFilesCache.Contains(entry.ResultUrl))
+            {
+                var item = EnsureItem(entry.ResultUrl);
+                if (item != null)
+                {
+                    bool additive = _newFilesCache.Count != _newFilesCacheSize;
+                    Select(item, true, additive);
+                }
+                _newFilesCache.Remove(entry.ResultUrl);
+            }
+        }
+
+        private void OnImportingQueueBegin()
+        {
+            // Clear cache to auto-select all imported files
+            _newFilesCache?.Clear();
+            _newFilesCacheSize = 0;
+        }
+
+        private ContentItem EnsureItem(string path)
+        {
+            var item = Editor.ContentDatabase.Find(path);
+            if (item == null)
+            {
+                // Cannot find the item (eg. just created file, content database event not yet handled) so refresh to take effect quickly
+                var parentPath = Path.GetDirectoryName(path);
+                var parentItem = Editor.ContentDatabase.Find(parentPath);
+                if (parentItem != null)
+                {
+                    Editor.ContentDatabase.RefreshFolder(parentItem, false);
+                    item = Editor.ContentDatabase.Find(path);
+                }
+            }
+            return item;
         }
 
         private void Refresh()
@@ -1775,15 +1852,18 @@ namespace FlaxEditor.Windows
         }
 
         /// <inheritdoc />
-        protected override void PerformLayoutBeforeChildren()
+        protected override void OnSizeChanged()
         {
-            base.PerformLayoutBeforeChildren();
+            base.OnSizeChanged();
+
+            ScrollNavigationBarToCurrentFolder();
         }
 
         /// <inheritdoc />
         protected override void PerformLayoutAfterChildren()
         {
             base.PerformLayoutAfterChildren();
+
             UpdateNavigationBarBounds();
         }
 
@@ -1846,12 +1926,18 @@ namespace FlaxEditor.Windows
             _treeHeaderPanel = null;
             _treeOnlyPanel = null;
             _contentItemsSearchPanel = null;
+            _newFilesCache = null;
 
             Editor.Options.OptionsChanged -= OnOptionsChanged;
             ScriptsBuilder.ScriptsReloadBegin -= OnScriptsReloadBegin;
             ScriptsBuilder.ScriptsReloadEnd -= OnScriptsReloadEnd;
             if (Editor?.ContentDatabase != null)
+            {
                 Editor.ContentDatabase.ItemAdded -= OnContentDatabaseItemAdded;
+                Editor.ContentImporting.ImportFileBegin -= OnImportFileBegin;
+                Editor.ContentImporting.ImportFileEnd -= OnImportFileEnd;
+                Editor.ContentImporting.ImportingQueueBegin -= OnImportingQueueBegin;
+            }
 
             base.OnDestroy();
         }

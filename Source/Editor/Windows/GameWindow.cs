@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Xml;
 using FlaxEditor.Gizmo;
 using FlaxEditor.GUI.ContextMenu;
+using FlaxEditor.GUI.Docking;
 using FlaxEditor.GUI.Input;
 using FlaxEditor.Modules;
 using FlaxEditor.Options;
@@ -123,7 +124,7 @@ namespace FlaxEditor.Windows
         private readonly ScaledRenderOutputControl _viewport;
         private readonly GameRoot _guiRoot;
         private bool _showGUI = true, _editGUI = true;
-        private bool _showDebugDraw = false;
+        private bool _showDebugDraw = true;
         private bool _audioMuted = false;
         private float _audioVolume = 1;
         private bool _isMaximized = false, _isUnlockingMouse = false;
@@ -132,6 +133,8 @@ namespace FlaxEditor.Windows
         private float _gameStartTime;
         private GUI.Docking.DockState _maximizeRestoreDockState;
         private GUI.Docking.DockPanel _maximizeRestoreDockTo;
+        private GUI.Docking.DockPanel _maximizeRestoreDockToParent;
+        private float _maximizeRestoreSplitterValue;
         private CursorLockMode _cursorLockMode = CursorLockMode.None;
 
         // Viewport scaling variables
@@ -147,21 +150,27 @@ namespace FlaxEditor.Windows
             new PlayModeFocusOptions
             {
                 Name = "None",
-                Tooltip = "Don't change focus.",
+                Tooltip = "Don't change window focus when entering play mode.",
                 FocusOption = InterfaceOptions.PlayModeFocus.None,
             },
             new PlayModeFocusOptions
             {
                 Name = "Game Window",
-                Tooltip = "Focus the Game Window.",
+                Tooltip = "Focus the Game Window when entering play mode.",
                 FocusOption = InterfaceOptions.PlayModeFocus.GameWindow,
             },
             new PlayModeFocusOptions
             {
                 Name = "Game Window Then Restore",
-                Tooltip = "Focus the Game Window. On play mode end restore focus to the previous window.",
+                Tooltip = "Focus the Game Window when entering play mode. Restore focus to the previous window when exiting play mode.",
                 FocusOption = InterfaceOptions.PlayModeFocus.GameWindowThenRestore,
             },
+            new PlayModeFocusOptions
+            {
+                Name = "Game Window Then Restore Editor",
+                Tooltip = "Focus the Game Window when entering play mode and then restore the focus to the editor window when exiting play mode.",
+                FocusOption = InterfaceOptions.PlayModeFocus.GameWindowThenRestoreEditor
+            }
         };
 
         /// <summary>
@@ -289,7 +298,10 @@ namespace FlaxEditor.Windows
                 if (value)
                 {
                     _maximizeRestoreDockTo = _dockedTo;
-                    _maximizeRestoreDockState = _dockedTo.TryGetDockState(out _);
+                    _maximizeRestoreDockToParent = _dockedTo.ParentDockPanel;
+                    _maximizeRestoreDockState = _dockedTo.TryGetDockState(out _maximizeRestoreSplitterValue);
+                    if (_dockedTo.Tabs.Count > 1)
+                        _maximizeRestoreDockState = DockState.DockFill;
                     if (_maximizeRestoreDockState != GUI.Docking.DockState.Float)
                     {
                         var monitorBounds = Platform.GetMonitorBounds(PointToScreen(Size * 0.5f));
@@ -303,9 +315,11 @@ namespace FlaxEditor.Windows
                     // Restore
                     if (rootWindow != null)
                         rootWindow.Restore();
-                    if (_maximizeRestoreDockTo != null && _maximizeRestoreDockTo.IsDisposing)
-                        _maximizeRestoreDockTo = null;
-                    Show(_maximizeRestoreDockState, _maximizeRestoreDockTo);
+                    var dockTo = _maximizeRestoreDockTo;
+                    if (dockTo != null && dockTo.IsDisposing)
+                        dockTo = _maximizeRestoreDockToParent;
+                    if (_dockedTo != dockTo)
+                        Show(_maximizeRestoreDockState, dockTo, splitterValue: _maximizeRestoreSplitterValue);
                 }
             }
         }
@@ -325,6 +339,9 @@ namespace FlaxEditor.Windows
                 {
                     IsFloating = true;
                     var rootWindow = RootWindow;
+                    var floatWin = rootWindow.GetChild<FloatWindowDockPanel>();
+                    if (floatWin != null && floatWin.ShowDecorations)
+                        floatWin.ShowDecorations = false;
                     var monitorBounds = Platform.GetMonitorBounds(rootWindow.RootWindow.Window.ClientPosition);
                     rootWindow.Window.Position = monitorBounds.Location;
                     rootWindow.Window.SetBorderless(true);
@@ -332,6 +349,9 @@ namespace FlaxEditor.Windows
                 }
                 else
                 {
+                    var floatWin = RootWindow.GetChild<FloatWindowDockPanel>();
+                    if (floatWin != null && !floatWin.ShowDecorations && Utilities.Utils.UseCustomWindowDecorations())
+                        floatWin.ShowDecorations = true;
                     IsFloating = false;
                 }
             }
@@ -652,9 +672,10 @@ namespace FlaxEditor.Windows
             IsBorderless = false;
             Cursor = CursorType.Default;
             Screen.CursorLock = CursorLockMode.None;
-            if (Screen.MainWindow.IsMouseTracking)
-                Screen.MainWindow.EndTrackingMouse();
-            RootControl.GameRoot.EndMouseCapture();
+            var mainWindow = Screen.MainWindow;
+            if (mainWindow != null && mainWindow.IsMouseTracking)
+                mainWindow.EndTrackingMouse();
+            RootControl.GameRoot?.EndMouseCapture();
         }
 
         /// <inheritdoc />
@@ -821,7 +842,8 @@ namespace FlaxEditor.Windows
         {
             base.Draw();
 
-            if (Camera.MainCamera == null)
+            var mainRenderTask = MainRenderTask.Instance;
+            if (Camera.MainCamera == null && (mainRenderTask == null || !mainRenderTask.IsCustomRendering))
             {
                 var style = Style.Current;
                 Render2D.DrawText(style.FontLarge, "No camera", new Rectangle(Float2.Zero, Size), style.ForegroundDisabled, TextAlignment.Center, TextAlignment.Center);
@@ -892,7 +914,7 @@ namespace FlaxEditor.Windows
         /// </summary>
         public void FocusGameViewport()
         {
-            if (!IsDocked)
+            if (ParentDockPanel == null)
             {
                 ShowFloating();
             }
@@ -997,7 +1019,7 @@ namespace FlaxEditor.Windows
                     Screen.CursorVisible = true;
                 Screen.CursorLock = CursorLockMode.None;
 
-                if (Editor.IsPlayMode && IsDocked && IsSelected && RootWindow.FocusedControl == null)
+                if (Editor.IsPlayMode && ParentDockPanel != null && IsSelected && RootWindow.FocusedControl == null)
                 {
                     // Game UI cleared focus so regain it to maintain UI navigation just like game window does
                     FlaxEngine.Scripting.InvokeOnUpdate(Focus);

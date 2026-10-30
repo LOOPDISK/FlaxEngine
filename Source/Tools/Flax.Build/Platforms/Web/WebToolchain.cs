@@ -319,10 +319,6 @@ namespace Flax.Build.Platforms
                 //args.Add("-sMALLOC=emmalloc-memvalidate");
                 //args.Add("-sMALLOC=emmalloc");
 
-                // Setup file access (Game Cooker packs files with file_packager tool)
-                args.Add("-sFORCE_FILESYSTEM");
-                args.Add("-sLZ4");
-
                 // https://emscripten.org/docs/compiling/Dynamic-Linking.html#dynamic-linking
                 if (!options.Target.UseSymbolsExports)
                 {
@@ -341,6 +337,12 @@ namespace Flax.Build.Platforms
                 {
                     args.Add("-sSIDE_MODULE");
                 }
+            }
+            if (options.LinkEnv.Output == LinkerOutput.Executable)
+            {
+                // Setup file access (Game Cooker packs files with file_packager tool)
+                args.Add("-sFORCE_FILESYSTEM");
+                args.Add("-sLZ4");
 
                 // Setup minimum browser versions
                 // https://webassembly.org/features/?categories=browsers#feature-note-3
@@ -367,7 +369,7 @@ namespace Flax.Build.Platforms
                 if (args.All(arg => !arg.Contains("-sASSERTIONS")))
                 {
                     // minimum_runtime_check.js from Emscripten checks min browser versions only with ASSERTIONS enabled so use custom check
-                    var checkBrowserVersion = File.ReadAllText(Path.Combine(Globals.EngineRoot, "Source/Platforms/Web/Binaries/Data/check_browser_version.js"));
+                    var checkBrowserVersion = File.ReadAllText(Path.Combine(Globals.EngineRoot, "Source/Platforms/Web/Binaries/check_browser_version.js"));
                     checkBrowserVersion = checkBrowserVersion.Replace("TARGET_NOT_SUPPORTED", "0x7fffffff");
                     checkBrowserVersion = checkBrowserVersion.Replace("MIN_CHROME_VERSION", minChrome.ToString());
                     checkBrowserVersion = checkBrowserVersion.Replace("MIN_FIREFOX_VERSION", minFirefox.ToString());
@@ -377,11 +379,11 @@ namespace Flax.Build.Platforms
                     args.Add($"--pre-js \"{path}\"");
                 }
                 if (addJSPI)
-                    args.Add($"--pre-js \"{Globals.EngineRoot}/Source/Platforms/Web/Binaries/Data/check_jspi.js\"");
+                    args.Add($"--pre-js \"{Globals.EngineRoot}/Source/Platforms/Web/Binaries/check_jspi.js\"");
 
                 // Customize output HTML shell
                 if (options.LinkEnv.Output == LinkerOutput.Executable)
-                    args.Add($"--shell-file \"{Globals.EngineRoot}/Source/Platforms/Web/Binaries/Data/shell.html\"");
+                    args.Add($"--shell-file \"{Globals.EngineRoot}/Source/Platforms/Web/Binaries/shell.html\"");
             }
 
             args.Add("-Wl,--start-group");
@@ -411,8 +413,11 @@ namespace Flax.Build.Platforms
                 {
                     // Link against dynamic library
                     task.PrerequisiteFiles.Add(library);
-                    libraryPaths.Add(dir);
-                    args.Add(string.Format("\"-l{0}\"", GetLibName(library)));
+                    //libraryPaths.Add(dir);
+                    //args.Add(string.Format("\"-l{0}\"", GetLibName(library)));
+
+                    // No need to link excplicitly when using MAIN_MODULE/SIDE_MODULE as linking is resolved at runtime
+                    // https://emscripten.org/docs/compiling/Dynamic-Linking.html#runtime-dynamic-linking-with-dlopen
                 }
                 else
                 {
@@ -472,6 +477,7 @@ namespace Flax.Build.Platforms
                 break;
             case LinkerOutput.StaticLibrary:
             case LinkerOutput.ImportLibrary:
+                throw new NotImplementedException();
             default:
                 throw new ArgumentOutOfRangeException();
             }

@@ -3,6 +3,7 @@
 using System;
 using FlaxEditor.Content.Create;
 using FlaxEditor.Content.Thumbnails;
+using FlaxEditor.GUI.ContextMenu;
 using FlaxEditor.Viewport.Previews;
 using FlaxEditor.Windows;
 using FlaxEditor.Windows.Assets;
@@ -87,8 +88,18 @@ namespace FlaxEditor.Content
         {
             bool resetTransform = false;
             var transform = Transform.Identity;
+            if (arg is PrefabItem item)
+                arg = item.LoadAsync();
+            if (arg is Prefab prefab)
+            {
+                // Create prefab variant
+                var instance = PrefabManager.SpawnPrefab(prefab, null);
+                FlaxEngine.Object.Destroy(instance, 20.0f);
+                arg = instance;
+            }
             if (!(arg is Actor actor))
             {
+                // Show dialog with root actor type picker
                 Editor.Instance.ContentImporting.Create(new PrefabCreateEntry(outputPath));
                 return;
             }
@@ -106,6 +117,26 @@ namespace FlaxEditor.Content
         }
 
         /// <inheritdoc />
+        public override void OnContentWindowContextMenu(ContextMenu menu, ContentItem item)
+        {
+            base.OnContentWindowContextMenu(menu, item);
+
+            if (item is PrefabItem prefabItem)
+            {
+                var button = menu.AddButton("Create Prefab Variant", OnCreatePrefabVariant);
+                button.TooltipText = "Creates a new prefab that uses this prefab as base (nested in) and allows for further customizations.";
+                button.Tag = prefabItem;
+            }
+        }
+
+        private void OnCreatePrefabVariant(ContextMenuButton button)
+        {
+            var prefabItem = (PrefabItem)button.Tag;
+            var newName = prefabItem.ShortName + " Variant";
+            Editor.Instance.Windows.ContentWin.NewItem(this, prefabItem, null, newName);
+        }
+
+        /// <inheritdoc />
         public override void OnThumbnailDrawPrepare(ThumbnailRequest request)
         {
             if (_preview == null)
@@ -118,7 +149,7 @@ namespace FlaxEditor.Content
         /// <inheritdoc />
         public override bool CanDrawThumbnail(ThumbnailRequest request)
         {
-            if (!_preview.HasLoadedAssets)
+            if (!_preview.HasContentLoaded)
                 return false;
 
             // Check if asset is streamed enough
@@ -140,7 +171,7 @@ namespace FlaxEditor.Content
                 actor is SpriteRender ||
                 actor is TextRender)
             {
-                actorBounds = actor.EditorBox;
+                actorBounds = actor.EditorBoundingBox;
             }
             if (actorBounds != BoundingBox.Empty)
             {
@@ -182,7 +213,7 @@ namespace FlaxEditor.Content
                 // Update some actors data (some actor types update bounds/data later but its required to be done before rendering)
                 var bounds = BoundingBox.Empty;
                 Prepare(_preview.Instance, ref bounds);
-                //bounds = _preview.Instance.EditorBoxChildren;
+                //bounds = _preview.Instance.EditorBoundingBoxWithChildren;
 
                 // Auto fit actor to camera
                 if (bounds != BoundingBox.Empty)

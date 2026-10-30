@@ -24,13 +24,13 @@ namespace FlaxEditor.CustomEditors.Dedicated
                 var patchesCount = terrain.PatchesCount;
                 var chunkSize = terrain.ChunkSize;
                 var resolution = terrain.Scale;
-                var totalSize = terrain.Box.Size;
+                var totalSize = terrain.BoundingBox.Size;
                 string text = string.Format("Patches: {0}\nTotal Chunks: {1}\nChunk Size: {2}\nResolution: {3}m x {4}m\nTotal size: {5}km x {6}km",
                                             patchesCount,
                                             patchesCount * 16,
                                             chunkSize,
-                                            1.0f / (resolution.X + 1e-9f),
-                                            1.0f / (resolution.Z + 1e-9f),
+                                            Mathf.Abs(resolution.X),
+                                            Mathf.Abs(resolution.Z),
                                             totalSize.X / Units.Meters2Units * 0.001f,
                                             totalSize.Z / Units.Meters2Units * 0.001f
                 );

@@ -220,9 +220,8 @@ namespace FlaxEditor.GUI
             // Check if drag is over
             if (IsDragOver && _dragOverElement != null && _dragOverElement.HasValidDrag)
             {
-                var bounds = new Rectangle(Float2.Zero, Size);
-                Render2D.FillRectangle(bounds, style.Selection);
-                Render2D.DrawRectangle(bounds, style.SelectionBorder);
+                Render2D.FillRectangle(iconRect, style.Selection);
+                Render2D.DrawRectangle(iconRect, style.SelectionBorder);
             }
 
             // Navigation focus highlight
@@ -299,6 +298,7 @@ namespace FlaxEditor.GUI
                 }
                 else if (Button1Rect.Contains(location))
                 {
+                    // Show picker
                     Focus();
                     OnSubmit();
                 }
@@ -317,6 +317,18 @@ namespace FlaxEditor.GUI
                         Validator.SelectedItem = null;
                     }
                 }
+            }
+            if (button == MouseButton.Middle && IconRect.Contains(ref location))
+            {
+                // Clear value
+                Focus();
+                Validator.SelectedItem = null;
+            }
+            if (button == MouseButton.Right && IconRect.Contains(ref location))
+            {
+                // Show picker
+                Focus();
+                OnSubmit();
             }
 
             // Handled
@@ -341,13 +353,12 @@ namespace FlaxEditor.GUI
         {
             Focus();
 
-            if (Validator.SelectedItem != null && IconRect.Contains(location))
+            if (button == MouseButton.Left && Validator.SelectedItem != null && IconRect.Contains(location))
             {
                 // Open it
                 Editor.Instance.ContentEditing.Open(Validator.SelectedItem);
             }
 
-            // Handled
             return true;
         }
 

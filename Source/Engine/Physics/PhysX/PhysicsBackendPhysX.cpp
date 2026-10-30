@@ -71,7 +71,7 @@
 #define PHYSX_DEBUG_NAMING 0
 
 // Temporary result buffer size
-#define PHYSX_HIT_BUFFER_SIZE 128
+#define PHYSX_HIT_BUFFER_SIZE 256
 
 struct ActionDataPhysX
 {
@@ -216,8 +216,8 @@ struct ClothSettings
             clothTrans.LocalToWorld(c, c);
 
         // Setup bounds
-        BoundingBox::FromPoints(boundsCorners, 8, const_cast<BoundingBox&>(Actor->GetBox()));
-        BoundingSphere::FromBox(Actor->GetBox(), const_cast<BoundingSphere&>(Actor->GetSphere()));
+        BoundingBox::FromPoints(boundsCorners, 8, const_cast<BoundingBox&>(Actor->GetBoundingBox()));
+        BoundingSphere::FromBox(Actor->GetBoundingBox(), const_cast<BoundingSphere&>(Actor->GetBoundingSphere()));
         return false;
     }
 };
@@ -426,13 +426,12 @@ template<typename HitType>
 class DynamicHitBuffer : public PxHitCallback<HitType>
 {
 private:
-    uint32 _count;
+    uint32 _count = 0;
     HitType _buffer[PHYSX_HIT_BUFFER_SIZE];
 
 public:
     DynamicHitBuffer()
         : PxHitCallback<HitType>(_buffer, PHYSX_HIT_BUFFER_SIZE)
-        , _count(0)
     {
     }
 
@@ -446,8 +445,8 @@ public:
     // Convenience iterator used to access any hits in this result, blocking or touching.
     PX_INLINE const HitType& getAnyHit(const PxU32 index) const
     {
-        PX_ASSERT(index < getNbTouches() + PxU32(this->hasBlock));
-        return index < getNbTouches() ? getTouches()[index] : this->block;
+        ASSERT(index < _count + PxU32(this->hasBlock));
+        return index < _count ? getTouches()[index] : this->block;
     }
 
     PX_INLINE PxU32 getNbTouches() const
@@ -462,13 +461,8 @@ public:
 
     PX_INLINE const HitType& getTouch(const PxU32 index) const
     {
-        PX_ASSERT(index < getNbTouches());
-        return _buffer[index];
-    }
-
-    PX_INLINE PxU32 getMaxNbTouches() const
-    {
-        return PHYSX_HIT_BUFFER_SIZE;
+        ASSERT(index < getNbTouches());
+        return getTouches()[index];
     }
 
 protected:

@@ -324,13 +324,13 @@ namespace FlaxEditor.Surface.Archetypes
                 Title = "Sample Texture",
                 Description = "Custom texture sampling",
                 Flags = NodeFlags.MaterialGraph,
-                Size = new Float2(160, 160),
+                Size = new Float2(160, 260),
                 ConnectionsHints = ConnectionsHint.Vector,
                 DefaultValues = new object[]
                 {
-                    0,
-                    -1.0f,
-                    0,
+                    (int)CommonSamplerType.LinearClamp, // Sampler
+                    -1.0f, // Level (-1 when unused)
+                    0, // Texture Group
                     false, // Enable Hex Tile
                     1.0f, // Rotation Strength
                     0.5f, // Contrast
@@ -344,13 +344,15 @@ namespace FlaxEditor.Surface.Archetypes
                     NodeElementArchetype.Factory.Input(3, "Offset", true, typeof(Float2), 3),
                     NodeElementArchetype.Factory.Input(4, "Rotation Strength", true, typeof(float), 5, 4),
                     NodeElementArchetype.Factory.Input(5, "Contrast", true, typeof(float), 6, 5),
+                    NodeElementArchetype.Factory.Input(6, "DDX", true, null, 8),
+                    NodeElementArchetype.Factory.Input(7, "DDY", true, null, 9),
                     NodeElementArchetype.Factory.Output(0, "Color", typeof(Float4), 7),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 6, "Sampler"),
-                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 6, 100, 0, typeof(CommonSamplerType)),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 7, "Hex Tile"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 7, 3),
-                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Large World"),
-                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 8, 6),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 8, "Sampler"),
+                    NodeElementArchetype.Factory.ComboBox(50, Surface.Constants.LayoutOffsetY * 8, 100, 0, typeof(CommonSamplerType)),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 9, "Hex Tile"),
+                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 9, 3),
+                    NodeElementArchetype.Factory.Text(0, Surface.Constants.LayoutOffsetY * 10, "Large World"),
+                    NodeElementArchetype.Factory.Bool(70, Surface.Constants.LayoutOffsetY * 10, 6),
                 }
             },
             new NodeArchetype
@@ -510,7 +512,7 @@ namespace FlaxEditor.Surface.Archetypes
                 DefaultValues = new object[]
                 {
                     (int)CommonSamplerType.LinearWrap, // Sampler
-                    -1.0f, // Level
+                    -1.0f, // Level (-1 when unused)
                     0, // Texture Group
                 },
                 Elements = new[]

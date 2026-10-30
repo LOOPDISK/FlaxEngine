@@ -314,6 +314,7 @@ namespace Flax.Build.Platforms
             case WindowsPlatformSDK.v10_0_22000_0:
             case WindowsPlatformSDK.v10_0_22621_0:
             case WindowsPlatformSDK.v10_0_26100_0:
+            case WindowsPlatformSDK.v10_0_28000_0:
             {
                 var sdkVersionName = WindowsPlatformBase.GetSDKVersion(SDK).ToString();
                 string includeRootDir = Path.Combine(windowsSdkDir, "include", sdkVersionName);
@@ -445,8 +446,10 @@ namespace Flax.Build.Platforms
             {
                 string binRootDir = Directory.GetParent(_resourceCompilerPath).FullName;
                 var path = Environment.GetEnvironmentVariable("PATH");
-                if (!string.IsNullOrEmpty(_resourceCompilerPath) && !path.Contains(binRootDir))
+                if (path != null && !path.Contains(binRootDir))
                     Environment.SetEnvironmentVariable("PATH", path + ";" + binRootDir);
+                else if (path == null)
+                    Environment.SetEnvironmentVariable("PATH", binRootDir);
             }
         }
 

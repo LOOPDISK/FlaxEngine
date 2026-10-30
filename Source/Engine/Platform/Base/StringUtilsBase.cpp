@@ -88,6 +88,20 @@ const char* StringUtils::FindIgnoreCase(const char* str, const char* toFind)
     return nullptr;
 }
 
+void StringUtils::ConvertUTF162ASCII(const Char* from, char* to, int32 len)
+{
+    if (!from || !to)
+        return;
+    for (int32 i = 0; i < len; i++)
+    {
+        Char c = from[i];
+        if ((c == 0x09 || c == 0x0A || c == 0x0D || (0x20 <= c && c <= 0x7F)))
+            to[i] = (char)c;
+        else
+            to[i] = ' ';
+    }
+}
+
 void PrintUTF8Error(const char* from, uint32 fromLength)
 {
     LOG(Error, "Not a UTF-8 string. Length: {0}", fromLength);
@@ -444,7 +458,16 @@ bool ParseFloat(const C* str, T* ret)
     if (*str == 'e' || *str == 'E')
     {
         str++;
-        T powerer = *str == '-' ? str++, (T)0.1 : (T)10;
+        T powerer = (T)10;
+        if (*str == '-')
+        {
+            powerer = (T)0.1;
+            str++;
+        }
+        else if (*str == '+')
+        {
+            str++;
+        }
         T power = 0;
         while (*str >= '0' && *str <= '9')
         {
@@ -497,6 +520,28 @@ bool StringUtils::Parse(const char* str, float* result)
 #else
     return ParseFloat(str, result);
 #endif
+}
+
+bool StringUtils::Parse(const Char* str, int32 length, bool* result)
+{
+    if ((length == 1 && CompareIgnoreCase(str, TEXT("1"), length) == 0) ||
+        (length == 4 && CompareIgnoreCase(str, TEXT("true"), length) == 0))
+    {
+        *result = true;
+        return false;
+    }
+    if ((length == 1 && CompareIgnoreCase(str, TEXT("0"), length) == 0) ||
+        (length == 5 && CompareIgnoreCase(str, TEXT("false"), length) == 0))
+    {
+        *result = false;
+        return false;
+    }
+    return true;
+}
+
+String StringUtils::ToString(bool value)
+{
+    return value ? TEXT("true") : TEXT("false");
 }
 
 String StringUtils::ToString(int32 value)

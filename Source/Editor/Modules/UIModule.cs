@@ -304,7 +304,7 @@ namespace FlaxEditor.Modules
             //
             _toolStripBuildScenes.Enabled = (canEditScene && !isPlayMode) || Editor.StateMachine.BuildingScenesState.IsActive;
             _toolStripBuildScenes.Visible = Editor.Options.Options.General.BuildActions?.Length != 0;
-            _toolStripCook.Enabled = Editor.Windows.GameCookerWin.CanBuild(Platform.PlatformType) && !GameCooker.IsRunning;
+            _toolStripCook.Enabled = Editor.Windows.GameCookerWin.CanBuild(Platform.PlatformType) && Editor.Windows.GameCookerWin.CanCook();
             //
             var play = _toolStripPlay;
             var pause = _toolStripPause;
@@ -465,6 +465,8 @@ namespace FlaxEditor.Modules
 
         internal void ProgressFailed(string message)
         {
+            if (StatusBar == null)
+                return;
             _progressFailed = true;
             StatusBar.StatusColor = Style.Current.Statusbar.Failed;
             StatusBar.Text = message;
@@ -704,12 +706,7 @@ namespace FlaxEditor.Modules
             _menuCreateParentForSelectedActors = cm.AddButton("Parent to new Actor", inputOptions.GroupSelectedActors, Editor.SceneEditing.CreateParentForSelectedActors);
             _menuEditFind = cm.AddButton("Find", inputOptions.Search, Editor.Windows.SceneWin.Search);
             cm.AddSeparator();
-            cm.AddButton("Game Settings", () =>
-            {
-                var item = Editor.ContentDatabase.Find(GameSettings.GameSettingsAssetPath);
-                if (item != null)
-                    Editor.ContentEditing.Open(item);
-            });
+            cm.AddButton("Game Settings", () => Editor.ContentEditing.Open(Editor.ContentDatabase.Find(GameSettings.GameSettingsAssetPath)));
             cm.AddButton("Editor Options", inputOptions.EditorOptionsWindow, () => Editor.Windows.EditorOptionsWin.Show());
 
             // Scene
@@ -727,16 +724,13 @@ namespace FlaxEditor.Modules
             MenuGame = MainMenu.AddButton("Game");
             cm = MenuGame.ContextMenu;
             cm.VisibleChanged += OnMenuGameShowHide;
-
             _menuGamePlayGame = cm.AddButton("Play Game", inputOptions.Play, Editor.Simulation.RequestPlayGameOrStopPlay);
             _menuGamePlayCurrentScenes = cm.AddButton("Play Current Scenes", inputOptions.PlayCurrentScenes, Editor.Simulation.RequestPlayScenesOrStopPlay);
             _menuGameStop = cm.AddButton("Stop Game", inputOptions.Play, Editor.Simulation.RequestStopPlay);
             _menuGamePause = cm.AddButton("Pause", inputOptions.Pause, Editor.Simulation.RequestPausePlay);
-
             cm.AddSeparator();
             var numberOfClientsMenu = cm.AddChildMenu("Number of game clients");
             _numberOfClientsGroup.AddItemsToContextMenu(numberOfClientsMenu.ContextMenu);
-
             cm.AddSeparator();
             _menuGameCookAndRun = cm.AddButton("Cook & Run", inputOptions.CookAndRun, Editor.Windows.GameCookerWin.BuildAndRun);
             _menuGameCookAndRun.LinkTooltip("Runs Game Cooker to build the game for this platform and runs the game after.");
@@ -817,17 +811,40 @@ namespace FlaxEditor.Modules
         private void InitWindowDecorations(RootControl mainWindow)
         {
             ScriptsBuilder.GetBinariesConfiguration(out _, out _, out _, out var configuration);
-            string driver = string.Empty;
+
+            var tooltip = new System.Text.StringBuilder();
+
+            // Project info
+            tooltip.AppendLine(Editor.GameProject.Name);
+            var projectPath = Globals.ProjectFolder;
+#if PLATFORM_WINDOWS
+            projectPath = projectPath.Replace('/', '\\');
+#endif
+            tooltip.AppendLine(projectPath);
+
+            // Engine info
+            tooltip.Append("Engine Version: ").AppendLine(Globals.EngineVersion);
+            var engineNickname = Editor.EngineProject.EngineNickname;
+            if (!string.IsNullOrEmpty(engineNickname))
+                tooltip.Append($" ({engineNickname})");
+
+            // Build info
+            tooltip.AppendLine(System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
+#if USE_LARGE_WORLDS
+            tooltip.AppendLine("Large Worlds Enabled");
+#endif
+            tooltip.Append("Configuration: ").AppendLine(configuration);
+            tooltip.Append("Graphics: ").Append(GPUDevice.Instance.RendererType);
 #if PLATFORM_LINUX
-            driver = LinuxPlatform.DisplayServer;
+            var driver = LinuxPlatform.DisplayServer;
             if (!string.IsNullOrEmpty(driver))
-                driver = $" ({driver})";
+                tooltip.Append($" ({driver})");
 #endif
 
             WindowDecorations = new MainWindowDecorations(mainWindow, !Utilities.Utils.UseCustomWindowDecorations(true))
             {
                 Parent = mainWindow,
-                IconTooltipText = $"{mainWindow.RootWindow.Title}\nVersion {Globals.EngineVersion}\nConfiguration {configuration}\nGraphics {GPUDevice.Instance.RendererType}{driver}",
+                IconTooltipText = tooltip.ToString(),
             };
         }
 
@@ -1137,8 +1154,10 @@ namespace FlaxEditor.Modules
             _menuToolsSetTheCurrentSceneViewAsDefault.Enabled = Level.ScenesCount > 0;
             string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             GameSettings settings = GameSettings.Load<GameSettings>();
-            string path = Path.Combine(localAppData, settings.CompanyName, settings.ProductName);
-            _menuToolsOpenLocalFolder.Enabled = Directory.Exists(path);
+            _menuToolsOpenLocalFolder.Enabled = settings != null && 
+                                                !string.IsNullOrEmpty(settings.CompanyName) && 
+                                                !string.IsNullOrEmpty(settings.ProductName) && 
+                                                Directory.Exists(Path.Combine(localAppData, settings.CompanyName, settings.ProductName));
 
             c.PerformLayout();
         }

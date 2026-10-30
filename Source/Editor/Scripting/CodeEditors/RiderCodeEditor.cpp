@@ -14,6 +14,9 @@
 
 #if PLATFORM_WINDOWS
 #include "Engine/Platform/Win32/IncludeWindowsHeaders.h"
+#elif PLATFORM_MAC
+#include "Engine/Platform/Apple/AppleUtils.h"
+#include <AppKit/AppKit.h>
 #endif
 
 namespace
@@ -68,10 +71,14 @@ namespace
         if (!launcherPath.HasChars() || !FileSystem::FileExists(exePath))
             return;
 
-        if (launchOverridePath != String::Empty)
-            installations->Add(New<RiderInstallation>(launchOverridePath, versionMember->value.GetText()));
-        else
-            installations->Add(New<RiderInstallation>(exePath, versionMember->value.GetText()));
+        String installPath = launchOverridePath != String::Empty ? launchOverridePath : exePath;
+        StringUtils::PathRemoveRelativeParts(installPath);
+        for (RiderInstallation* installation : *installations)
+        {
+            if (installation->path == installPath)
+                return;
+        }
+        installations->Add(New<RiderInstallation>(installPath, versionMember->value.GetText()));
     }
 
 #if PLATFORM_WINDOWS
@@ -168,7 +175,7 @@ bool sortInstallations(RiderInstallation* const& i1, RiderInstallation* const& i
 
 RiderCodeEditor::RiderCodeEditor(const String& execPath)
     : _execPath(execPath)
-    , _solutionPath(Globals::ProjectFolder / Editor::Project->Name + TEXT(".sln"))
+    , _solutionPath(Globals::ProjectFolder / Editor::Project->Name + TEXT(".slnx"))
 {
 }
 
@@ -221,17 +228,29 @@ void RiderCodeEditor::FindEditors(Array<CodeEditor*>* output)
     String applicationSupportFolder;
     FileSystem::GetSpecialFolderPath(SpecialFolder::ProgramData, applicationSupportFolder);
 
+    NSURL* appURL = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"com.jetbrains.rider"];
+    if (appURL != nullptr)
+    {
+        const String appPath = AppleUtils::ToString((CFStringRef)[appURL path]);
+        SearchDirectory(&installations, appPath / TEXT("Contents/Resources"), appPath);
+    }
+
     Array<String> subMacDirectories;
     FileSystem::GetChildDirectories(subMacDirectories, applicationSupportFolder / TEXT("JetBrains/Toolbox/apps/Rider/ch-0/"));
     FileSystem::GetChildDirectories(subMacDirectories, applicationSupportFolder / TEXT("JetBrains/Toolbox/apps/Rider/ch-1/"));
     for (const String& directory : subMacDirectories)
     {
-        String riderAppDirectory = directory / TEXT("Rider.app/Contents/Resources");
-        SearchDirectory(&installations, riderAppDirectory);
+        String riderAppPath = directory / TEXT("Rider.app");
+        SearchDirectory(&installations, riderAppPath / TEXT("Contents/Resources"), riderAppPath);
     }
 
     // Check the local installer version
-    SearchDirectory(&installations, TEXT("/Applications/Rider.app/Contents/Resources"));
+    SearchDirectory(&installations, TEXT("/Applications/Rider.app/Contents/Resources"), TEXT("/Applications/Rider.app"));
+
+    String userFolder;
+    FileSystem::GetSpecialFolderPath(SpecialFolder::Documents, userFolder);
+    String riderAppPath = userFolder / TEXT("../Applications/Rider.app");
+    SearchDirectory(&installations, riderAppPath / TEXT("Contents/Resources"), riderAppPath);
 #endif
 
     for (const String& directory : subDirectories)
@@ -259,15 +278,29 @@ String RiderCodeEditor::GetName() const
 
 String RiderCodeEditor::GetGenerateProjectCustomArgs() const
 {
-    return TEXT("-vs2022");
+    return TEXT("-vs2026");
+}
+
+String RiderCodeEditor::GetSolutionPath() const
+{
+    // Rider prefers .slnx; fall back to .sln if only that exists
+    String slnxPath = Globals::ProjectFolder / Editor::Project->Name + TEXT(".slnx");
+    if (FileSystem::FileExists(slnxPath))
+        return slnxPath;
+    String slnPath = Globals::ProjectFolder / Editor::Project->Name + TEXT(".sln");
+    if (FileSystem::FileExists(slnPath))
+        return slnPath;
+    return slnxPath; // Neither exists yet; target .slnx for generation
 }
 
 void RiderCodeEditor::OpenFile(const String& path, int32 line)
 {
     // Generate project files if solution is missing
-    if (!FileSystem::FileExists(_solutionPath))
+    String solutionPath = GetSolutionPath();
+    if (!FileSystem::FileExists(solutionPath))
     {
         ScriptsBuilder::GenerateProject(GetGenerateProjectCustomArgs());
+        solutionPath = GetSolutionPath();
     }
 
     // Open file
@@ -276,11 +309,11 @@ void RiderCodeEditor::OpenFile(const String& path, int32 line)
 
 #if !PLATFORM_MAC
     procSettings.FileName = _execPath;
-    procSettings.Arguments = String::Format(TEXT("\"{0}\" --line {2} \"{1}\""), _solutionPath, path, line);
+    procSettings.Arguments = String::Format(TEXT("\"{0}\" --line {2} \"{1}\""), solutionPath, path, line);
 #else
     // This follows pretty much how all the other engines open rider which deals with cross architecture issues
     procSettings.FileName = "/usr/bin/open";
-    procSettings.Arguments = String::Format(TEXT("-n -a \"{0}\" --args \"{1}\" --line {3} \"{2}\""), _execPath, _solutionPath, path, line);
+    procSettings.Arguments = String::Format(TEXT("-n -a \"{0}\" --args \"{1}\" --line {3} \"{2}\""), _execPath, solutionPath, path, line);
 #endif
 
     procSettings.HiddenWindow = false;
@@ -293,20 +326,22 @@ void RiderCodeEditor::OpenFile(const String& path, int32 line)
 void RiderCodeEditor::OpenSolution()
 {
     // Generate project files if solution is missing
-    if (!FileSystem::FileExists(_solutionPath))
+    String solutionPath = GetSolutionPath();
+    if (!FileSystem::FileExists(solutionPath))
     {
         ScriptsBuilder::GenerateProject(GetGenerateProjectCustomArgs());
+        solutionPath = GetSolutionPath();
     }
 
     // Open solution
     CreateProcessSettings procSettings;
 #if !PLATFORM_MAC
     procSettings.FileName = _execPath;
-    procSettings.Arguments = String::Format(TEXT("\"{0}\""), _solutionPath);
+    procSettings.Arguments = String::Format(TEXT("\"{0}\""), solutionPath);
 #else
     // This follows pretty much how all the other engines open rider which deals with cross architecture issues
     procSettings.FileName = "/usr/bin/open";
-    procSettings.Arguments = String::Format(TEXT("-n -a \"{0}\" \"{1}\""), _execPath, _solutionPath);
+    procSettings.Arguments = String::Format(TEXT("-n -a \"{0}\" \"{1}\""), _execPath, solutionPath);
 #endif
     procSettings.HiddenWindow = false;
     procSettings.WaitForEnd = false;

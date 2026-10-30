@@ -57,7 +57,7 @@ void CmdBufferVulkan::End()
         if (vkCmdEndDebugUtilsLabelEXT)
             vkCmdEndDebugUtilsLabelEXT(GetHandle());
 #endif
-#if GPU_ENABLE_TRACY
+#if VULKAN_USE_TRACY_GPU
         tracy::EndVkZoneScope(_tracyZones.Last().Data);
         _tracyZones.RemoveLast();
 #endif
@@ -101,7 +101,7 @@ void CmdBufferVulkan::BeginEvent(const Char* name, void* tracyContext)
     char buffer[60];
     int32 bufferSize = StringUtils::Copy(buffer, name, sizeof(buffer));
 
-#if GPU_ENABLE_TRACY
+#if VULKAN_USE_TRACY_GPU
     auto& zone = _tracyZones.AddOne();
     tracy::BeginVkZoneScope(zone.Data, tracyContext, GetHandle(), buffer, bufferSize);
 #endif
@@ -128,7 +128,7 @@ void CmdBufferVulkan::EndEvent()
         vkCmdEndDebugUtilsLabelEXT(GetHandle());
 #endif
 
-#if GPU_ENABLE_TRACY
+#if VULKAN_USE_TRACY_GPU
     tracy::EndVkZoneScope(_tracyZones.Last().Data);
     _tracyZones.RemoveLast();
 #endif
@@ -289,7 +289,7 @@ void CmdBufferManagerVulkan::SubmitActiveCmdBuffer(SemaphoreVulkan* signalSemaph
         }
 #else
         for (int32 i = 0; i < _activeTimerQueries.Count(); i++)
-            queries->Interrupt(_activeCmdBuffer);
+            queries[i]->Interrupt(_context);
 #endif
 #endif
 
@@ -347,7 +347,7 @@ void CmdBufferManagerVulkan::GetNewActiveCommandBuffer()
 #else
     for (int32 i = 0; i < _activeTimerQueries.Count(); i++)
     {
-        queries->Resume(_activeCmdBuffer);
+        queries[i]->Resume(_context);
     }
 #endif
 #endif

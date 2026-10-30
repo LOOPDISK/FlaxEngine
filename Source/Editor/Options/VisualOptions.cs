@@ -36,7 +36,7 @@ namespace FlaxEditor.Options
         /// Gets or sets the selection outline size for UI controls.
         /// </summary>
         [DefaultValue(2.0f)]
-        [EditorDisplay("UI Gizmo", "UI Control Outline Size"), EditorOrder(103), Tooltip("The size of the selection outline for UI controls.")]
+        [EditorDisplay("UI Gizmo", "Control Outline Size"), EditorOrder(103), Tooltip("The size of the selection outline for UI controls.")]
         public float UISelectionOutlineSize { get; set; } = 2.0f;
 
         /// <summary>
@@ -124,10 +124,10 @@ namespace FlaxEditor.Options
         public Color LogErrorColor { get; set; } = Color.Red;
 
         /// <summary>
-        /// Gets or sets a value wether the Debug Log entry text color should use the set color.
+        /// Gets or sets a value whether the Debug Log entry text color should use the set color.
         /// </summary>
         [DefaultValue(true)]
-        [EditorDisplay("Log", "Color Debug Log Text"), EditorOrder(1503), Tooltip("Wether to use the set colors in the text of a Debug Log entry.")]
+        [EditorDisplay("Log", "Color Debug Log Text"), EditorOrder(1503), Tooltip("Whether to use the set colors in the text of a Debug Log entry.")]
         public bool ColorDebugLogText = true;
     }
 }

@@ -148,6 +148,7 @@ namespace FlaxEditor.Viewport.Previews
             // Setup preview scene
             _previewModel = new StaticModel();
             SelectedModelIndex = 0;
+            Task.ViewFlags &= ~ViewFlags.EyeAdaptation;
 
             // Link actors for rendering
             Task.AddCustomActor(_previewModel);
@@ -174,11 +175,11 @@ namespace FlaxEditor.Viewport.Previews
         }
 
         /// <inheritdoc />
-        public override bool HasLoadedAssets
+        public override bool HasContentLoaded
         {
             get
             {
-                if (!base.HasLoadedAssets)
+                if (!base.HasContentLoaded)
                     return false;
                 UpdateMaterial();
                 return true;

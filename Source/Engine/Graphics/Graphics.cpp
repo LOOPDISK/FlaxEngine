@@ -25,14 +25,16 @@ float Graphics::ShadowUpdateRate = 1.0f;
 bool Graphics::AllowCSMBlending = false;
 Quality Graphics::GlobalSDFQuality = Quality::High;
 Quality Graphics::GIQuality = Quality::High;
+float Graphics::GIProbesSpacing = 100;
 bool Graphics::GICascadesBlending = false;
-bool Graphics::OcclusionCulling = true;
+int32 Graphics::GlobalSurfaceAtlasResolution = 2048;
 PostProcessSettings Graphics::PostProcessSettings;
 bool Graphics::GammaColorSpace = true;
 bool Graphics::SpreadWorkload = true;
 #if !BUILD_RELEASE || USE_EDITOR
 float Graphics::TestValue = 0.0f;
 #endif
+float Graphics::MotionVectors::MinObjectScreenSize = 0.02f;
 float Graphics::Shadows::MinObjectPixelSize = 2.0f;
 float Graphics::Shadows::CullingSize = 500;
 float Graphics::Shadows::CullingDistance = 2000;
@@ -78,8 +80,9 @@ void GraphicsSettings::Apply()
     Graphics::AllowCSMBlending = AllowCSMBlending;
     Graphics::GlobalSDFQuality = GlobalSDFQuality;
     Graphics::GIQuality = GIQuality;
+    Graphics::GIProbesSpacing = GIProbesSpacing;
     Graphics::GICascadesBlending = GICascadesBlending;
-    Graphics::OcclusionCulling = UseOcclusionCulling;
+    Graphics::GlobalSurfaceAtlasResolution = GlobalSurfaceAtlasResolution;
     Graphics::PostProcessSettings = ::PostProcessSettings();
     Graphics::PostProcessSettings.BlendWith(PostProcessSettings, 1.0f);
     Graphics::GammaColorSpace = GammaColorSpace;

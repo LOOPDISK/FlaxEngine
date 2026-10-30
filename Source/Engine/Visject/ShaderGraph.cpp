@@ -5,6 +5,8 @@
 #include "ShaderGraph.h"
 #include "GraphUtilities.h"
 #include "ShaderGraphUtilities.h"
+#include "Engine/Content/Assets/Texture.h"
+#include "Engine/Content/Assets/CubeTexture.h"
 #include "Engine/Engine/GameplayGlobals.h"
 
 const Char* ShaderGenerator::_mathFunctions[] =
@@ -310,7 +312,7 @@ void ShaderGenerator::ProcessGroupMath(Box* box, Node* node, Value& value)
         Value v1 = tryGetValue(node->GetBox(0), Value::Zero);
         String text = String::Format(TEXT("ExtractLargestComponent({0})"), Value::Cast(v1, ValueType::Float3).Value);
         value = writeLocal(ValueType::Float3, text, node);
-        _includes.Add(TEXT("./Flax/Math.hlsl"));
+        _includes.Add(TEXT("./Flax/Math/Math.hlsl"));
         break;
     }
     // Asine
@@ -350,7 +352,7 @@ void ShaderGenerator::ProcessGroupMath(Box* box, Node* node, Value& value)
         const auto graphValue = tryGetValue(node->GetBox(2), Value::Zero).AsFloat3();
         const auto position = tryGetValue(node->GetBox(3), Value::Zero).AsFloat3();
         const String text = String::Format(TEXT("RotateAboutAxis(float4({0}, {1}), {2}, {3})"), normalizedRotationAxis.Value, shaderGraphValue.Value, graphValue.Value, position.Value);
-        _includes.Add(TEXT("./Flax/Math.hlsl"));
+        _includes.Add(TEXT("./Flax/Math/Math.hlsl"));
         value = writeLocal(ValueType::Float3, text, node);
         break;
     }
@@ -742,6 +744,37 @@ void ShaderGenerator::ProcessGroupTools(Box* box, Node* node, Value& value)
         // Get param value
         value.Type = variable.DefaultValue.Type.Type;
         value.Value = param->ShaderName;
+        switch (variable.DefaultValue.Type.Type)
+        {
+        case VariantType::Bool:
+        case VariantType::Int:
+        case VariantType::Uint:
+        case VariantType::Float:
+        case VariantType::Float2:
+        case VariantType::Float3:
+        case VariantType::Float4:
+        case VariantType::Color:
+        case VariantType::Double2:
+        case VariantType::Double3:
+        case VariantType::Double4:
+        case VariantType::Int2:
+        case VariantType::Int3:
+        case VariantType::Int4:
+            // POD value types
+            break;
+        case VariantType::Asset:
+            if (Texture::GetStaticType().Fullname == variable.DefaultValue.Type.TypeName || 
+                CubeTexture::GetStaticType().Fullname == variable.DefaultValue.Type.TypeName)
+            {
+                // Texture or Cube Texture
+                value.Type = VariantType::Object;
+                break;
+            }
+        default:
+            LOG(Warning, "Invalid Gameplay Global '{}' ({}) value type '{}' to bind to material", name, asset->GetPath(), variable.DefaultValue.Type.ToString());
+            value = Value::Zero;
+            break;
+        }
         break;
     }
     // Platform Switch
@@ -802,7 +835,7 @@ void ShaderGenerator::ProcessGroupTools(Box* box, Node* node, Value& value)
     case 33:
     case 34:
     {
-        _includes.Add(TEXT("./Flax/Noise.hlsl"));
+        _includes.Add(TEXT("./Flax/Math/Noise.hlsl"));
         const Char* format;
         ValueType pointType = VariantType::Float2;
         ValueType resultType = VariantType::Float;

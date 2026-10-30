@@ -1,5 +1,7 @@
 # Flax stuff
 *.sln
+*.slnx
+*.slnx.DotSettings
 [Dd]ebug/
 [Rr]elease/
 obj/
@@ -20,6 +22,7 @@ WindowsLayout.xml
 *.suo
 *.user
 *.sln.docstates
+*.slnx.docstates
 *.idb
 *.tlog
 *.lastbuilddate

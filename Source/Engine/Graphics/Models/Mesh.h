@@ -3,11 +3,8 @@
 #pragma once
 
 #include "MeshBase.h"
-#include "ModelInstanceEntry.h"
 #include "Config.h"
 #include "Types.h"
-
-class Lightmap;
 
 /// <summary>
 /// Represents part of the model that is made of vertices and can be rendered using custom material and transformation.
@@ -93,7 +90,7 @@ public:
     /// <param name="vertices">The mesh vertices positions. Cannot be null.</param>
     /// <param name="triangles">The mesh index buffer (clockwise triangles). Uses 32-bit stride buffer. Cannot be null.</param>
     /// <param name="normals">The normal vectors (per vertex).</param>
-    /// <param name="tangents">The normal vectors (per vertex). Use null to compute them from normal vectors.</param>
+    /// <param name="tangents">The tangent vectors (per vertex).</param>
     /// <param name="uvs">The texture coordinates (per vertex).</param>
     /// <param name="colors">The vertex colors (per vertex).</param>
     /// <returns>True if failed, otherwise false.</returns>
@@ -109,7 +106,7 @@ public:
     /// <param name="vertices">The mesh vertices positions. Cannot be null.</param>
     /// <param name="triangles">The mesh index buffer (clockwise triangles). Uses 32-bit stride buffer. Cannot be null.</param>
     /// <param name="normals">The normal vectors (per vertex).</param>
-    /// <param name="tangents">The normal vectors (per vertex). Use null to compute them from normal vectors.</param>
+    /// <param name="tangents">The tangent vectors (per vertex).</param>
     /// <param name="uvs">The texture coordinates (per vertex).</param>
     /// <param name="colors">The vertex colors (per vertex).</param>
     /// <returns>True if failed, otherwise false.</returns>
@@ -148,6 +145,21 @@ public:
     /// <summary>
     /// Draws the mesh.
     /// </summary>
+    /// <param name="renderContextBatch">The rendering context batch.</param>
+    /// <param name="material">The material to use for rendering.</param>
+    /// <param name="world">The world transformation of the model.</param>
+    /// <param name="flags">The object static flags.</param>
+    /// <param name="receiveDecals">True if rendered geometry can receive decals, otherwise false.</param>
+    /// <param name="drawModes">The draw passes to use for rendering this object.</param>
+    /// <param name="perInstanceRandom">The random per-instance value (normalized to range 0-1).</param>
+    /// <param name="sortOrder">Object sorting key.</param>
+    /// <param name="stencilValue">Object stencil value.</param>
+    /// <param name="shadowsMode">The object shadows casting mode.</param>
+    void Draw(API_PARAM(Ref) const RenderContextBatch& renderContextBatch, MaterialBase* material, API_PARAM(Ref) const Matrix& world, StaticFlags flags = StaticFlags::None, bool receiveDecals = true, DrawPass drawModes = DrawPass::Default, float perInstanceRandom = 0.0f, int8 sortOrder = 0, uint8 stencilValue = 0, ShadowsCastingMode shadowsMode = ShadowsCastingMode::All) const;
+
+    /// <summary>
+    /// Draws the mesh.
+    /// </summary>
     /// <param name="renderContext">The rendering context.</param>
     /// <param name="info">The packed drawing info data.</param>
     /// <param name="lodDitherFactor">The LOD transition dither factor.</param>
@@ -171,7 +183,7 @@ private:
 #if !COMPILE_WITHOUT_CSHARP
     API_FUNCTION(NoProxy) bool UpdateMeshUInt(int32 vertexCount, int32 triangleCount, const MArray* verticesObj, const MArray* trianglesObj, const MArray* normalsObj, const MArray* tangentsObj, const MArray* uvObj, const MArray* colorsObj);
     API_FUNCTION(NoProxy) bool UpdateMeshUShort(int32 vertexCount, int32 triangleCount, const MArray* verticesObj, const MArray* trianglesObj, const MArray* normalsObj, const MArray* tangentsObj, const MArray* uvObj, const MArray* colorsObj);
-    API_FUNCTION(NoProxy) MArray* DownloadBuffer(bool forceGpu, MTypeObject* resultType, int32 typeI);
+    API_FUNCTION(NoProxy) MArray* DownloadBuffer(bool forceGpu, MType* resultType, int32 typeI);
 #if USE_EDITOR
     API_FUNCTION(NoProxy) Array<Vector3> GetCollisionProxyPoints() const;
 #endif

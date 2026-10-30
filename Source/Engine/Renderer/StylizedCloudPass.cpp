@@ -8,6 +8,7 @@
 #include "Engine/Graphics/RenderBuffers.h"
 #include "Engine/Graphics/RenderTargetPool.h"
 #include "Engine/Graphics/RenderTask.h"
+#include "Engine/Graphics/RenderContext.h"
 #include "Engine/Graphics/Materials/IMaterial.h"
 #include "Engine/Graphics/Materials/StylizedCloudMaterialShader.h"
 #include "Engine/Renderer/DrawCall.h"
@@ -98,7 +99,7 @@ bool StylizedCloudPass::setupResources()
         psDesc.DepthEnable = true;
         psDesc.DepthWriteEnable = true;
         psDesc.DepthClipEnable = true;
-        psDesc.DepthFunc = ComparisonFunc::Less;
+        psDesc.DepthFunc = ComparisonFunc::Default;
         psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::None;
         if (_psWriteDepth->Init(psDesc))
             return true;

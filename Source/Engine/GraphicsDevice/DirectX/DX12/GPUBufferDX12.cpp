@@ -8,6 +8,7 @@
 #include "Engine/Graphics/PixelFormatExtensions.h"
 #include "Engine/Graphics/RenderTask.h"
 #include "Engine/Graphics/Async/Tasks/GPUUploadBufferTask.h"
+#include <ThirdParty/D3D12MemoryAllocator/D3D12MemAlloc.h>
 
 void GPUBufferViewDX12::SetSRV(D3D12_SHADER_RESOURCE_VIEW_DESC& srvDesc)
 {
@@ -115,34 +116,33 @@ bool GPUBufferDX12::OnInit()
         resourceDesc.Flags |= D3D12XBOX_RESOURCE_FLAG_ALLOW_INDIRECT_BUFFER;
 #endif
 
-    // Create allocation description
-    D3D12_HEAP_PROPERTIES heapProperties;
+    // Create resource
+    D3D12MA::ALLOCATION_DESC allocationDesc = {};
     switch (_desc.Usage)
     {
     case GPUResourceUsage::StagingUpload:
     case GPUResourceUsage::Staging:
-        heapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
+        allocationDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;
         break;
     case GPUResourceUsage::StagingReadback:
-        heapProperties.Type = D3D12_HEAP_TYPE_READBACK;
+        allocationDesc.HeapType = D3D12_HEAP_TYPE_READBACK;
         break;
     default:
-        heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        allocationDesc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
     }
-    heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-    heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-    heapProperties.CreationNodeMask = 1;
-    heapProperties.VisibleNodeMask = 1;
-
-    // Create resource
     ID3D12Resource* resource;
-#if PLATFORM_WINDOWS
-    D3D12_HEAP_FLAGS heapFlags = EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::VertexBuffer | GPUBufferFlags::IndexBuffer) || _desc.InitData ? D3D12_HEAP_FLAG_CREATE_NOT_ZEROED : D3D12_HEAP_FLAG_NONE;
-#else
-    D3D12_HEAP_FLAGS heapFlags = D3D12_HEAP_FLAG_NONE;
-#endif
     D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON;
-    VALIDATE_DIRECTX_CALL(_device->GetDevice()->CreateCommittedResource(&heapProperties, heapFlags, &resourceDesc, initialState, nullptr, IID_PPV_ARGS(&resource)));
+    HRESULT result = _device->Allocator->CreateResource(&allocationDesc, &resourceDesc, initialState, nullptr, &_allocation, IID_PPV_ARGS(&resource));
+    if (FAILED(result))
+    {
+        LOG(Error, "CreatePlacedResource failed");
+        LOG_STR(Error, _desc.ToString());
+#if GPU_ENABLE_RESOURCE_NAMING
+        LOG_STR(Error, GetName());
+#endif
+        RenderToolsDX::LogD3DResult(result, __FILE__, __LINE__);
+        return true;
+    }
 
     // Set state
     initResource(resource, initialState, 1);
@@ -217,11 +217,7 @@ bool GPUBufferDX12::OnInit()
             srvDesc.Buffer.StructureByteStride = 0;
         }
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::RawBuffer))
-        {
             srvDesc.Buffer.Flags |= D3D12_BUFFER_SRV_FLAG_RAW;
-            // Raw views address 4-byte elements over the whole buffer; Size/Stride (Stride>4) would truncate reads.
-            srvDesc.Buffer.NumElements = _desc.Size / 4;
-        }
         _view.SetSRV(srvDesc);
     }
     if (useUAV)
@@ -236,10 +232,7 @@ bool GPUBufferDX12::OnInit()
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::Structured))
             uavDesc.Buffer.StructureByteStride = _desc.Stride;
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::RawBuffer))
-        {
             uavDesc.Buffer.Flags |= D3D12_BUFFER_UAV_FLAG_RAW;
-            uavDesc.Buffer.NumElements = _desc.Size / 4;
-        }
         if (EnumHasAnyFlags(_desc.Flags, GPUBufferFlags::Structured))
             uavDesc.Format = DXGI_FORMAT_UNKNOWN;
         else

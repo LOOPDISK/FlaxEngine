@@ -15,6 +15,7 @@
 #include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Graphics/GPUPipelineState.h"
 #include "Engine/Graphics/RenderTask.h"
+#include "Engine/Graphics/RenderContext.h"
 #include "Engine/Graphics/RenderBuffers.h"
 #include "Engine/Graphics/RenderTools.h"
 #include "Engine/Graphics/DynamicBuffer.h"
@@ -136,7 +137,7 @@ typedef DebugDraw::Vertex Vertex;
 
 GPU_CB_STRUCT(ShaderData {
     Matrix ViewProjection;
-    Float2 Padding;
+    Float2 SceneDepthUVScale;
     float ClipPosZBias;
     uint32 EnableDepthTest;
     });
@@ -357,7 +358,7 @@ struct DebugDrawContext
     Vector3 Origin = Vector3::Zero;
     DebugDrawData DebugDrawDefault;
     DebugDrawData DebugDrawDepthTest;
-    Float3 LastViewPos = Float3::Zero;
+    Vector3 LastViewPosition = Vector3::Zero;
     Matrix LastViewProjection = Matrix::Identity;
     BoundingFrustum LastViewFrustum;
 
@@ -674,19 +675,19 @@ void DebugDrawService::Update()
     // Lazy-init resources
     if (DebugDrawShader == nullptr)
     {
-        DebugDrawShader = Content::LoadAsyncInternal<Shader>(TEXT("Shaders/DebugDraw"));
+        DebugDrawShader = Content::LoadAsyncInternal<Shader>(TEXT("Shaders/Utils/DebugDraw"));
         if (DebugDrawShader == nullptr)
         {
             LOG(Fatal, "Cannot load DebugDraw shader");
         }
 #if COMPILE_WITH_DEV_ENV
-        DebugDrawShader->OnReloading.Bind(&OnShaderReloading);
+        DebugDrawShader->Reloading.Bind(&OnShaderReloading);
 #endif
     }
     if (DebugDrawPsWireTrianglesDepthTest.Depth == nullptr && DebugDrawShader && DebugDrawShader->IsLoaded())
     {
         bool failed = false;
-        const auto shader = DebugDrawShader->GetShader();
+        const auto shader = DebugDrawShader->GPU;
 
         // Create pipeline states
         GPUPipelineState::Description desc = GPUPipelineState::Description::Default;
@@ -790,9 +791,14 @@ bool DebugDraw::CanClear(void* context)
 
 #endif
 
-Vector3 DebugDraw::GetViewPos()
+Vector3 DebugDraw::GetViewPosition()
 {
-    return Context->LastViewPos;
+    return Context->LastViewPosition;
+}
+
+Vector3 DebugDraw::GetViewOrigin()
+{
+    return Context->Origin;
 }
 
 BoundingFrustum DebugDraw::GetViewFrustum()
@@ -802,7 +808,7 @@ BoundingFrustum DebugDraw::GetViewFrustum()
 
 void DebugDraw::SetView(const RenderView& view)
 {
-    Context->LastViewPos = view.Position;
+    Context->LastViewPosition = view.WorldPosition;
     Context->LastViewProjection = view.Projection;
     Context->LastViewFrustum = view.Frustum;
 }
@@ -855,12 +861,15 @@ void DebugDraw::Draw(RenderContext& renderContext, GPUTextureView* target, GPUTe
     }
 
     // Update constant buffer
-    const auto cb = DebugDrawShader->GetShader()->GetCB(0);
+    const auto cb = DebugDrawShader->GPU->GetCB(0);
     ShaderData data;
     Matrix vp;
     Matrix::Multiply(view.View, view.Projection, vp);
     Matrix::Transpose(vp, data.ViewProjection);
     data.ClipPosZBias = view.IsPerspectiveProjection() ? -0.2f : 0.0f; // Reduce Z-fighting artifacts (eg. editor grid)
+    data.SceneDepthUVScale = Float2::One;
+    if (enableDepthTest && renderContext.Buffers->DepthBuffer && target && ScriptingObject::Cast<GPUTexture>(target->GetParent()))
+        data.SceneDepthUVScale = renderContext.Buffers->DepthBuffer->Size() / ((GPUTexture*)target->GetParent())->Size();
     data.EnableDepthTest = enableDepthTest;
     context->UpdateCB(cb, &data);
     context->BindCB(0, cb);
@@ -1420,7 +1429,8 @@ void DebugDraw::DrawWireSphere(const BoundingSphere& sphere, const Color& color,
     int32 index;
     const Float3 centerF = sphere.Center - Context->Origin;
     const float radiusF = (float)sphere.Radius;
-    const float screenRadiusSquared = RenderTools::ComputeBoundsScreenRadiusSquared(centerF, radiusF, Context->LastViewPos, Context->LastViewProjection);
+    const Float3 drawPos = Context->LastViewPosition - Context->Origin;
+    const float screenRadiusSquared = RenderTools::ComputeBoundsScreenRadiusSquared(centerF, radiusF, drawPos, Context->LastViewProjection);
     if (screenRadiusSquared > DEBUG_DRAW_SPHERE_LOD0_SCREEN_SIZE * DEBUG_DRAW_SPHERE_LOD0_SCREEN_SIZE * 0.25f)
         index = 0;
     else if (screenRadiusSquared > DEBUG_DRAW_SPHERE_LOD1_SCREEN_SIZE * DEBUG_DRAW_SPHERE_LOD1_SCREEN_SIZE * 0.25f)
@@ -1517,6 +1527,44 @@ void DebugDraw::DrawCircle(const Vector3& position, const Float3& normal, float 
             debugDrawData.OneFrameLines.Add(l);
         }
         prev = cur;
+    }
+}
+
+void DebugDraw::DrawPoint(const Vector3& position, float radius, const Color& color, float duration, bool depthTest)
+{
+    Float3 normal = (Float3)(Context->LastViewPosition - position);
+    if (normal.Length() < ZeroTolerance)
+        normal = Float3::Up;
+    normal.Normalize();
+    
+    // Create matrix transform for unit circle points
+    Matrix world, scale, matrix;
+    Float3 right, up;
+    if (Float3::Dot(normal, Float3::Up) > 0.99f)
+        right = Float3::Right;
+    else if (Float3::Dot(normal, Float3::Down) > 0.99f)
+        right = Float3::Left;
+    else
+        Float3::Cross(normal, Float3::Up, right);
+    Float3::Cross(right, normal, up);
+    Matrix::Scaling(radius, scale);
+    const Float3 positionF = position - Context->Origin;
+    Matrix::CreateWorld(positionF, normal, up, world);
+    Matrix::Multiply(scale, world, matrix);
+
+    // Build a filled disc as a triangle fan from the center over the transformed unit circle points
+    PROFILE_MEM(EngineDebug);
+    auto& debugDrawData = depthTest ? Context->DebugDrawDepthTest : Context->DebugDrawDefault;
+    auto& debugDrawList = duration > 0 ? debugDrawData.DefaultTriangles : debugDrawData.OneFrameTriangles;
+    for (int32 i = 0; i < DEBUG_DRAW_CIRCLE_VERTICES; i += 2)
+    {
+        DebugTriangle t;
+        t.Color = Color32(color);
+        t.TimeLeft = duration;
+        t.V0 = positionF;
+        t.V1 = Float3::Transform(CircleCache[i], matrix);
+        t.V2 = Float3::Transform(CircleCache[i + 1], matrix);
+        debugDrawList.Add(t);
     }
 }
 

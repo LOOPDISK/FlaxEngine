@@ -36,8 +36,6 @@
 #include "Engine/Profiler/ProfilerCPU.h"
 #include "Engine/Profiler/ProfilerMemory.h"
 
-extern void registerFlaxEngineInternalCalls();
-
 class ScriptingService : public EngineService
 {
 public:
@@ -203,9 +201,6 @@ bool ScriptingService::Init()
     domain->SetCurrentDomain(true);
     _scriptsDomain = domain;
 
-    // Add internal calls
-    registerFlaxEngineInternalCalls();
-
     // Load assemblies
     if (Scripting::Load())
     {
@@ -269,7 +264,7 @@ void ScriptingService::Update()
     }
     _objectsLocker.Unlock();
 
-#if defined(USE_NETCORE) && !USE_EDITOR
+#if USE_NETCORE && !USE_EDITOR
     // Force GC to run in background periodically to avoid large blocking collections causing hitches
     if (Time::Update.TicksCount % 60 == 0)
     {
@@ -368,7 +363,28 @@ bool Scripting::LoadBinaryModules(const String& path, const String& projectFolde
         return true;
     }
 
-    // TODO: validate Name, Platform, Architecture, Configuration from file
+    // Load metadata
+#if !BUILD_RELEASE
+    const String platform = JsonTools::GetString(document, "Platform");
+    const String architecture = JsonTools::GetString(document, "Architecture");
+    const String configuration = JsonTools::GetString(document, "Configuration");
+    const Char* engineConfiguration = BUILD_DEBUG ? TEXT("Debug") : (BUILD_DEVELOPMENT ? TEXT("Development") : TEXT("Release"));
+    if (platform != ToStringExact(PLATFORM_TYPE) ||
+        architecture != ToString(PLATFORM_ARCH) ||
+        configuration != engineConfiguration)
+    {
+        LOG(Error, "Incorrect binary modules configuration!");
+        LOG(Error, "Loaded: {}, {}, {}", platform, architecture, configuration);
+        LOG(Error, "Expected: {}, {}, {}", ToStringExact(PLATFORM_TYPE), ToString(PLATFORM_ARCH), engineConfiguration);
+    }
+#endif
+    auto versionControlInfoMember = document.FindMember("VersionControlInfo");
+    if (versionControlInfoMember != document.MemberEnd())
+    {
+        String versionControlInfo = versionControlInfoMember->value.GetText();
+        versionControlInfo.Replace(TEXT("+"), TEXT(", "));
+        LOG(Info, "Version: {}", versionControlInfo);
+    }
 
     // Load all references
     auto referencesMember = document.FindMember("References");

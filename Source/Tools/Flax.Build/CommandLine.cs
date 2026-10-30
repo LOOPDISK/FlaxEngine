@@ -253,9 +253,8 @@ namespace Flax.Build
                     i++;
                 if (i == length)
                     break;
-                if (commandLine[i] == '-')
-                    i++;
-                else if (commandLine[i] == '/')
+                var hasArgPrefix = commandLine[i] == '-' || commandLine[i] == '/';
+                if (hasArgPrefix)
                     i++;
 
                 // Skip white space
@@ -266,6 +265,8 @@ namespace Flax.Build
                 int nameStart = i;
                 while (i < length && commandLine[i] != '-' && commandLine[i] != '=' && !char.IsWhiteSpace(commandLine[i]))
                     i++;
+                if (wholeQuote && commandLine[i] == '\"')
+                    i--;
                 int nameEnd = i;
                 string name = commandLine.Substring(nameStart, nameEnd - nameStart);
 

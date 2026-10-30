@@ -56,7 +56,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
         {
             // Transform world position into main viewport texcoord space
             Value clipPosition = writeLocal(VariantType::Float4, TEXT("PROJECT_POINT(float4(input.WorldPosition.xyz, 1), MainViewProjectionMatrix)"), node);
-            Value uvPos = writeLocal(VariantType::Float2, String::Format(TEXT("(({0}.xy / {0}.w) * float2(0.5, -0.5) + float2(0.5, 0.5))"), clipPosition.Value), node);
+            Value uvPos = writeLocal(VariantType::Float2, String::Format(TEXT("ProjectClipToUV({0}.xy / {0}.w)"), clipPosition.Value), node);
 
             // Position
             if (box->ID == 0)
@@ -140,7 +140,9 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
 
         // Write code
         _writer.Write(TEXT("{\n"));
-        _writer.Write(*code);
+        _writer.Write(code);
+        if (!code.EndsWith(TEXT("\n")) && !code.EndsWith(TEXT(" ")))
+            _writer.Write(TEXT("\n"));
         _writer.Write(TEXT("}\n"));
 
         // Link output values to boxes
@@ -321,7 +323,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
 
         // Peek the function output (function->Outputs maps the functions outputs to output nodes indices)
         const int32 outputIndex = box->ID - 16;
-        if (outputIndex < 0 || outputIndex >= function->Outputs.Count())
+        if (!function->Outputs.IsValidIndex(outputIndex) || !graph->Nodes.IsValidIndex(function->Outputs[outputIndex]))
         {
             OnError(node, box, TEXT("Invalid function output box."));
             value = Value::Zero;
@@ -858,7 +860,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
     {
         const auto linear = tryGetValue(node->GetBox(0), Value::Zero).AsFloat3();
         value = writeLocal(linear.Type, String::Format(TEXT("LinearToSrgb({0})"), linear.Value), node);
-        _includes.Add(TEXT("./Flax/GammaCorrectionCommon.hlsl"));
+        _includes.Add(TEXT("./Flax/PostFX/GammaCorrectionCommon.hlsl"));
         break;
     }
     // sRGB to Linear
@@ -866,7 +868,7 @@ void MaterialGenerator::ProcessGroupMaterial(Box* box, Node* node, Value& value)
     {
         const auto sRGB = tryGetValue(node->GetBox(0), Value::Zero).AsFloat3();
         value = writeLocal(sRGB.Type, String::Format(TEXT("sRGBToLinear({0})"), sRGB.Value), node);
-        _includes.Add(TEXT("./Flax/GammaCorrectionCommon.hlsl"));
+        _includes.Add(TEXT("./Flax/PostFX/GammaCorrectionCommon.hlsl"));
         break;
     }
     default:

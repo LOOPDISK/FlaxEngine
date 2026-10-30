@@ -202,7 +202,7 @@ bool PlatformTools::IsNativeCodeFile(CookingData& data, const String& file)
     if (filename.Contains(TEXT(".CSharp")) ||
         filename.Contains(TEXT("Newtonsoft.Json")))
         return false;
-    // TODO: maybe use Mono.Cecil via Flax.Build to read assembly image metadata and check if it contains C#?
+    // TODO: maybe use Mono.Cecil via Flax.Build to read assembly image metadata and check if it contains C#? (see DotNetAOT.FilterAssembly)
     return true;
 }
 
@@ -239,7 +239,7 @@ String CookingData::GetGameBinariesPath() const
         archDir = TEXT("ARM64");
         break;
     default:
-    CRASH;
+        CRASH;
         return String::Empty;
     }
 
@@ -802,7 +802,9 @@ int32 GameCookerImpl::ThreadFunction()
             Build();
         }
 
+        mutex.Lock();
         ThreadCond.Wait(mutex);
+        mutex.Unlock();
     }
 
     IsThreadRunning = false;

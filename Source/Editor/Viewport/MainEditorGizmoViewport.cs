@@ -179,12 +179,17 @@ namespace FlaxEditor.Viewport
         public Tools.Terrain.EditTerrainGizmoMode EditTerrainGizmo;
 
         /// <summary>
-        /// The paint foliage gizmo.
+        /// The edit foliage types gizmo.
+        /// </summary>
+        public Tools.Foliage.FoliageTypesGizmoMode EditFoliageTypesGizmo;
+
+        /// <summary>
+        /// The paint foliage instances gizmo.
         /// </summary>
         public Tools.Foliage.PaintFoliageGizmoMode PaintFoliageGizmo;
 
         /// <summary>
-        /// The edit foliage gizmo.
+        /// The edit foliage instances gizmo.
         /// </summary>
         public Tools.Foliage.EditFoliageGizmoMode EditFoliageGizmo;
 
@@ -276,6 +281,7 @@ namespace FlaxEditor.Viewport
                 Gizmos.AddMode(SculptTerrainGizmo = new Tools.Terrain.SculptTerrainGizmoMode());
                 Gizmos.AddMode(PaintTerrainGizmo = new Tools.Terrain.PaintTerrainGizmoMode());
                 Gizmos.AddMode(EditTerrainGizmo = new Tools.Terrain.EditTerrainGizmoMode());
+                Gizmos.AddMode(EditFoliageTypesGizmo = new Tools.Foliage.FoliageTypesGizmoMode());
                 Gizmos.AddMode(PaintFoliageGizmo = new Tools.Foliage.PaintFoliageGizmoMode());
                 Gizmos.AddMode(EditFoliageGizmo = new Tools.Foliage.EditFoliageGizmoMode());
 
@@ -343,10 +349,12 @@ namespace FlaxEditor.Viewport
         /// <param name="customSelectionOutline">The custom selection outline or null if use default one.</param>
         public void OverrideSelectionOutline(SelectionOutline customSelectionOutline)
         {
+            if (Task == null)
+                return;
+
             if (_customSelectionOutline != null)
             {
                 Task.RemoveCustomPostFx(_customSelectionOutline);
-                Object.Destroy(ref _customSelectionOutline);
                 Task.AddCustomPostFx(customSelectionOutline ? customSelectionOutline : SelectionOutline);
             }
             else if (customSelectionOutline != null)
@@ -530,7 +538,7 @@ namespace FlaxEditor.Viewport
         }
 
         /// <summary>
-        /// Toggles game view view mode on or off.
+        /// Toggles view mode on/off.
         /// </summary>
         public void ToggleGameView()
         {
@@ -547,9 +555,9 @@ namespace FlaxEditor.Viewport
             // Set flags & values
             Task.ViewFlags = _gameViewActive ? _preGameViewFlags : ViewFlags.DefaultGame;
             Task.ViewMode = _gameViewActive ? _preGameViewViewMode : ViewMode.Default;
-            ShowFpsCounter = _gameViewActive ? _gameViewWasFpsCounterShown : false;
-            ShowNavigation = _gameViewActive ? _gameViewWasNavigationShown : false;
-            Grid.Enabled = _gameViewActive ? _gameViewWasGridShown : false;
+            ShowFpsCounter = _gameViewActive && _gameViewWasFpsCounterShown;
+            ShowNavigation = _gameViewActive && _gameViewWasNavigationShown;
+            Grid.Enabled = _gameViewActive && _gameViewWasGridShown;
 
             _gameViewActive = !_gameViewActive;
 
@@ -706,7 +714,7 @@ namespace FlaxEditor.Viewport
         {
             base.OnLeftMouseButtonDown();
 
-            if (!IsAltKeyDown)
+            if (!IsAltKeyDown && !_directionGizmo.IsMouseOver)
                 _rubberBandSelector.TryStartingRubberBandSelection(_viewMousePos);
         }
 
@@ -714,7 +722,7 @@ namespace FlaxEditor.Viewport
         protected override void OnLeftMouseButtonUp()
         {
             // Skip if was controlling mouse or mouse is not over the area
-            if (_prevInput.IsControllingMouse || !Bounds.Contains(ref _viewMousePos))
+            if (_prevInput.IsControllingMouse || !Bounds.Contains(ref _viewMousePos) || _directionGizmo.IsMouseOver)
                 return;
 
             // Select rubberbanded rect actor nodes or pick with gizmo
@@ -728,6 +736,20 @@ namespace FlaxEditor.Viewport
             Focus();
 
             base.OnLeftMouseButtonUp();
+        }
+
+        /// <inheritdoc />
+        public override bool OnKeyDown(KeyboardKeys key)
+        {
+            if (base.OnKeyDown(key))
+                return true;
+
+            if (key == KeyboardKeys.Escape)
+            {
+                _editor.SceneEditing.Deselect();
+            }
+
+            return false;
         }
 
         /// <inheritdoc />
@@ -787,10 +809,12 @@ namespace FlaxEditor.Viewport
         /// <inheritdoc />
         public override DragDropEffect OnDragMove(ref Float2 location, DragData data)
         {
-            DragHandlers.ClearDragEffects();
             var result = base.OnDragMove(ref location, data);
             if (result != DragDropEffect.None)
+            {
+                DragHandlers.ClearDragEffects();
                 return result;
+            }
             return DragHandlers.DragEnter(ref location, data);
         }
 
@@ -843,8 +867,8 @@ namespace FlaxEditor.Viewport
             if (_task != null)
             {
                 // Release if task is not used to save screenshot for project icon
+                ReleaseTaskResources();
                 Object.Destroy(ref _task);
-                ReleaseResources();
             }
 
             base.OnDestroy();
@@ -860,6 +884,7 @@ namespace FlaxEditor.Viewport
             _savedTask = _task;
             _savedBackBuffer = _backBuffer;
 
+            ReleaseTaskResources();
             _task = null;
             _backBuffer = null;
         }
@@ -870,20 +895,20 @@ namespace FlaxEditor.Viewport
             {
                 _savedTask.Enabled = false;
                 Object.Destroy(_savedTask);
-                ReleaseResources();
+                ReleaseTaskResources();
                 _savedTask = null;
             }
             Object.Destroy(ref _savedBackBuffer);
         }
 
-        private void ReleaseResources()
+        private void ReleaseTaskResources()
         {
-            if (Task)
+            if (_task)
             {
-                Task.RemoveCustomPostFx(SelectionOutline);
-                Task.RemoveCustomPostFx(EditorPrimitives);
-                Task.RemoveCustomPostFx(_editorSpritesRenderer);
-                Task.RemoveCustomPostFx(_customSelectionOutline);
+                _task.RemoveCustomPostFx(SelectionOutline);
+                _task.RemoveCustomPostFx(EditorPrimitives);
+                _task.RemoveCustomPostFx(_editorSpritesRenderer);
+                _task.RemoveCustomPostFx(_customSelectionOutline);
             }
             Object.Destroy(ref SelectionOutline);
             Object.Destroy(ref EditorPrimitives);

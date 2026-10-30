@@ -110,6 +110,11 @@ namespace Flax.Build.NativeCpp
                 return libFolder;
 
             // Try to find nearest framework folder
+            if (Framework.StartsWith("netcoreapp"))
+            {
+                var version = System.Version.Parse(Framework.Substring(10));
+                return string.Empty;
+            }
             if (Framework.StartsWith("net"))
             {
                 var baseVersion = int.Parse(Framework.Substring(3, Framework.IndexOf('.') - 3));
@@ -123,6 +128,21 @@ namespace Flax.Build.NativeCpp
                         return libFolder;
                     }
                 }
+            }
+
+            // Fallback to netcore or netstandard if original directory
+            var fallbacks = new[]
+            {
+                "netcoreapp3.1",
+                "netcoreapp3.0",
+                "netstandard2.1",
+                "netstandard2.0",
+            };
+            foreach (var fallback in fallbacks)
+            {
+                libFolder = Path.Combine(nugetPath, Name, Version, "lib", fallback);
+                if (Directory.Exists(libFolder))
+                    return libFolder;
             }
 
             Log.Error($"Missing NuGet package \"{Name}, {Version}, {Framework}\" (nuget: {nugetPath})");
@@ -144,10 +164,18 @@ namespace Flax.Build.NativeCpp
             var dlls = Directory.Exists(libFolder) ? Directory.GetFiles(libFolder, "*.dll", SearchOption.TopDirectoryOnly) : [];
             if (dlls.Length == 0)
             {
-                Log.Error($"Missing NuGet package \"{Name}, {Version}, {Framework}\" binaries (folder: {libFolder})");
+                if (!File.Exists(Path.Combine(libFolder, "_._"))) // Skip error for packages without a binary (eg. Microsoft.NET.Test.Sdk)
+                {
+                    Log.Error($"Missing NuGet package \"{Name}, {Version}, {Framework}\" binaries (folder: {libFolder})");
+                }
                 return string.Empty;
             }
             return dlls[0];
+        }
+
+        public override string ToString()
+        {
+            return $"{Name}, {Version}, {Framework}";
         }
     }
 

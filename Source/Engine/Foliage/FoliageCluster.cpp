@@ -10,7 +10,6 @@ void FoliageCluster::Init(const BoundingBox& bounds)
     TotalBounds = bounds;
     MaxCullDistance = 0.0f;
     IsMinor = false;
-    WasCulled = false;
 
     Children[0] = nullptr;
     Children[1] = nullptr;

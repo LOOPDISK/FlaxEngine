@@ -52,7 +52,7 @@ namespace FlaxEditor.GUI
             public float SortScore;
 
             /// <summary>
-            /// Wether the query highlights should be draw.
+            /// Whether the query highlights should be drawn.
             /// </summary>
             public bool DrawHighlights = true;
 
@@ -126,7 +126,7 @@ namespace FlaxEditor.GUI
                     {
                         var start = font.GetCharPosition(Name, ranges[i].StartIndex);
                         var end = font.GetCharPosition(Name, ranges[i].EndIndex);
-                        _highlights.Add(new Rectangle(start.X + 2, 0, end.X - start.X, Height));
+                        _highlights.Add(new Rectangle(start.X, 0, end.X - start.X, Height));
 
                         if (ranges[i].StartIndex <= 0)
                         {
@@ -260,6 +260,11 @@ namespace FlaxEditor.GUI
         /// The panel control where you should add your items.
         /// </summary>
         public readonly VerticalPanel ItemsPanel;
+
+        /// <summary>
+        /// Gets a list of panels with item categories.
+        /// </summary>
+        public IEnumerable<DropPanel> CategoryPanels => (IEnumerable<DropPanel>)_categoryPanels ?? Array.Empty<DropPanel>();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ItemsListContextMenu"/> class.
@@ -504,6 +509,12 @@ namespace FlaxEditor.GUI
                     category.Visible = true;
                     category.Close(false);
                 }
+
+                if (_categoryPanels.Count == 1 && items.Count == 1)
+                {
+                    // Expand the only category if there are no items outside of it
+                    _categoryPanels[0].Open(false);
+                }
             }
 
             _searchBox?.Clear();
@@ -589,6 +600,8 @@ namespace FlaxEditor.GUI
                 // Get the next item
                 bool controlDown = Root.GetKey(KeyboardKeys.Control);
                 var items = GetVisibleItems(!controlDown);
+                if (items.Count == 0)
+                    return true;
                 var focusedIndex = items.IndexOf(focusedItem);
 
                 int delta = key == KeyboardKeys.ArrowDown ? -1 : 1;

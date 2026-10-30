@@ -3,18 +3,34 @@
 #include "Font.h"
 #include "FontAsset.h"
 #include "FontManager.h"
+#include "Engine/Content/Content.h"
 #include "Engine/Core/Log.h"
 #include "Engine/Threading/Threading.h"
 #include "IncludeFreeType.h"
 
 Array<AssetReference<FontAsset>, HeapAllocation> Font::FallbackFonts;
 
+float Font::GetGlobalScale()
+{
+    return FontManager::FontScale;
+}
+
+void Font::SetGlobalScale(float scale)
+{
+    if (scale <= 0.0f || Math::NearEqual(FontManager::FontScale, scale)) return;
+    FontManager::FontScale = scale;
+
+    // Invalidate all loaded font assets so cached glyphs are re-rasterized and Font metrics are recomputed at the new scale
+    auto assets = Content::GetAssets<FontAsset>();
+    for (auto* asset : assets) if (asset) asset->Invalidate();
+
+    FontManager::Flush();
+}
+
 Font::Font(FontAsset* parentAsset, float size)
     : ManagedScriptingObject(SpawnParams(Guid::New(), Font::TypeInitializer))
     , _asset(parentAsset)
     , _size(size)
-    , _characters(512)
-    , _commonCharacters(256)
 {
     _asset->_fonts.Add(this);
 
@@ -54,14 +70,25 @@ void Font::GetCharacter(Char c, FontCharacterEntry& result, bool enableFallback)
         }
     }
     // Try to get the character or cache it if cannot be found
-    if (!_characters.TryGet(c, result))
+    const FontOptions& options = _asset->GetOptions();
+    const auto key = Pair<float, Char>(options.RasterMode == FontRasterMode::MSDF ? options.MSDFSize : GetSize(), c);
+    if (_asset->_characterCache.TryGet(key, result))
+    {
+        // With MSDF font introduced, cached entry may be created by a different font (with same MSDFSize)
+        // This is to ensure returned entry has a reference to a font whose size matches the font being used to render
+        result.Font = this;
+    }
+    else
     {
         // This thread race condition may happen in editor but in game we usually do all stuff with fonts on main thread (chars caching)
         ScopeLock lock(_asset->Locker);
 
         // Handle situation when more than one thread wants to get the same character
-        if (_characters.TryGet(c, result))
+        if (_asset->_characterCache.TryGet(key, result))
+        {
+            result.Font = this;
             return;
+        }
 
         // Try to use fallback font if character is missing
         if (enableFallback && !_asset->ContainsChar(c))
@@ -69,22 +96,11 @@ void Font::GetCharacter(Char c, FontCharacterEntry& result, bool enableFallback)
             for (int32 fallbackIndex = 0; fallbackIndex < FallbackFonts.Count(); fallbackIndex++)
             {
                 FontAsset* fallbackFont = FallbackFonts.Get()[fallbackIndex].Get();
-                if (fallbackFont && _asset->GetOptions().RasterMode == FontRasterMode::MSDF)
-                {
-                    fallbackFont = fallbackFont->GetMSDF();
-                }
                 if (fallbackFont && fallbackFont->ContainsChar(c))
                 {
-                    fallbackFont->CreateFont(GetSize())->GetCharacter(c, result, enableFallback);
-                    // Cache the resolved entry in this font's tables so subsequent lookups skip
-                    // the ContainsChar probe and fallback search. The entry's Font back-pointer
-                    // still references the fallback, so kerning and atlas resolution stay correct.
-                    if (result.IsValid)
-                    {
-                        _characters.Add(c, result);
-                        if (c < 256)
-                            _commonCharacters[c] = result;
-                    }
+                    fallbackFont->GetRasterMode(options.RasterMode)->CreateFont(GetSize())->GetCharacter(c, result, enableFallback);
+                    if (result.IsValid && c < 256)
+                        _commonCharacters[c] = result;
                     return;
                 }
             }
@@ -95,13 +111,9 @@ void Font::GetCharacter(Char c, FontCharacterEntry& result, bool enableFallback)
         ASSERT(result.Font);
 
         // Add to the dictionary
-        _characters.Add(c, result);
-        
-        // Add to the fast cache
+        _asset->_characterCache.Add(key, result);
         if (c < 256)
-        {
             _commonCharacters[c] = result;
-        }
     }
 }
 
@@ -148,11 +160,36 @@ void Font::Invalidate()
 {
     ScopeLock lock(_asset->Locker);
 
-    for (auto i = _characters.Begin(); i.IsNotEnd(); ++i)
+    // invalidate fast cache
+    for (auto& e : _commonCharacters)
+        e.IsValid = false;
+
+    // Invalidate cached characters (from atlas)
+    for (auto i = _asset->_characterCache.Begin(); i.IsNotEnd(); ++i)
     {
-        FontManager::Invalidate(i->Value);
+        if (i->Value.Font == this)
+        {
+            FontManager::Invalidate(i->Value);
+            _asset->_characterCache.Remove(i);
+        }
     }
-    _characters.Clear();
+
+    // Rebuild font metrics
+    FlushFaceSize();
+    const FT_Face face = _asset->GetFTFace();
+    ASSERT(face != nullptr);
+    _height = Convert26Dot6ToRoundedPixel<int32>(FT_MulFix(face->height, face->size->metrics.y_scale));
+    _hasKerning = FT_HAS_KERNING(face) != 0;
+    _ascender = Convert26Dot6ToRoundedPixel<int16>(face->size->metrics.ascender);
+    _descender = Convert26Dot6ToRoundedPixel<int16>(face->size->metrics.descender);
+    _lineGap = _height - _ascender + _descender;
+    _kerningTable.Clear();
+}
+
+float Font::GetScale(float layoutScale) const
+{
+    const FontOptions& options = _asset->GetOptions();
+    return layoutScale / FontManager::FontScale * (options.RasterMode == FontRasterMode::MSDF ? _size / options.MSDFSize : 1.0f);
 }
 
 void Font::ProcessText(const StringView& text, Array<FontLineCache, InlinedAllocation<8>>& outputLines, const TextLayoutOptions& layout)
@@ -165,7 +202,7 @@ void Font::ProcessText(const StringView& text, Array<FontLineCache, InlinedAlloc
     FontLineCache tmpLine;
     FontCharacterEntry entry;
     FontCharacterEntry previous;
-    float scale = layout.Scale / FontManager::FontScale;
+    const float scale = GetScale(layout.Scale);
     float boundsWidth = layout.Bounds.GetWidth();
     float baseLinesDistance = static_cast<float>(_height) * layout.BaseLinesGapScale * scale;
     tmpLine.Location = Float2::Zero;
@@ -209,6 +246,7 @@ void Font::ProcessText(const StringView& text, Array<FontLineCache, InlinedAlloc
         {
             // Get character entry
             GetCharacter(currentChar, entry);
+            const float entryScale = entry.Font->GetScale(layout.Scale);
 
             // Get kerning
             if (!isWhitespace && previous.IsValid)
@@ -220,7 +258,7 @@ void Font::ProcessText(const StringView& text, Array<FontLineCache, InlinedAlloc
                 kerning = 0;
             }
             previous = entry;
-            xAdvance = (kerning + entry.AdvanceX) * scale;
+            xAdvance = (kerning + entry.AdvanceX) * entryScale;
 
             // Check if character fits the line or skip wrapping
             if (cursorX + xAdvance <= boundsWidth || layout.TextWrapping == TextWrapping::NoWrap)
@@ -371,7 +409,7 @@ int32 Font::HitTestText(const StringView& text, const Float2& location, const Te
     Array<FontLineCache, InlinedAllocation<8>> lines;
     ProcessText(text, lines, layout);
     ASSERT(lines.HasItems());
-    float scale = layout.Scale / FontManager::FontScale;
+    const float scale = GetScale(layout.Scale);
     float baseLinesDistance = static_cast<float>(_height) * layout.BaseLinesGapScale * scale;
 
     // Offset position to match lines origin space
@@ -392,12 +430,13 @@ int32 Font::HitTestText(const StringView& text, const Float2& location, const Te
         // Cache current character
         const Char currentChar = text[currentIndex];
         GetCharacter(currentChar, entry);
+        const float entryScale = entry.Font->GetScale(layout.Scale);
         const bool isWhitespace = StringUtils::IsWhitespace(currentChar);
 
         // Apply kerning
         if (!isWhitespace && previous.IsValid)
         {
-            x += entry.Font->GetKerning(previous.Character, entry.Character);
+            x += entry.Font->GetKerning(previous.Character, entry.Character) * entryScale;
         }
         previous = entry;
 
@@ -416,7 +455,7 @@ int32 Font::HitTestText(const StringView& text, const Float2& location, const Te
         }
 
         // Move
-        x += entry.AdvanceX * scale;
+        x += entry.AdvanceX * entryScale;
     }
 
     // Test line end edge
@@ -459,7 +498,7 @@ Float2 Font::GetCharPosition(const StringView& text, int32 index, const TextLayo
     Array<FontLineCache, InlinedAllocation<8>> lines;
     ProcessText(text, lines, layout);
     ASSERT(lines.HasItems());
-    float scale = layout.Scale / FontManager::FontScale;
+    const float scale = GetScale(layout.Scale);
     float baseLinesDistance = static_cast<float>(_height) * layout.BaseLinesGapScale * scale;
 
     // Find line with that position
@@ -480,17 +519,18 @@ Float2 Font::GetCharPosition(const StringView& text, int32 index, const TextLayo
                 // Cache current character
                 const Char currentChar = text[currentIndex];
                 GetCharacter(currentChar, entry);
+                const float entryScale = entry.Font->GetScale(layout.Scale);
                 const bool isWhitespace = StringUtils::IsWhitespace(currentChar);
 
                 // Apply kerning
                 if (!isWhitespace && previous.IsValid)
                 {
-                    charPos.X += entry.Font->GetKerning(previous.Character, entry.Character);
+                    charPos.X += entry.Font->GetKerning(previous.Character, entry.Character) * entryScale;
                 }
                 previous = entry;
 
                 // Move
-                charPos.X += entry.AdvanceX * scale;
+                charPos.X += entry.AdvanceX * entryScale;
             }
 
             // Upper left corner of the character
@@ -506,7 +546,9 @@ void Font::FlushFaceSize() const
 {
     // Set the character size
     const FT_Face face = _asset->GetFTFace();
-    const FT_Error error = FT_Set_Char_Size(face, 0, ConvertPixelTo26Dot6<FT_F26Dot6>(_size * FontManager::FontScale), DefaultDPI, DefaultDPI);
+    const FontOptions& options = _asset->GetOptions();
+    float size = options.RasterMode == FontRasterMode::MSDF ? options.MSDFSize : _size;
+    const FT_Error error = FT_Set_Char_Size(face, 0, ConvertPixelTo26Dot6<FT_F26Dot6>(size * FontManager::FontScale), DefaultDPI, DefaultDPI);
     if (error)
     {
         LOG_FT_ERROR(error);

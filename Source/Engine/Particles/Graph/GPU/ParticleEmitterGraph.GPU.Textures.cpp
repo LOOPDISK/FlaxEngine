@@ -5,7 +5,7 @@
 #include "ParticleEmitterGraph.GPU.h"
 #include "Engine/Graphics/Materials/MaterialInfo.h"
 
-bool ParticleEmitterGPUGenerator::loadTexture(Node* caller, Box* box, const SerializedMaterialParam& texture, Value& result)
+bool ParticleEmitterGPUGenerator::loadTexture(Node* caller, Box* box, const SerializedMaterialParam& texture, const Value& textureValue, Value& result)
 {
     ASSERT(caller && box && texture.ID.IsValid());
 
@@ -22,7 +22,9 @@ bool ParticleEmitterGPUGenerator::loadTexture(Node* caller, Box* box, const Seri
         && texture.Type != MaterialParameterType::GPUTextureVolume
         && texture.Type != MaterialParameterType::GPUTextureCube
         && texture.Type != MaterialParameterType::GPUTextureArray
-        && texture.Type != MaterialParameterType::CubeTexture)
+        && texture.Type != MaterialParameterType::CubeTexture
+        && texture.Type != MaterialParameterType::GPUBuffer
+        && textureValue.Type != VariantType::Object)
     {
         result = Value::Zero;
         OnError(caller, box, TEXT("No parameter for texture load or invalid type."));
@@ -41,7 +43,8 @@ bool ParticleEmitterGPUGenerator::loadTexture(Node* caller, Box* box, const Seri
 
     // Load texture
     const Char* format = TEXT("{0}.Load({1})");
-    const String sampledValue = String::Format(format, texture.ShaderName, location.Value);
+    auto& shaderName = textureValue.Type == VariantType::Object ? textureValue.Value : texture.ShaderName;
+    const String sampledValue = String::Format(format, shaderName, location.Value);
     result = writeLocal(VariantType::Float4, sampledValue, parent);
 
     return false;
@@ -300,7 +303,7 @@ void ParticleEmitterGPUGenerator::ProcessGroupTextures(Box* box, Node* node, Val
         const auto copy = *textureParam;
 
         // Load texture
-        loadTexture(node, box, copy, value);
+        loadTexture(node, box, copy, texture, value);
         break;
     }
     // Sample Global SDF
@@ -310,7 +313,7 @@ void ParticleEmitterGPUGenerator::ProcessGroupTextures(Box* box, Node* node, Val
         Value worldPosition = tryGetValue(node->GetBox(1), Value(VariantType::Float3, TEXT("input.WorldPosition.xyz"))).Cast(VariantType::Float3);
         Value startCascade = tryGetValue(node->TryGetBox(2), 0, Value::Zero).Cast(VariantType::Uint);
         value = writeLocal(VariantType::Float, String::Format(TEXT("SampleGlobalSDF({0}, {0}_Tex, {0}_Mip, {1}, {2})"), param.ShaderName, worldPosition.Value, startCascade.Value), node);
-        _includes.Add(TEXT("./Flax/GlobalSignDistanceField.hlsl"));
+        _includes.Add(TEXT("./Flax/Utils/GlobalSignDistanceField.hlsl"));
         break;
     }
     // Sample Global SDF Gradient
@@ -323,7 +326,7 @@ void ParticleEmitterGPUGenerator::ProcessGroupTextures(Box* box, Node* node, Val
         Value startCascade = tryGetValue(node->TryGetBox(3), 0, Value::Zero).Cast(VariantType::Uint);
         auto distance = writeLocal(VariantType::Float, node);
         auto gradient = writeLocal(VariantType::Float3, String::Format(TEXT("SampleGlobalSDFGradient({0}, {0}_Tex, {0}_Mip, {1}, {2}, {3})"), param.ShaderName, worldPosition.Value, distance.Value, startCascade.Value), node);
-        _includes.Add(TEXT("./Flax/GlobalSignDistanceField.hlsl"));
+        _includes.Add(TEXT("./Flax/Utils/GlobalSignDistanceField.hlsl"));
         gradientBox->Cache = gradient;
         distanceBox->Cache = distance;
         value = box == gradientBox ? gradient : distance;

@@ -198,7 +198,7 @@ namespace
     GPUContext* Context = nullptr;
     GPUTextureView* Output = nullptr;
     GPUTextureView* DepthBuffer = nullptr;
-    Viewport View;
+    Viewport ViewViewport;
     Matrix ViewProjection;
 
     // Drawing
@@ -245,6 +245,13 @@ namespace
 FORCE_INLINE void ApplyTransform(const Float2& value, Float2& result)
 {
     Matrix3x3::Transform2DPoint(value, TransformCached, result);
+}
+
+FORCE_INLINE float GetTransformScale()
+{
+    const Float2 axisX(TransformCached.M11, TransformCached.M12);
+    const Float2 axisY(TransformCached.M21, TransformCached.M22);
+    return (axisX.Length() + axisY.Length()) * 0.5f;
 }
 
 void ApplyTransform(const Rectangle& value, RotatedRectangle& result)
@@ -599,7 +606,7 @@ bool Render2D::IsRendering()
 
 const Viewport& Render2D::GetViewport()
 {
-    return View;
+    return ViewViewport;
 }
 
 #if COMPILE_WITH_DEV_ENV
@@ -621,7 +628,7 @@ bool Render2DService::Init()
     if (GUIShader == nullptr)
         return true;
 #if COMPILE_WITH_DEV_ENV
-    GUIShader.Get()->OnReloading.Bind<OnGUIShaderReloading>();
+    GUIShader.Get()->Reloading.Bind<OnGUIShaderReloading>();
 #endif
 
     VB.SetLayout(GPUVertexLayout::Get({
@@ -698,7 +705,7 @@ void Render2D::Begin(GPUContext* context, GPUTextureView* output, GPUTextureView
     Context = context;
     Output = output;
     DepthBuffer = depthBuffer;
-    View = viewport;
+    ViewViewport = viewport;
     ViewProjection = viewProjection;
     DrawCalls.Clear();
     IsRemoveGammaEnabled = Graphics::GammaColorSpace == false;
@@ -710,7 +717,7 @@ void Render2D::Begin(GPUContext* context, GPUTextureView* output, GPUTextureView
     TransformCached = defaultTransform;
 
     // Initialize default clip mask
-    const Rectangle defaultBounds(viewport.Location, viewport.Size);
+    const Rectangle defaultBounds(Float2::Zero, Float2(GPU_MAX_TEXTURE_SIZE, GPU_MAX_TEXTURE_SIZE));
     const RotatedRectangle defaultMask(defaultBounds);
     ClipLayersStack.Clear();
     ClipLayersStack.Add({ defaultMask, defaultBounds });
@@ -757,7 +764,7 @@ void Render2D::End()
             Output = nullptr;
             return;
         }
-        shader = GUIShader->GetShader();
+        shader = GUIShader->GPU;
     }
 
     // Flush geometry buffers
@@ -770,7 +777,7 @@ void Render2D::End()
     // Set output
     Context->ResetSR();
     Context->SetRenderTarget(DepthBuffer, Output);
-    Context->SetViewportAndScissors(View);
+    Context->SetViewportAndScissors(ViewViewport);
     Context->FlushState();
 
     // Prepare constant buffer
@@ -783,8 +790,8 @@ void Render2D::End()
     // Prepare PSO
     if (!PsoDepth.Inited)
     {
-        PsoDepth.Init(GUIShader.Get()->GetShader(), true);
-        PsoNoDepth.Init(GUIShader.Get()->GetShader(), false);
+        PsoDepth.Init(GUIShader.Get()->GPU, true);
+        PsoNoDepth.Init(GUIShader.Get()->GPU, false);
     }
     CurrentPso = DepthBuffer ? &PsoDepth : &PsoNoDepth;
 
@@ -1045,7 +1052,7 @@ void DrawBatch(int32 startIndex, int32 count)
         Context->DrawIndexed(countIb, 0, d.StartIB);
 
         // Restore pipeline (material apply overrides it)
-        const auto cb = GUIShader->GetShader()->GetCB(0);
+        const auto cb = GUIShader->GPU->GetCB(0);
         Context->BindCB(0, cb);
 
         return;
@@ -1074,7 +1081,7 @@ void DrawBatch(int32 startIndex, int32 count)
         Context->DrawIndexed(countIb, 0, d.StartIB);
 
         // Restore pipeline (material apply overrides it)
-        const auto cb = GUIShader->GetShader()->GetCB(0);
+        const auto cb = GUIShader->GPU->GetCB(0);
         Context->BindCB(0, cb);
 
         return;
@@ -1120,7 +1127,7 @@ void DrawBatch(int32 startIndex, int32 count)
         data.InvBufferSize.X = 1.0f / (float)renderTargetWidth;
         data.InvBufferSize.Y = 1.0f / (float)renderTargetHeight;
         data.SampleCount = ComputeBlurWeights(kernelSize, blurStrength, data.WeightAndOffsets);
-        const auto cb = GUIShader->GetShader()->GetCB(1);
+        const auto cb = GUIShader->GPU->GetCB(1);
         Context->UpdateCB(cb, &data);
         Context->BindCB(1, cb);
 
@@ -1149,7 +1156,7 @@ void DrawBatch(int32 startIndex, int32 count)
         // Restore output
         Context->ResetRenderTarget();
         Context->SetRenderTarget(DepthBuffer, Output);
-        Context->SetViewportAndScissors(View);
+        Context->SetViewportAndScissors(ViewViewport);
         Context->UnBindCB(1);
 
         // Link for drawing final blur as a texture
@@ -1196,7 +1203,8 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
     Float2 invAtlasSize = Float2::One;
     FontCharacterEntry previous;
     int32 kerning;
-    float scale = 1.0f / FontManager::FontScale;
+    const FontOptions& options = font->GetAsset()->GetOptions();
+    const float scale = font->GetScale(1.0f);
     const bool enableFallbackFonts = EnumHasAllFlags(Features, RenderingFeatures::FallbackFonts);
 
     // Render all characters
@@ -1209,7 +1217,7 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
     }
     else
     {
-        drawCall.Type = font->GetAsset()->GetOptions().RasterMode == FontRasterMode::MSDF ? DrawCallType::DrawCharMSDF : DrawCallType::DrawChar;
+        drawCall.Type = options.RasterMode == FontRasterMode::MSDF ? DrawCallType::DrawCharMSDF : DrawCallType::DrawChar;
         drawCall.AsChar.Mat = nullptr;
     }
     Float2 pointer = location;
@@ -1223,6 +1231,9 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
         {
             // Get character entry
             font->GetCharacter(currentChar, entry, enableFallbackFonts);
+
+            // Fallback fonts may have different MSDFSize, so we need to calculate scale per character
+            const float entryScale = entry.Font->GetScale(1.0f);
 
             // Check if need to select/change font atlas (since characters even in the same font may be located in different atlases)
             if (fontAtlas == nullptr || entry.TextureIndex != fontAtlasIndex)
@@ -1255,18 +1266,16 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
             {
                 kerning = 0;
             }
-            pointer.X += kerning * scale;
+            pointer.X += kerning * entryScale;
             previous = entry;
 
             // Omit whitespace characters
             if (!isWhitespace)
             {
                 // Calculate character size and atlas coordinates
-                const float x = pointer.X + entry.OffsetX * scale;
-                const float y = pointer.Y + (font->GetHeight() + font->GetDescender() - entry.OffsetY) * scale;
-
-                Rectangle charRect(x, y, entry.UVSize.X * scale, entry.UVSize.Y * scale);
-
+                const float x = pointer.X + entry.OffsetX * entryScale;
+                const float y = pointer.Y - entry.OffsetY * entryScale + (font->GetHeight() + font->GetDescender()) * scale;
+                Rectangle charRect(x, y, entry.UVSize.X * entryScale, entry.UVSize.Y * entryScale);
                 Float2 upperLeftUV = entry.UV * invAtlasSize;
                 Float2 rightBottomUV = (entry.UV + entry.UVSize) * invAtlasSize;
 
@@ -1278,7 +1287,7 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
             }
 
             // Move
-            pointer.X += entry.AdvanceX * scale;
+            pointer.X += entry.AdvanceX * entryScale;
         }
         else
         {
@@ -1394,7 +1403,8 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
     Float2 invAtlasSize = Float2::One;
     FontCharacterEntry previous;
     int32 kerning;
-    float scale = layout.Scale / FontManager::FontScale;
+    const FontOptions& options = font->GetAsset()->GetOptions();
+    const float scale = font->GetScale(layout.Scale);
     const bool enableFallbackFonts = EnumHasAllFlags(Features, RenderingFeatures::FallbackFonts);
 
     // Process text to get lines
@@ -1411,7 +1421,7 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
     }
     else
     {
-        drawCall.Type = font->GetAsset()->GetOptions().RasterMode == FontRasterMode::MSDF ? DrawCallType::DrawCharMSDF : DrawCallType::DrawChar;
+        drawCall.Type = options.RasterMode == FontRasterMode::MSDF ? DrawCallType::DrawCharMSDF : DrawCallType::DrawChar;
         drawCall.AsChar.Mat = nullptr;
     }
     for (int32 lineIndex = 0; lineIndex < Lines.Count(); lineIndex++)
@@ -1430,6 +1440,9 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
             {
                 // Get character entry
                 font->GetCharacter(currentChar, entry, enableFallbackFonts);
+
+                // Fallback fonts may have different MSDFSize, so we need to calculate scale per character
+                const float entryScale = entry.Font->GetScale(layout.Scale);
 
                 // Check if need to select/change font atlas (since characters even in the same font may be located in different atlases)
                 if (fontAtlas == nullptr || entry.TextureIndex != fontAtlasIndex)
@@ -1460,19 +1473,17 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
                 {
                     kerning = 0;
                 }
-                pointer.X += (float)kerning * scale;
+                pointer.X += (float)kerning * entryScale;
                 previous = entry;
 
                 // Omit whitespace characters
                 if (!isWhitespace)
                 {
                     // Calculate character size and atlas coordinates
-                    const float x = pointer.X + entry.OffsetX * scale;
-                    const float y = pointer.Y - entry.OffsetY * scale + Math::Ceil((font->GetHeight() + font->GetDescender()) * scale);
-
-                    Rectangle charRect(x, y, entry.UVSize.X * scale, entry.UVSize.Y * scale);
+                    const float x = pointer.X + entry.OffsetX * entryScale;
+                    const float y = pointer.Y - entry.OffsetY * entryScale + Math::Ceil((font->GetHeight() + font->GetDescender()) * scale);
+                    Rectangle charRect(x, y, entry.UVSize.X * entryScale, entry.UVSize.Y * entryScale);
                     charRect.Offset(layout.Bounds.Location);
-
                     Float2 upperLeftUV = entry.UV * invAtlasSize;
                     Float2 rightBottomUV = (entry.UV + entry.UVSize) * invAtlasSize;
 
@@ -1484,7 +1495,7 @@ void Render2D::DrawText(Font* font, const StringView& text, const Color& color, 
                 }
 
                 // Move
-                pointer.X += entry.AdvanceX * scale;
+                pointer.X += entry.AdvanceX * entryScale;
             }
         }
     }
@@ -1547,7 +1558,7 @@ void Render2D::DrawRectangle(const Rectangle& rect, const Color& color1, const C
 
     const auto& mask = ClipLayersStack.Peek().Mask;
     float thick = thickness;
-    thickness *= (TransformCached.M11 + TransformCached.M22 + TransformCached.M33) * 0.3333333f;
+    thickness *= GetTransformScale();
 
     // When lines thickness is very large, don't use corner caps and place line ends to not overlap
     if (thickness > 4.0f)
@@ -1923,7 +1934,7 @@ void DrawLines(const Float2* points, int32 pointsCount, const Color& color1, con
     ASSERT(points && pointsCount >= 2);
     const auto& mask = ClipLayersStack.Peek().Mask;
 
-    thickness *= (TransformCached.M11 + TransformCached.M22 + TransformCached.M33) * 0.3333333f;
+    thickness *= GetTransformScale();
 
     Render2DDrawCall& drawCall = DrawCalls.AddOne();
     drawCall.StartIB = IBIndex;
@@ -2054,7 +2065,7 @@ void Render2D::DrawBezier(const Float2& p1, const Float2& p2, const Float2& p3, 
     const Float2 d2 = p3 - p2;
     const Float2 d3 = p4 - p3;
     const float len = d1.Length() + d2.Length() + d3.Length();
-    const int32 segmentCount = Math::Clamp(Math::CeilToInt(len * 0.05f), 1, 100);
+    const int32 segmentCount = Math::Clamp(Math::CeilToInt(len * 0.05f * Platform::GetDpiScale()), 1, 100);
     const float segmentCountInv = 1.0f / (float)segmentCount;
 
     // Draw segmented curve
@@ -2080,7 +2091,7 @@ void Render2D::DrawSpline(const Float2& p1, const Float2& p2, const Float2& p3, 
     const Float2 d2 = p3 - p2;
     const Float2 d3 = p4 - p3;
     const float len = d1.Length() + d2.Length() + d3.Length();
-    const int32 segmentCount = Math::Clamp(Math::CeilToInt(len * 0.05f), 1, 100);
+    const int32 segmentCount = Math::Clamp(Math::CeilToInt(len * 0.05f * Platform::GetDpiScale()), 1, 100);
     const float segmentCountInv = 1.0f / (float)segmentCount;
 
     // Draw segmented curve

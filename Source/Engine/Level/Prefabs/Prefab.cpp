@@ -7,6 +7,7 @@
 #include "Engine/Core/Log.h"
 #include "Engine/Level/Prefabs/PrefabManager.h"
 #include "Engine/Level/Actor.h"
+#include "Engine/Profiler/ProfilerCPU.h"
 #include "Engine/Threading/Threading.h"
 #include "Engine/Scripting/Scripting.h"
 
@@ -22,6 +23,7 @@ Prefab::Prefab(const SpawnParams& params, const AssetInfo* info)
 
 Guid Prefab::GetRootObjectId() const
 {
+    PROFILE_CPU();
     ASSERT(IsLoaded());
     ScopeLock lock(Locker);
 
@@ -57,18 +59,19 @@ Actor* Prefab::GetDefaultInstance()
     // Skip if already created (reuse cached result)
     if (_defaultInstance)
         return _defaultInstance;
+    PROFILE_CPU();
 
     // Skip if not loaded
     if (!IsLoaded())
     {
-        LOG(Warning, "Cannot instantiate object from not loaded prefab asset. Prefab: {0} (ID: {1})", GetPath(), GetID());
+        LOG(Warning, "Cannot instantiate object from not loaded prefab asset ({}, {})", GetPath(), GetID());
         return nullptr;
     }
 
     // Prevent recursive calls
     if (_isCreatingDefaultInstance)
     {
-        LOG(Warning, "Loop call to Prefab::GetDefaultInstance.");
+        LOG(Warning, "Loop call to Prefab::GetDefaultInstance for '{}'", GetPath());
         return nullptr;
     }
     _isCreatingDefaultInstance = true;

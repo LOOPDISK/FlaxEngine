@@ -1,34 +1,35 @@
 // Copyright (c) Wojciech Figat. All rights reserved.
 
+// Enable to put CPU profiler sections for each actor drawing to inspect slow actors draw issues
 #define SCENE_RENDERING_USE_PROFILER_PER_ACTOR 0
 
 #include "SceneRendering.h"
+#include "Engine/Graphics/RenderContext.h"
 #include "Engine/Graphics/RenderTask.h"
+#include "Engine/Graphics/Graphics.h"
 #include "Engine/Graphics/RenderView.h"
 #include "Engine/Renderer/RenderList.h"
+#include "Engine/Graphics/RenderBuffers.h"
 #include "Engine/Threading/JobSystem.h"
 #include "Engine/Physics/Actors/IPhysicsDebug.h"
 #include "Engine/Profiler/ProfilerCPU.h"
-#include "Engine/Renderer/HierarchialZBufferPass.h"
-#include <Engine/Graphics/Graphics.h>
 #include "Engine/Profiler/ProfilerMemory.h"
 #if !BUILD_RELEASE
 #include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Core/Log.h"
-#include "Engine/Debug/DebugDraw.h"
+#include "Engine/Engine/Engine.h"
 #endif
 
 #if BUILD_RELEASE
 #define CHECK_SCENE_EDIT_ACCESS()
 #else
 #define CHECK_SCENE_EDIT_ACCESS() \
-    if (_isRendering && IsInMainThread() && GPUDevice::Instance && GPUDevice::Instance->IsRendering()) \
+    if (_isRendering && IsInMainThread() && GPUDevice::Instance && GPUDevice::Instance->IsRendering() && Engine::FatalError != FatalErrorType::None) \
     { \
         LOG(Error, "Adding/removing actors during rendering is not supported ({}, '{}').", a->ToString(), a->GetNamePath()); \
         return; \
     }
 #endif
-
 
 ISceneRenderingListener::~ISceneRenderingListener()
 {
@@ -42,107 +43,43 @@ void ISceneRenderingListener::ListenSceneRendering(SceneRendering* scene)
 {
     if (!_scenes.Contains(scene))
     {
+        PROFILE_MEM(Graphics);
         _scenes.Add(scene);
         scene->_listeners.Add(this);
     }
 }
- FORCE_INLINE bool MainFrustumCull(const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums)
-{
-    const int32 count = frustums.Count();
-    if (count == 0)
-    {
-        return false;
-    }
-    const BoundingFrustum* data = frustums.Get();
-    return data[0].Intersects(bounds); // main frustum is always 0
-}
 
-FORCE_INLINE bool NonMainFrustumsListCull(const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums, const Float3 mainViewPosition, const float shadowCullRadius, const float shadowCullDistance2)
+FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums)
 {
+    // Main view frustum is always at index 0
     const int32 count = frustums.Count();
     const BoundingFrustum* data = frustums.Get();
-    for (int32 i = 1; i < count; i++) // start at 1 to skip main frustum (always 0)
+    if (count != 0 && data[0].Intersects(bounds))
+    {
+        if (_markCulled)
+            actor->_wasCulled = false;
+        return true;
+    }
+    if (_markCulled)
+        actor->_wasCulled = true;
+
+    // Skip small distant shadow casters
+    if (bounds.Radius < _shadowCullRadius && Float3::DistanceSquared(_mainViewPosition, bounds.Center) > _shadowCullDistance2)
+        return false;
+    for (int32 i = 1; i < count; i++)
     {
         if (data[i].Intersects(bounds))
-        {
-            if (bounds.Radius < shadowCullRadius && Float3::DistanceSquared(mainViewPosition, bounds.Center) > shadowCullDistance2)
-            {
-                return false;
-            }
             return true;
-        }
     }
     return false;
 }
 
-FORCE_INLINE  bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const Array<BoundingFrustum>& frustums)
+FORCE_INLINE bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum)
 {
-    if (NonMainFrustumsListCull(bounds, frustums, _mainViewPosition, _shadowCullRadius, _shadowCullDistance2))
-    { // is in other frustums, like for shadows
-        if (_hzb)
-        {
-            actor->_cullType = 0;
-        }
-        return true;
-    }
-    if (MainFrustumCull(bounds, frustums))
-    {
-        if (_hzb)
-        {
-            if (!_checkHZB)
-            { // return the last HZB occlusion result
-                return actor->_cullType != 2;
-            }
-            if (_hzb->CheckOcclusion(bounds))
-            {
-            //    DebugDraw::DrawSphere(bounds, Color(0, 0, 1, 0.2f), 0, false); // can't do this in a job
-                actor->_cullType = 2;
-                return false;
-            }
-            else
-            {
-                actor->_cullType = 0;
-                return true;
-            }
-        }
-        actor->_cullType = 0;
-        return true;
-    }
-    if (_hzb)
-    { // only mark as culled if HZBData was valid, meaning it was the main render task
-        actor->_cullType = 1;
-    }
-    return false;
-}
-FORCE_INLINE  bool SceneRendering::CheckVisibility(Actor* actor, const BoundingSphere& bounds, const BoundingFrustum& frustum)
-{
-    if (frustum.Intersects(bounds))
-    {
-        if (_hzb)
-        {
-            if (!_checkHZB)
-            { // return the last HZB occlusion result
-                return actor->_cullType != 2;
-            }
-            if (_hzb->CheckOcclusion(bounds))
-            {
-                actor->_cullType = 2;
-                return false;
-            }
-            else
-            {
-                actor->_cullType = 0;
-                return true;
-            }
-        }
-       actor->_cullType = 0;
-        return true;
-    }
-    if (_hzb)
-    { // only mark as culled if HZBData was valid, meaning it was the main render task
-       actor->_cullType = 1;
-    }
-    return false;
+    const bool visible = frustum.Intersects(bounds);
+    if (_markCulled)
+        actor->_wasCulled = !visible;
+    return visible;
 }
 
 void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory category)
@@ -157,6 +94,8 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
         // Register scene
         for (const auto& renderContext : renderContextBatch.Contexts)
             renderContext.List->Scenes.Add(this);
+        auto buffers = renderContextBatch.GetMainContext().Buffers;
+        buffers->OnSceneRendering(this);
     }
     else if (category == PostRender)
     {
@@ -164,14 +103,11 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
         _isRendering = false;
         Locker.ReadUnlock();
     }
-
     auto& view = renderContextBatch.GetMainContext().View;
     auto& list = Actors[(int32)category];
     _drawListData = list.Get();
     _drawListSize = list.Count();
     _drawBatch = &renderContextBatch;
-    _drawCategory = category;
-
 
     // Setup frustum data
     const int32 frustumsCount = renderContextBatch.Contexts.Count();
@@ -183,32 +119,7 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
     _shadowCullDistance2 = Graphics::Shadows::CullingDistance * Graphics::Shadows::CullingDistance;
     _shadowCullRadius = 0.5f * Graphics::Shadows::CullingSize;
     _mainViewPosition = view.Position;
-
-    _hzb = Graphics::OcclusionCulling ? renderContextBatch.GetMainContext().Task->OcclusionInfo : nullptr;
-    
-    if (_hzb != nullptr)
-    {
-        _checkHZB = true;
-        // only do occlusion on main render task's main draw
-        if (_drawCategory == SceneDrawAsync && (int32)view.Pass & (int32)DrawPass::GBuffer)
-        {
-            // don't do the hzb occlusion check if it already did it with the same data last time
-            if ((_hzb->Id == _lastHZBId && _hzb->CurrentFrameIndex == _lastHZBFrame))
-            {
-                _checkHZB = false;
-            }
-            else
-            {
-                _checkHZB = true;
-                _lastHZBId = _hzb->Id;
-                _lastHZBFrame = _hzb->CurrentFrameIndex;
-            }
-        }
-    }
-    else
-    {
-        _checkHZB = false;
-    }
+    _markCulled = renderContextBatch.GetMainContext().Task == MainRenderTask::Instance && EnumHasAnyFlags(view.Pass, DrawPass::GBuffer);
 
     // Draw all visual components
 #if PLATFORM_THREADS_LIMIT > 1
@@ -217,15 +128,15 @@ void SceneRendering::Draw(RenderContextBatch& renderContextBatch, DrawCategory c
         // Run in async via Job System
         Function<void(int32)> func;
         func.Bind<SceneRendering, &SceneRendering::DrawActorsJob>(this);
-        _drawJobCount = JobSystem::GetThreadsCount();
-        const int64 waitLabel = JobSystem::Dispatch(func, _drawJobCount);
+        _drawListJobs = JobSystem::GetThreadsCount();
+        const int64 waitLabel = JobSystem::Dispatch(func, _drawListJobs);
         renderContextBatch.WaitLabels.Add(waitLabel);
     }
     else
 #endif
     {
         // Scene is small so draw on a main-thread
-        _drawJobCount = 1;
+        _drawListJobs = 1;
         DrawActorsJob(0);
     }
 
@@ -309,10 +220,10 @@ void SceneRendering::AddActor(Actor* a, int32& key)
     auto& e = list[key];
     e.Actor = a;
     e.LayerMask = a->GetLayerMask();
-    e.Bounds = a->GetSphere();
+    e.Bounds = a->GetBoundingSphere();
     e.NoCulling = a->_drawNoCulling;
     for (auto* listener : _listeners)
-        listener->OnSceneRenderingAddActor(a);
+        listener->OnSceneRenderingAddActor(this, key, a);
 }
 
 void SceneRendering::UpdateActor(Actor* a, int32& key, ISceneRenderingListener::UpdateFlags flags)
@@ -328,11 +239,11 @@ void SceneRendering::UpdateActor(Actor* a, int32& key, ISceneRenderingListener::
         if (e.Actor == a)
         {
             for (auto* listener : _listeners)
-                listener->OnSceneRenderingUpdateActor(a, e.Bounds, flags);
+                listener->OnSceneRenderingUpdateActor(this, key, a, e.Bounds, flags);
             if (flags & ISceneRenderingListener::Layer)
                 e.LayerMask = a->GetLayerMask();
             if (flags & ISceneRenderingListener::Bounds)
-                e.Bounds = a->GetSphere();
+                e.Bounds = a->GetBoundingSphere();
         }
     }
     if (lock)
@@ -351,7 +262,7 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
         if (e.Actor == a)
         {
             for (auto* listener : _listeners)
-                listener->OnSceneRenderingRemoveActor(a);
+                listener->OnSceneRenderingRemoveActor(this, key, a);
             e.Actor = nullptr;
             e.LayerMask = 0;
             FreeActors[category].Add(key);
@@ -360,9 +271,9 @@ void SceneRendering::RemoveActor(Actor* a, int32& key)
     key = -1;
 }
 
-#define FOR_EACH_BATCH_ACTOR  for (int index = i; index < _drawListSize; index += _drawJobCount) { auto e = _drawListData[index];
-#define CHECK_ACTOR ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData)))
-#define CHECK_ACTOR_SINGLE_FRUSTUM ((view.RenderLayersMask.Mask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, view.CullingFrustum)))
+#define FOR_EACH_BATCH_ACTOR const int32 count = _drawListSize; int32 step = _drawListJobs; DrawActor* data = _drawListData; for (int32 index = i; index < count; index += step) { auto e = data[index]; Platform::MemoryPrefetch(&data[index + step]);
+#define CHECK_ACTOR ((viewRenderLayersMask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, _drawFrustumsData)))
+#define CHECK_ACTOR_SINGLE_FRUSTUM ((viewRenderLayersMask & e.LayerMask) && (e.NoCulling || CheckVisibility(e.Actor, e.Bounds, viewCullingFrustum)))
 #if SCENE_RENDERING_USE_PROFILER_PER_ACTOR
 #define DRAW_ACTOR(mode) PROFILE_CPU_ACTOR(e.Actor); e.Actor->Draw(mode)
 #else
@@ -375,30 +286,31 @@ void SceneRendering::DrawActorsJob(int32 i)
     PROFILE_MEM(Graphics);
     auto& mainContext = _drawBatch->GetMainContext();
     const auto& view = mainContext.View;
-
+    const Vector3 viewOrigin = view.Origin;
+    const uint32 viewRenderLayersMask = view.RenderLayersMask.Mask;
     if (view.StaticFlagsMask != StaticFlags::None)
     {
         // Static-flags culling
         FOR_EACH_BATCH_ACTOR
-            e.Bounds.Center -= view.Origin;
+            e.Bounds.Center -= viewOrigin;
             if (CHECK_ACTOR && (e.Actor->GetStaticFlags() & view.StaticFlagsMask) == view.StaticFlagsCompare)
             {
                 DRAW_ACTOR(*_drawBatch);
             }
         }
     }
-    else if (view.Origin.IsZero() && _drawFrustumsData.Count() == 1)
+    else if (viewOrigin.IsZero() && _drawFrustumsData.Count() == 1)
     {
         // Fast path for no origin shifting with a single context
+        const BoundingFrustum viewCullingFrustum = view.CullingFrustum;
         FOR_EACH_BATCH_ACTOR
             if (CHECK_ACTOR_SINGLE_FRUSTUM)
             {
-                DRAW_ACTOR(mainContext);
+                DRAW_ACTOR(*_drawBatch);
             }
-
         }
     }
-    else if (view.Origin.IsZero())
+    else if (viewOrigin.IsZero())
     {
         // Fast path for no origin shifting
         FOR_EACH_BATCH_ACTOR
@@ -412,7 +324,7 @@ void SceneRendering::DrawActorsJob(int32 i)
     {
         // Generic case
         FOR_EACH_BATCH_ACTOR
-            e.Bounds.Center -= view.Origin;
+            e.Bounds.Center -= viewOrigin;
             if (CHECK_ACTOR)
             {
                 DRAW_ACTOR(*_drawBatch);

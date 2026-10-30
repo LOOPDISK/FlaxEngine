@@ -191,13 +191,9 @@ namespace FlaxEditor.Modules
             var mainWindow = MainWindow;
             if (mainWindow)
             {
-                var projectPath = Globals.ProjectFolder;
-#if PLATFORM_WINDOWS
-                projectPath = projectPath.Replace('/', '\\');
-#endif
                 var engineVersion = Editor.EngineProject.Version;
                 var engineVersionText = engineVersion.Revision > 0 ? $"{engineVersion.Major}.{engineVersion.Minor}.{engineVersion.Revision}" : $"{engineVersion.Major}.{engineVersion.Minor}";
-                var title = $"Flax Editor {engineVersionText} - \'{projectPath}\'";
+                var title = $"Flax Editor {engineVersionText} - \'{Editor.GameProject.Name}\'";
                 mainWindow.Title = title;
             }
         }
@@ -743,12 +739,8 @@ namespace FlaxEditor.Modules
             // Check if it's an asset ID
             if (Guid.TryParse(typename, out Guid id))
             {
-                var el = Editor.ContentDatabase.Find(id);
-                if (el != null)
-                {
-                    // Open asset
-                    return Editor.ContentEditing.Open(el, true);
-                }
+                // Open asset
+                return Editor.ContentEditing.Open(Editor.ContentDatabase.Find(id), true);
             }
 
             return null;

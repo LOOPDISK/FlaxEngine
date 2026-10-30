@@ -92,8 +92,12 @@ namespace FlaxEditor.Windows
                         });
                 }
 
+                // Custom options
+                ContextMenuShow?.Invoke(cm, item);
+                proxy?.OnContentWindowContextMenu(cm, item);
+                item.OnContextMenu(cm);
+
                 cm.AddButton(Utilities.Constants.ShowInExplorer, () => FileSystem.ShowFileExplorer(System.IO.Path.GetDirectoryName(item.Path)));
-                
                 if (!_showAllContentInTree && !String.IsNullOrEmpty(Editor.Instance.Windows.ContentWin._itemsSearchBox.Text))
                 {
                     cm.AddButton("Show in Content Panel", () =>
@@ -134,7 +138,8 @@ namespace FlaxEditor.Windows
 
                     if (item is AssetItem assetItem)
                     {
-                        if (assetItem.IsLoaded)
+                        var asset = FlaxEngine.Content.GetAsset(assetItem.ID);
+                        if (asset != null && (asset.IsLoaded || asset.LastLoadFailed))
                             cm.AddButton("Reload", assetItem.Reload);
                         cm.AddButton("Copy asset ID", () => Clipboard.Text = JsonSerializer.GetStringID(assetItem.ID));
                         cm.AddButton("Select actors using this asset", () => Editor.SceneEditing.SelectActorsUsingAsset(assetItem.ID));
@@ -181,13 +186,7 @@ namespace FlaxEditor.Windows
                     cm.AddButton("Rename", () => Rename(item));
                 }
 
-                // Custom options
-                ContextMenuShow?.Invoke(cm, item);
-                proxy?.OnContentWindowContextMenu(cm, item);
-                item.OnContextMenu(cm);
-
                 cm.AddButton("Copy name to Clipboard", () => Clipboard.Text = item.NamePath);
-
                 cm.AddButton("Copy path to Clipboard", () => Clipboard.Text = item.Path);
             }
             else
@@ -198,7 +197,6 @@ namespace FlaxEditor.Windows
                 b.Enabled = _view.CanPaste();
 
                 cm.AddButton("Refresh", () => Editor.ContentDatabase.RefreshFolder(CurrentViewFolder, true));
-
                 cm.AddButton("Refresh all thumbnails", RefreshViewItemsThumbnails);
             }
 

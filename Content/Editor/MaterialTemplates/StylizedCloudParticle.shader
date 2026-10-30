@@ -9,8 +9,8 @@
 #include "./Flax/Common.hlsl"
 #include "./Flax/MaterialCommon.hlsl"
 #include "./Flax/StylizedCloud.hlsl"
-#include "./Flax/ShadowsSampling.hlsl"
-#include "./Flax/Matrix.hlsl"
+#include "./Flax/Shadows/ShadowsSampling.hlsl"
+#include "./Flax/Math/Matrix.hlsl"
 @7
 
 // Primary constant buffer (with additional material parameters)

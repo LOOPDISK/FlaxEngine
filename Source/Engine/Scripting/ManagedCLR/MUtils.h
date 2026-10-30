@@ -35,10 +35,10 @@ namespace MUtils
     extern FLAXENGINE_API MString* ToString(const StringView& str);
     extern FLAXENGINE_API MString* ToString(const StringView& str, MDomain* domain);
 
-    extern FLAXENGINE_API ScriptingTypeHandle UnboxScriptingTypeHandle(MTypeObject* value);
-    extern FLAXENGINE_API MTypeObject* BoxScriptingTypeHandle(const ScriptingTypeHandle& value);
+    extern FLAXENGINE_API ScriptingTypeHandle UnboxScriptingTypeHandle(MType* value);
+    extern FLAXENGINE_API MType* BoxScriptingTypeHandle(const ScriptingTypeHandle& value);
     extern FLAXENGINE_API VariantType UnboxVariantType(MType* type);
-    extern FLAXENGINE_API MTypeObject* BoxVariantType(const VariantType& value);
+    extern FLAXENGINE_API MType* BoxVariantType(const VariantType& value);
     extern FLAXENGINE_API Variant UnboxVariant(MObject* value);
     extern FLAXENGINE_API MObject* BoxVariant(const Variant& value);
 }
@@ -278,57 +278,25 @@ struct MConverter<T, typename TEnableIf<TIsBaseOf<class ScriptingObject, T>::Val
 // Converter for ScriptingObject References.
 template<typename T>
 class ScriptingObjectReference;
-
 template<typename T>
-struct MConverter<ScriptingObjectReference<T>>
-{
-    MObject* Box(const ScriptingObjectReference<T>& data, const MClass* klass)
-    {
-        return data.GetManagedInstance();
-    }
-
-    void Unbox(ScriptingObjectReference<T>& result, MObject* data)
-    {
-        result = (T*)ScriptingObject::ToNative(data);
-    }
-
-    void ToManagedArray(MArray* result, const Span<ScriptingObjectReference<T>>& data)
-    {
-        if (data.Length() == 0)
-            return;
-        MObject** objects = (MObject**)Allocator::Allocate(data.Length() * sizeof(MObject*));
-        for (int32 i = 0; i < data.Length(); i++)
-            objects[i] = data[i].GetManagedInstance();
-        MCore::GC::WriteArrayRef(result, Span<MObject*>(objects, data.Length()));
-        Allocator::Free(objects);
-    }
-
-    void ToNativeArray(Span<ScriptingObjectReference<T>>& result, const MArray* data)
-    {
-        MObject** dataPtr = MCore::Array::GetAddress<MObject*>(data);
-        for (int32 i = 0; i < result.Length(); i++)
-            result.Get()[i] = (T*)ScriptingObject::ToNative(dataPtr[i]);
-    }
-};
-
-// Converter for Asset References.
+class ScriptingObjectInterfaceReference;
 template<typename T>
 class AssetReference;
 
-template<typename T>
-struct MConverter<AssetReference<T>>
+template<typename Reference, typename Object>
+struct MObjectReferenceConverter
 {
-    MObject* Box(const AssetReference<T>& data, const MClass* klass)
+    MObject* Box(const Reference& data, const MClass* klass)
     {
         return data.GetManagedInstance();
     }
 
-    void Unbox(AssetReference<T>& result, MObject* data)
+    void Unbox(Reference& result, MObject* data)
     {
-        result = (T*)ScriptingObject::ToNative(data);
+        result = (Object*)ScriptingObject::ToNative(data);
     }
 
-    void ToManagedArray(MArray* result, const Span<AssetReference<T>>& data)
+    void ToManagedArray(MArray* result, const Span<Reference>& data)
     {
         if (data.Length() == 0)
             return;
@@ -339,12 +307,27 @@ struct MConverter<AssetReference<T>>
         Allocator::Free(objects);
     }
 
-    void ToNativeArray(Span<AssetReference<T>>& result, const MArray* data)
+    void ToNativeArray(Span<Reference>& result, const MArray* data)
     {
         MObject** dataPtr = MCore::Array::GetAddress<MObject*>(data);
         for (int32 i = 0; i < result.Length(); i++)
-            result.Get()[i] = (T*)ScriptingObject::ToNative(dataPtr[i]);
+            result.Get()[i] = (Object*)ScriptingObject::ToNative(dataPtr[i]);
     }
+};
+
+template<typename T>
+struct MConverter<ScriptingObjectReference<T>> : MObjectReferenceConverter<ScriptingObjectReference<T>, T>
+{
+};
+
+template<typename T>
+struct MConverter<ScriptingObjectInterfaceReference<T>> : MObjectReferenceConverter<ScriptingObjectInterfaceReference<T>, ScriptingObject>
+{
+};
+
+template<typename T>
+struct MConverter<AssetReference<T>> : MObjectReferenceConverter<AssetReference<T>, T>
+{
 };
 
 // TODO: use MarshalAs=Guid on SoftAssetReference to pass guid over bindings and not load asset in glue code
@@ -406,7 +389,7 @@ namespace MUtils
     extern FLAXENGINE_API MClass* GetClass(MObject* object);
 
     // Returns the class of the provided type.
-    extern FLAXENGINE_API MClass* GetClass(MTypeObject* type);
+    extern FLAXENGINE_API MClass* GetClass(MType* type);
 
     // Returns the class of the provided VariantType value.
     extern FLAXENGINE_API MClass* GetClass(const VariantType& value);
@@ -415,10 +398,10 @@ namespace MUtils
     extern FLAXENGINE_API MClass* GetClass(const Variant& value);
 
     // Returns the type of the provided object.
-    extern FLAXENGINE_API MTypeObject* GetType(MObject* object);
+    extern FLAXENGINE_API MType* GetType(MObject* object);
 
     // Returns the type of the provided class.
-    extern FLAXENGINE_API MTypeObject* GetType(MClass* klass);
+    extern FLAXENGINE_API MType* GetType(MClass* klass);
 
     /// <summary>
     /// Boxes the native value into the managed object.
@@ -579,7 +562,6 @@ namespace MUtils
         return ToArray(Span<String>(data.Get(), data.Count()), MCore::TypeCache::String);
     }
 
-#if USE_NETCORE
     /// <summary>
     /// Allocates new boolean array and copies data from the given unmanaged data container. The managed runtime is responsible for releasing the returned array data.
     /// </summary>
@@ -607,18 +589,6 @@ namespace MUtils
             arr[i] = data[i];
         return arr;
     }
-#else
-    FORCE_INLINE bool* ToBoolArray(const Array<bool>& data)
-    {
-        return nullptr;
-    }
-
-    template<typename AllocationType = HeapAllocation>
-    FORCE_INLINE bool* ToBoolArray(const BitArray<AllocationType>& data)
-    {
-        return nullptr;
-    }
-#endif
 
     extern void* VariantToManagedArgPtr(Variant& value, MType* type, bool& failed);
     extern bool VariantTypeEquals(const VariantType& type, MType* mType, bool isOut = false);

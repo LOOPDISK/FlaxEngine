@@ -18,10 +18,8 @@ namespace Flax.Build.Bindings
         private static readonly List<string> CSharpUsedNamespacesSorted = new List<string>();
         private static readonly List<string> CSharpAdditionalCode = new List<string>();
         private static readonly Dictionary<string, string> CSharpAdditionalCodeCache = new Dictionary<string, string>();
-#if USE_NETCORE
         private static readonly TypeInfo CSharpEventBindReturn = new TypeInfo("void");
         private static readonly List<FunctionInfo.ParameterInfo> CSharpEventBindParams = new List<FunctionInfo.ParameterInfo> { new FunctionInfo.ParameterInfo { Name = "bind", Type = new TypeInfo("bool") } };
-#endif
 
         public static event Action<BuildData, ApiTypeInfo, StringBuilder, string> GenerateCSharpTypeInternals;
 
@@ -71,7 +69,6 @@ namespace Flax.Build.Bindings
             { "MObject", "object" },
             { "MClass", "System.Type" },
             { "MType", "System.Type" },
-            { "MTypeObject", "System.Type" },
             { "MArray", "Array" },
         };
 
@@ -107,8 +104,6 @@ namespace Flax.Build.Bindings
             {
                 if (attribute && valueType != null && !valueType.IsArray)
                 {
-                    //if (valueType.Type == "")
-                    //ScriptingObjectReference
                     apiType = FindApiTypeInfo(buildData, valueType, caller);
 
                     // Object reference
@@ -357,11 +352,7 @@ namespace Flax.Build.Bindings
                 return typeInfo.Type;
 
             // Array or Span or DataContainer
-#if USE_NETCORE
             if ((typeInfo.Type == "Array" || typeInfo.Type == "Span" || typeInfo.Type == "DataContainer" || typeInfo.Type == "MonoArray" || typeInfo.Type == "MArray") && typeInfo.GenericArgs != null)
-#else
-            if ((typeInfo.Type == "Array" || typeInfo.Type == "Span" || typeInfo.Type == "DataContainer") && typeInfo.GenericArgs != null)
-#endif
             {
                 var arrayTypeInfo = typeInfo.GenericArgs[0];
                 if (marshalling)
@@ -371,7 +362,7 @@ namespace Flax.Build.Bindings
                     if (arrayApiType != null && arrayApiType.MarshalAs != null)
                         arrayTypeInfo = arrayApiType.MarshalAs;
                 }
-                return GenerateCSharpNativeToManaged(buildData, arrayTypeInfo, caller) + "[]";
+                return GenerateCSharpNativeToManaged(buildData, arrayTypeInfo, caller, marshalling) + "[]";
             }
 
             // Dictionary
@@ -395,7 +386,7 @@ namespace Flax.Build.Bindings
             {
                 if (typeInfo.GenericArgs.Count == 0)
                     throw new Exception("Missing function return type.");
-#if USE_NETCORE
+
                 // NetCore doesn't allow using Marshal.GetDelegateForFunctionPointer on generic delegate type (eg. Action<int>) thus generate explicit delegate type for function parameter
                 // https://github.com/dotnet/runtime/issues/36110
                 if (typeInfo.GenericArgs.Count == 1 && typeInfo.GenericArgs[0].Type == "void")
@@ -421,21 +412,6 @@ namespace Flax.Build.Bindings
                     CSharpAdditionalCodeCache.Add(key, delegateName);
                 }
                 return delegateName;
-#else
-                if (typeInfo.GenericArgs.Count > 1)
-                {
-                    var args = string.Empty;
-                    args += GenerateCSharpNativeToManaged(buildData, typeInfo.GenericArgs[1], caller);
-                    for (int i = 2; i < typeInfo.GenericArgs.Count; i++)
-                        args += ", " + GenerateCSharpNativeToManaged(buildData, typeInfo.GenericArgs[i], caller);
-                    if (typeInfo.GenericArgs[0].Type == "void")
-                        return string.Format("Action<{0}>", args);
-                    return string.Format("Func<{0}, {1}>", args, GenerateCSharpNativeToManaged(buildData, typeInfo.GenericArgs[0], caller));
-                }
-                if (typeInfo.GenericArgs[0].Type == "void")
-                    return "Action";
-                return string.Format("Func<{0}>", GenerateCSharpNativeToManaged(buildData, typeInfo.GenericArgs[0], caller));
-#endif
             }
 
             // Find API type info
@@ -555,6 +531,21 @@ namespace Flax.Build.Bindings
                         return $"{{0}}.ConvertArray(x => ({GenerateCSharpNativeToManaged(buildData, arrayApiType.MarshalAs, caller)})x)";
                 }
                 return string.Empty;
+            case "Dictionary":
+                if (typeInfo.GenericArgs != null && typeInfo.GenericArgs.Count == 2)
+                {
+                    // Convert dictionary that uses different type for marshalling
+                    var keyApiType = FindApiTypeInfo(buildData, typeInfo.GenericArgs[0], caller);
+                    var valueApiType = FindApiTypeInfo(buildData, typeInfo.GenericArgs[1], caller);
+                    if ((keyApiType != null && keyApiType.MarshalAs != null) || (valueApiType != null && valueApiType.MarshalAs != null))
+                    {
+                        var keyConverter = keyApiType != null && keyApiType.MarshalAs != null ? $"({GenerateCSharpNativeToManaged(buildData, keyApiType.MarshalAs, caller)})" : "";
+                        var valueConverter = valueApiType != null && valueApiType.MarshalAs != null ? $"({GenerateCSharpNativeToManaged(buildData, valueApiType.MarshalAs, caller)})" : "";
+                        //return $"{{0}} != null ? System.Linq.Enumerable.ToDictionary({{0}}, x => {keyConverter}, x => {valueConverter}) : null";
+                        return $"{{0}}.ConvertDictionary(key => {keyConverter}key, value => {valueConverter}value)";
+                    }
+                }
+                return string.Empty;
             default:
                 var apiType = FindApiTypeInfo(buildData, typeInfo, caller);
                 if (apiType != null)
@@ -606,7 +597,6 @@ namespace Flax.Build.Bindings
                     returnValueType = GenerateCSharpNativeToManaged(buildData, functionInfo.ReturnType, caller, true);
             }
 
-#if USE_NETCORE
             var returnNativeType = GenerateCSharpManagedToNativeType(buildData, functionInfo.ReturnType, caller);
             string returnMarshalType = "";
             if (returnValueType == "bool")
@@ -644,18 +634,13 @@ namespace Flax.Build.Bindings
                 // Boolean arrays does not support custom marshalling for some unknown reason
                 returnMarshalType = $"MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.U1, SizeParamIndex = {functionInfo.Parameters.Count + (functionInfo.Glue.CustomParameters?.Count ?? 0)})";
             }
-#endif
-#if !USE_NETCORE
-            contents.AppendLine().Append(indent).Append("[MethodImpl(MethodImplOptions.InternalCall)]");
-            contents.AppendLine().Append(indent).Append("internal static partial ");
-#else
+
             if (string.IsNullOrEmpty(functionInfo.Glue.LibraryEntryPoint))
                 throw new Exception($"Function {caller.FullNameNative}::{functionInfo.Name} has missing entry point for library import.");
             contents.AppendLine().Append(indent).Append($"[LibraryImport(\"{caller.ParentModule.Module.BinaryModuleName}\", EntryPoint = \"{functionInfo.Glue.LibraryEntryPoint}\", StringMarshalling = StringMarshalling.Custom, StringMarshallingCustomType = typeof(FlaxEngine.Interop.StringMarshaller))]");
             if (!string.IsNullOrEmpty(returnMarshalType))
                 contents.AppendLine().Append(indent).Append($"[return: {returnMarshalType}]");
             contents.AppendLine().Append(indent).Append("internal static partial ");
-#endif
             contents.Append(returnValueType).Append(" Internal_").Append(functionInfo.UniqueName).Append('(');
 
             var separator = false;
@@ -672,7 +657,6 @@ namespace Flax.Build.Bindings
                 separator = true;
 
                 var nativeType = GenerateCSharpManagedToNativeType(buildData, parameterInfo.Type, caller, true);
-#if USE_NETCORE
                 string parameterMarshalType = "";
                 if (nativeType == "System.Type")
                     parameterMarshalType = "MarshalUsing(typeof(FlaxEngine.Interop.SystemTypeMarshaller))";
@@ -687,7 +671,11 @@ namespace Flax.Build.Bindings
                 else if (nativeType == "object[]")
                     parameterMarshalType = "MarshalUsing(typeof(FlaxEngine.Interop.SystemObjectArrayMarshaller))";
                 else if (parameterInfo.Type.Type == "Array" && parameterInfo.Type.GenericArgs.Count > 0 && parameterInfo.Type.GenericArgs[0].Type == "bool")
+                {
                     parameterMarshalType = $"MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.U1, SizeParamIndex = {(!functionInfo.IsStatic ? 1 : 0) + functionInfo.Parameters.Count + (functionInfo.Glue.CustomParameters.FindIndex(x => x.Name == $"__{parameterInfo.Name}Count"))})";
+                    if (!parameterInfo.IsOut && !parameterInfo.IsRef)
+                        parameterMarshalType += ", In"; // The usage of 'LibraryImportAttribute' does not follow recommendations. It is recommended to use explicit '[In]' and '[Out]' attributes on array parameters.
+                }
                 else if (parameterInfo.Type.Type == "Array" || parameterInfo.Type.Type == "Span" || parameterInfo.Type.Type == "DataContainer" || parameterInfo.Type.Type == "BytesContainer" || nativeType == "Array")
                 {
                     parameterMarshalType = $"MarshalUsing(typeof(FlaxEngine.Interop.ArrayMarshaller<,>), CountElementName = \"__{parameterInfo.Name}Count\")";
@@ -709,7 +697,6 @@ namespace Flax.Build.Bindings
 
                 if (!string.IsNullOrEmpty(parameterMarshalType))
                     contents.Append($"[{parameterMarshalType}] ");
-#endif
                 if (parameterInfo.IsOut)
                     contents.Append("out ");
                 else if (parameterInfo.IsRef || UsePassByReference(buildData, parameterInfo.Type, caller))
@@ -733,7 +720,6 @@ namespace Flax.Build.Bindings
                 separator = true;
 
                 var nativeType = GenerateCSharpManagedToNativeType(buildData, parameterInfo.Type, caller, true);
-#if USE_NETCORE
                 string parameterMarshalType = "";
                 if (parameterInfo.IsOut && parameterInfo.DefaultValue == "var __resultAsRef")
                 {
@@ -752,7 +738,6 @@ namespace Flax.Build.Bindings
 
                 if (!string.IsNullOrEmpty(parameterMarshalType))
                     contents.Append($"[{parameterMarshalType}] ");
-#endif
                 if (parameterInfo.IsOut)
                     contents.Append("out ");
                 else if (parameterInfo.IsRef || UsePassByReference(buildData, parameterInfo.Type, caller))
@@ -767,7 +752,6 @@ namespace Flax.Build.Bindings
 
         private static void GenerateCSharpWrapperFunctionCall(BuildData buildData, StringBuilder contents, ApiTypeInfo caller, FunctionInfo functionInfo, bool isSetter = false)
         {
-#if USE_NETCORE
             for (var i = 0; i < functionInfo.Parameters.Count; i++)
             {
                 var parameterInfo = functionInfo.Parameters[i];
@@ -777,11 +761,12 @@ namespace Flax.Build.Bindings
                         contents.Append($"var __{parameterInfo.Name}Count = {(isSetter ? "value" : parameterInfo.Name)}?.Length ?? 0; ");
                 }
             }
-#endif
+            var returnType = functionInfo.ReturnType;
+
             if (functionInfo.Glue.UseReferenceForResult)
             {
             }
-            else if (!functionInfo.ReturnType.IsVoid)
+            else if (!returnType.IsVoid)
             {
                 contents.Append("return ");
             }
@@ -851,14 +836,27 @@ namespace Flax.Build.Bindings
             }
 
             contents.Append(')');
-            if ((functionInfo.ReturnType.Type == "Array" || functionInfo.ReturnType.Type == "Span" || functionInfo.ReturnType.Type == "DataContainer") && functionInfo.ReturnType.GenericArgs != null)
+            if ((returnType.Type == "Array" || returnType.Type == "Span" || returnType.Type == "DataContainer") && returnType.GenericArgs != null)
             {
                 // Convert array that uses different type for marshalling
-                var arrayTypeInfo = functionInfo.ReturnType.GenericArgs[0];
+                var arrayTypeInfo = returnType.GenericArgs[0];
                 var arrayApiType = FindApiTypeInfo(buildData, arrayTypeInfo, caller);
                 if (arrayApiType != null && arrayApiType.MarshalAs != null)
                     contents.Append($".ConvertArray(x => ({GenerateCSharpNativeToManaged(buildData, arrayTypeInfo, caller)})x)");
             }
+            else if (returnType.Type == "Dictionary" && returnType.GenericArgs != null && returnType.GenericArgs.Count == 2)
+            {
+                // Convert dictionary that uses different type for marshalling
+                var keyApiType = FindApiTypeInfo(buildData, returnType.GenericArgs[0], caller);
+                var valueApiType = FindApiTypeInfo(buildData, returnType.GenericArgs[1], caller);
+                if ((keyApiType != null && keyApiType.MarshalAs != null) || (valueApiType != null && valueApiType.MarshalAs != null))
+                {
+                    var keyConverter = keyApiType != null && keyApiType.MarshalAs != null ? $"({GenerateCSharpNativeToManaged(buildData, returnType.GenericArgs[0], caller)})" : "";
+                    var valueConverter = valueApiType != null && valueApiType.MarshalAs != null ? $"({GenerateCSharpNativeToManaged(buildData, returnType.GenericArgs[1], caller)})" : "";
+                    contents.Append($".ConvertDictionary(key => {keyConverter}key, value => {valueConverter}value)");
+                }
+            }
+
             contents.Append(';');
 
             // Return result
@@ -958,11 +956,7 @@ namespace Flax.Build.Bindings
             if (defaultValueType != null && (string.IsNullOrEmpty(attributes) || !attributes.Contains("Collection", StringComparison.Ordinal)))
             {
                 // Array or Span or DataContainer
-#if USE_NETCORE
                 if ((defaultValueType.Type == "Array" || defaultValueType.Type == "Span" || defaultValueType.Type == "DataContainer" || defaultValueType.Type == "MonoArray" || defaultValueType.Type == "MArray") && defaultValueType.GenericArgs != null)
-#else
-                if ((defaultValueType.Type == "Array" || defaultValueType.Type == "Span" || defaultValueType.Type == "DataContainer") && defaultValueType.GenericArgs != null)
-#endif
                 {
                     if (defaultValueType.GenericArgs.Count > 1)
                     {
@@ -1041,7 +1035,6 @@ namespace Flax.Build.Bindings
 
             // Class begin
             GenerateCSharpAttributes(buildData, contents, indent, classInfo, useUnmanaged);
-#if USE_NETCORE
             string marshallerName = "";
             string marshallerFullName = "";
             if (!classInfo.IsStatic)
@@ -1056,7 +1049,6 @@ namespace Flax.Build.Bindings
 #endif
                 contents.Append(indent).AppendLine($"[NativeMarshalling(typeof({marshallerFullName}))]");
             }
-#endif
             contents.Append(indent).Append(GenerateCSharpAccessLevel(classInfo.Access));
             if (classInfo.IsStatic)
                 contents.Append("static ");
@@ -1219,13 +1211,6 @@ namespace Flax.Build.Bindings
                 contents.Append(indent).Append('}').AppendLine();
 
                 contents.AppendLine();
-#if !USE_NETCORE
-                contents.Append(indent).Append("[MethodImpl(MethodImplOptions.InternalCall)]").AppendLine();
-                contents.Append(indent).Append($"internal static extern void Internal_{eventInfo.Name}_Bind(");
-                if (!eventInfo.IsStatic)
-                    contents.Append("IntPtr obj, ");
-                contents.Append("bool bind);");
-#else
                 string libraryEntryPoint;
                 if (buildData.Toolchain?.Compiler == TargetCompiler.MSVC)
                     libraryEntryPoint = $"{classInfo.FullNameManaged}::Internal_{eventInfo.Name}_Bind"; // MSVC allows to override exported symbol name
@@ -1236,7 +1221,6 @@ namespace Flax.Build.Bindings
                 if (!eventInfo.IsStatic)
                     contents.Append("IntPtr obj, ");
                 contents.Append("[MarshalAs(UnmanagedType.U1)] bool bind);");
-#endif
                 contents.AppendLine();
             }
 
@@ -1478,7 +1462,6 @@ namespace Flax.Build.Bindings
             indent = indent.Substring(0, indent.Length - 4);
             contents.AppendLine(indent + "}");
 
-#if USE_NETCORE
             if (!string.IsNullOrEmpty(marshallerName))
             {
                 if (!string.IsNullOrEmpty(interopNamespace))
@@ -1550,7 +1533,7 @@ namespace Flax.Build.Bindings
                 }
                 """).Split(new char[] { '\n' })));
             }
-#endif
+
             // Namespace end
             if (!string.IsNullOrEmpty(classInfo.Namespace))
                 contents.AppendLine("}");
@@ -1560,7 +1543,6 @@ namespace Flax.Build.Bindings
         {
             contents.AppendLine();
 
-#if USE_NETCORE
             // Generate blittable structure
             string structNativeMarshaling = "";
             if (UseCustomMarshalling(buildData, structureInfo, structureInfo))
@@ -1635,7 +1617,6 @@ namespace Flax.Build.Bindings
                         string internalTypeMarshaller = "";
                         if (marshalType.IsArray && (fieldInfo.NoArray || structureInfo.IsPod))
                         {
-#if USE_NETCORE
                             if (GenerateCSharpUseFixedBuffer(originalType))
                             {
                                 // Use fixed statement with primitive types of buffers
@@ -1646,7 +1627,6 @@ namespace Flax.Build.Bindings
                                 toNativeContent.AppendLine($"FlaxEngine.Utils.MemoryCopy(new IntPtr(unmanaged.{fieldInfo.Name}0), new IntPtr(managed.{fieldInfo.Name}0), sizeof({originalType}) * {marshalType.ArraySize}ul);");
                             }
                             else
-#endif
                             {
                                 // Padding in structs for fixed-size array
                                 structContents.Append(type).Append(' ').Append(fieldInfo.Name).Append("0;").AppendLine();
@@ -1914,7 +1894,7 @@ namespace Flax.Build.Bindings
                     indent = indent.Substring(0, indent.Length - 4);
                 }
             }
-#endif
+
             // Namespace begin
             if (!string.IsNullOrEmpty(structureInfo.Namespace))
             {
@@ -1929,10 +1909,8 @@ namespace Flax.Build.Bindings
             // Struct begin
             GenerateCSharpAttributes(buildData, contents, indent, structureInfo, true);
             contents.Append(indent).AppendLine("[StructLayout(LayoutKind.Sequential)]");
-#if USE_NETCORE
             if (!string.IsNullOrEmpty(structNativeMarshaling))
                 contents.Append(indent).AppendLine(structNativeMarshaling);
-#endif
             contents.Append(indent).Append(GenerateCSharpAccessLevel(structureInfo.Access));
             contents.Append("unsafe partial struct ").Append(structureInfo.Name);
             if (structureInfo.BaseType != null && structureInfo.IsPod)
@@ -1948,12 +1926,10 @@ namespace Flax.Build.Bindings
                 contents.AppendLine();
                 GenerateCSharpComment(contents, indent, fieldInfo.Comment);
                 GenerateCSharpAttributes(buildData, contents, indent, structureInfo, fieldInfo, fieldInfo.IsStatic, fieldInfo.DefaultValue, fieldInfo.Type);
-#if USE_NETCORE
                 if (fieldInfo.Type.Type == "String")
                     contents.Append(indent).AppendLine("[MarshalAs(UnmanagedType.LPWStr)]");
                 else if (fieldInfo.Type.Type == "bool")
                     contents.Append(indent).AppendLine("[MarshalAs(UnmanagedType.U1)]");
-#endif
                 contents.Append(indent).Append(GenerateCSharpAccessLevel(fieldInfo.Access));
                 if (fieldInfo.IsConstexpr)
                     contents.Append("const ");
@@ -1967,7 +1943,6 @@ namespace Flax.Build.Bindings
                     fieldInfo.Type.IsArray = false;
                     managedType = GenerateCSharpNativeToManaged(buildData, fieldInfo.Type, structureInfo);
                     fieldInfo.Type.IsArray = true;
-#if USE_NETCORE
                     if (GenerateCSharpUseFixedBuffer(managedType))
                     {
                         // Use fixed statement with primitive types of buffers
@@ -1976,7 +1951,6 @@ namespace Flax.Build.Bindings
                         contents.Append($"fixed {managedType} {fieldInfo.Name}0[{fieldInfo.Type.ArraySize}];").AppendLine();
                     }
                     else
-#endif
                     {
                         // Padding in structs for fixed-size array
                         contents.Append(managedType).Append(' ').Append(fieldInfo.Name + "0;").AppendLine();
@@ -2211,7 +2185,7 @@ namespace Flax.Build.Bindings
                 if (functionInfo.NoProxy)
                     throw new Exception($"Not supported {"NoProxy"} function {functionInfo.Name} inside interface {interfaceInfo.Name}.");
                 if (!functionInfo.IsVirtual)
-                    throw new Exception($"Not supported {"non-virtual"} function {functionInfo.Name} inside interface {interfaceInfo.Name}.");
+                    continue; //throw new Exception($"Not supported {"non-virtual"} function {functionInfo.Name} inside interface {interfaceInfo.Name}.");
                 if (functionInfo.Access != AccessLevel.Public)
                     throw new Exception($"Not supported {"non-public"} function {functionInfo.Name} inside interface {interfaceInfo.Name}.");
 
@@ -2256,7 +2230,6 @@ namespace Flax.Build.Bindings
             indent = indent.Substring(0, indent.Length - 4);
             contents.AppendLine(indent + "}");
 
-#if USE_NETCORE
             {
                 if (!string.IsNullOrEmpty(interopNamespace))
                 {
@@ -2284,7 +2257,6 @@ namespace Flax.Build.Bindings
                 contents.AppendLine("#pragma warning restore 1591");
                 contents.Append(indent).AppendLine("}");
             }
-#endif
 
             if (!string.IsNullOrEmpty(interfaceInfo.Namespace))
                 contents.AppendLine("}");
@@ -2351,9 +2323,7 @@ namespace Flax.Build.Bindings
             CSharpUsedNamespaces.Add("System.Globalization");
             CSharpUsedNamespaces.Add("System.Runtime.CompilerServices");
             CSharpUsedNamespaces.Add("System.Runtime.InteropServices");
-#if USE_NETCORE
             CSharpUsedNamespaces.Add("System.Runtime.InteropServices.Marshalling");
-#endif
             CSharpUsedNamespaces.Add("FlaxEngine");
             CSharpUsedNamespaces.Add("FlaxEngine.Interop");
 
@@ -2423,9 +2393,7 @@ namespace Flax.Build.Bindings
             contents.AppendLine();
             contents.AppendLine("using System.Reflection;");
             contents.AppendLine("using System.Runtime.InteropServices;");
-#if USE_NETCORE
             contents.AppendLine("using System.Runtime.CompilerServices;");
-#endif
             contents.AppendLine();
             contents.AppendLine($"[assembly: AssemblyTitle(\"{binaryModuleName}\")]");
             contents.AppendLine("[assembly: AssemblyDescription(\"\")]");
@@ -2440,9 +2408,7 @@ namespace Flax.Build.Bindings
             contents.AppendLine($"[assembly: AssemblyVersion(\"{project.Version}\")]");
             contents.AppendLine($"[assembly: AssemblyFileVersion(\"{project.Version}\")]");
             contents.AppendLine($"[assembly: AssemblyInformationalVersion(\"{project.VersionControlInfo}\")]");
-#if USE_NETCORE
             contents.AppendLine("[assembly: DisableRuntimeMarshalling]");
-#endif
             Utilities.WriteFileIfChanged(dstFilePath, contents.ToString());
             PutStringBuilder(contents);
         }

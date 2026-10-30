@@ -18,6 +18,7 @@ class FLAXENGINE_API AudioSource : public Actor, IAssetReference
     DECLARE_SCENE_OBJECT(AudioSource);
     friend class AudioStreamingHandler;
     friend class AudioClip;
+    friend class AudioBackend;
 
 public:
     /// <summary>
@@ -318,7 +319,7 @@ private:
 public:
     // [Actor]
 #if USE_EDITOR
-    BoundingBox GetEditorBox() const override
+    BoundingBox GetEditorBoundingBox() const override
     {
         const Vector3 size(50);
         return BoundingBox(_transform.Translation - size, _transform.Translation + size);

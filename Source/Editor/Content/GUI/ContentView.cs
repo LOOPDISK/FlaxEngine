@@ -384,7 +384,7 @@ namespace FlaxEditor.Content.GUI
         /// Selects the specified item.
         /// </summary>
         /// <param name="item">The item.</param>
-        /// <param name="additive">If set to <c>true</c> item will be added to the current selection. Otherwise selection will be cleared before.</param>
+        /// <param name="additive">If set to <c>true</c> item will be added to the current selection. Otherwise, selection will be cleared before.</param>
         public void Select(ContentItem item, bool additive = false)
         {
             if (item == null)
@@ -671,6 +671,20 @@ namespace FlaxEditor.Content.GUI
                 Render2D.FillRectangle(_rubberBandRectangle, style.Selection);
                 Render2D.DrawRectangle(_rubberBandRectangle, style.SelectionBorder);
             }
+        }
+
+        /// <inheritdoc />
+        public override void OnGotFocus()
+        {
+            StartTextInput();
+            base.OnGotFocus();
+        }
+
+        /// <inheritdoc />
+        public override void OnLostFocus()
+        {
+            EndTextInput();
+            base.OnLostFocus();
         }
 
         /// <inheritdoc />

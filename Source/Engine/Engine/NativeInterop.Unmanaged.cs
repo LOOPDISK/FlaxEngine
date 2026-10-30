@@ -901,20 +901,21 @@ namespace FlaxEngine.Interop
 
                 Assembly assembly;
 #if FLAX_EDITOR
-                // Load assembly from loaded bytes to prevent file locking in Editor
-                var assemblyBytes = File.ReadAllBytes(assemblyPath);
-                using MemoryStream stream = new MemoryStream(assemblyBytes);
+                // Load assembly with stream to prevent runtime from locking the assembly file
+                using FileStream stream = new FileStream(assemblyPath, FileMode.Open, FileAccess.Read);
                 var pdbPath = Path.ChangeExtension(assemblyPath, "pdb");
                 if (File.Exists(pdbPath))
                 {
                     // Load including debug symbols
-                    using FileStream pdbStream = new FileStream(Path.ChangeExtension(assemblyPath, "pdb"), FileMode.Open);
+                    using FileStream pdbStream = new FileStream(Path.ChangeExtension(assemblyPath, "pdb"), FileMode.Open, FileAccess.Read);
                     assembly = scriptingAssemblyLoadContext.LoadFromStream(stream, pdbStream);
                 }
                 else
                 {
                     assembly = scriptingAssemblyLoadContext.LoadFromStream(stream);
                 }
+
+                // TODO: Use new .NET 11 AssemblyLoadContext.SetAssemblyLocationOverride to specify correct Assembly.Location
 #else
                 // Load assembly from file
                 assembly = scriptingAssemblyLoadContext.LoadFromAssemblyPath(assemblyPath);
@@ -1007,6 +1008,9 @@ namespace FlaxEngine.Interop
 
             scriptingAssemblyLoadContext = new AssemblyLoadContext("Flax", isCollectible: true);
             scriptingAssemblyLoadContext.Resolving += OnScriptingAssemblyLoadContextResolving;
+            
+            // Load Microsoft.CSharp assembly into collectible ALC for dynamic binder support
+            scriptingAssemblyLoadContext.LoadFromAssemblyPath(typeof(Microsoft.CSharp.RuntimeBinder.Binder).Assembly.Location);
 #else
             scriptingAssemblyLoadContext = new AssemblyLoadContext("Flax", isCollectible: false);
 #endif

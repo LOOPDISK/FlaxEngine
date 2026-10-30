@@ -4,7 +4,7 @@
 #include "./Flax/GBuffer.hlsl"
 #include "./Flax/MaterialCommon.hlsl"
 #include "./Flax/StylizedCloud.hlsl"
-#include "./Flax/ExponentialHeightFog.hlsl"
+#include "./Flax/Lighting/ExponentialHeightFog.hlsl"
 
 META_CB_BEGIN(0, Data)
 GBufferData GBuffer;
@@ -286,7 +286,7 @@ float PS_WriteDepth(Quad_VS2PS input) : SV_Depth
         discard;
 
     // Convert linear depth to device depth for hardware depth write.
-    // The pipeline state uses DepthFunc=Less, so this only writes where
+    // The pipeline state uses the default depth test, so this only writes where
     // the cloud is closer than existing geometry - no shader read needed.
     return LinearZ2DeviceDepth(gBufferData, cloudLinearDepth / viewFar);
 }

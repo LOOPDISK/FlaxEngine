@@ -112,9 +112,8 @@ void AssetsCache::Init()
             e.Info.Path = Globals::StartupFolder / e.Info.Path;
         }
 
-        // Use only valid entries (keep inaccessible entries so they can be retried later)
-        const auto validation = IsEntryValid(e);
-        if (validation != EntryValidation::Invalid)
+        // Use only valid entries
+        if (IsEntryValid(e) != EntryValidation::Invalid)
             _registry.Add(e.Info.ID, e);
         else
             rejectedCount++;
@@ -304,12 +303,15 @@ bool AssetsCache::FindAsset(const StringView& path, AssetInfo& info)
             }
             else
             {
+#if ENABLE_ASSETS_DISCOVERY
                 if (validation == EntryValidation::Inaccessible && !e.WarnedInaccessible)
                 {
-                    LOG(Warning, "Asset file locked, keeping cached entry: \'{0}\':{1}:{2}", e.Info.Path, e.Info.ID, e.Info.TypeName);
                     e.WarnedInaccessible = true;
+                    LOG(Warning, "Asset file locked, keeping cached entry: \'{0}\':{1}:{2}", e.Info.Path, e.Info.ID, e.Info.TypeName);
                 }
-                // Found (valid or inaccessible — return cached info either way)
+#endif
+
+                // Found valid or inaccessible but return cached info either way
                 result = true;
                 info = e.Info;
             }
@@ -337,11 +339,14 @@ bool AssetsCache::FindAsset(const Guid& id, AssetInfo& info)
         }
         else
         {
+#if ENABLE_ASSETS_DISCOVERY
             if (validation == EntryValidation::Inaccessible && !e->WarnedInaccessible)
             {
-                LOG(Warning, "Asset file locked, keeping cached entry: \'{0}\':{1}:{2}", e->Info.Path, e->Info.ID, e->Info.TypeName);
                 e->WarnedInaccessible = true;
+                LOG(Warning, "Asset file locked, keeping cached entry: \'{0}\':{1}:{2}", e->Info.Path, e->Info.ID, e->Info.TypeName);
             }
+#endif
+
             // Found
             result = true;
             info = e->Info;
@@ -373,13 +378,13 @@ void AssetsCache::GetAllByTypeName(const StringView& typeName, Array<Guid>& resu
 void AssetsCache::RegisterAssets(FlaxStorage* storage)
 {
     PROFILE_CPU();
-
     ASSERT(storage);
 
     // Get all entries
     Array<FlaxStorage::Entry> entries;
     storage->GetEntries(entries);
-    ASSERT(entries.HasItems());
+    if (entries.IsEmpty())
+        return;
 
     ASSETS_CACHE_LOCK();
     auto storagePath = storage->GetPath();
@@ -580,7 +585,7 @@ bool AssetsCache::RenameAsset(const StringView& oldPath, const StringView& newPa
 
 #endif
 
-EntryValidation AssetsCache::IsEntryValid(Entry& e)
+AssetsCache::EntryValidation AssetsCache::IsEntryValid(Entry& e)
 {
 #if ENABLE_ASSETS_DISCOVERY
     // Check if file exists
@@ -614,9 +619,6 @@ EntryValidation AssetsCache::IsEntryValid(Entry& e)
 
             return isValid ? EntryValidation::Valid : EntryValidation::Invalid;
         }
-
-        // File exists but cannot be opened (likely locked by git or another process)
-        return EntryValidation::Inaccessible;
     }
     // Check for json resource
     else if (JsonStorageProxy::IsValidExtension(extension))
@@ -635,13 +637,15 @@ EntryValidation AssetsCache::IsEntryValid(Entry& e)
 
             return isValid ? EntryValidation::Valid : EntryValidation::Invalid;
         }
-
-        // File exists but cannot be read (likely locked by git or another process)
-        return EntryValidation::Inaccessible;
+    }
+    else
+    {
+        // Unknown file type
+        return EntryValidation::Invalid;
     }
 
-    return EntryValidation::Invalid;
-
+    // File exists but cannot be read (likely locked by git or another process)
+    return EntryValidation::Inaccessible;
 #else
     // In game we don't care about it because all cached asset entries are valid (precached)
     // Skip only entries with missing file

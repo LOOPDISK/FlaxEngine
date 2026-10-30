@@ -7,8 +7,6 @@
 #include "Engine/Core/Math/BoundingSphere.h"
 #include "Engine/Core/Math/BoundingFrustum.h"
 #include "Engine/Level/Actor.h"
-#include "Engine/Platform/CriticalSection.h"
-#include "Engine/Renderer/HierarchialZBufferPass.h"
 
 class SceneRenderTask;
 class SceneRendering;
@@ -53,22 +51,22 @@ public:
     // Actor properties that were modified.
     enum UpdateFlags
     {
-        Visual = 1,
-        Bounds = 2,
-        Layer = 4,
-        StaticFlags = 8,
-        AutoDelayDuringRendering = 16, // Conditionally allow updating data during rendering when writes are locked
-        DrawModes = 32,
-        Auto = Visual | Bounds | Layer,
+        Visual = 1, // Visual appearance of the object (eg. material changed).
+        Bounds = 2, // Object bounding volume was changed (eg. after scaling).
+        Layer = 4, // Object changed layer.
+        StaticFlags = 8, // Object changed static state.
+        AutoDelayDuringRendering = 16, // Conditionally allow updating data during rendering when writes are locked.
+        DrawModes = 32, // Object changed draw modes flags.
+        Auto = Visual | Bounds | Layer, // Default set of flags for common changes.
     };
 
     // Starts listening to the scene rendering events.
     void ListenSceneRendering(SceneRendering* scene);
 
     // Events called by Scene Rendering
-    virtual void OnSceneRenderingAddActor(Actor* a) = 0;
-    virtual void OnSceneRenderingUpdateActor(Actor* a, const BoundingSphere& prevBounds, UpdateFlags flags = Auto) = 0;
-    virtual void OnSceneRenderingRemoveActor(Actor* a) = 0;
+    virtual void OnSceneRenderingAddActor(SceneRendering* scene, int32 key, Actor* a) = 0;
+    virtual void OnSceneRenderingUpdateActor(SceneRendering* scene, int32 key, Actor* a, const BoundingSphere& prevBounds, UpdateFlags flags = Auto) = 0;
+    virtual void OnSceneRenderingRemoveActor(SceneRendering* scene, int32 key, Actor* a) = 0;
     virtual void OnSceneRenderingClear(SceneRendering* scene) = 0;
 };
 
@@ -196,17 +194,13 @@ public:
 private:
     Array<BoundingFrustum> _drawFrustumsData;
     DrawActor* _drawListData;
-    int64 _drawListSize;
-    int _drawJobCount;
+    int32 _drawListSize;
+    int32 _drawListJobs;
+    RenderContextBatch* _drawBatch;
     Float3 _mainViewPosition;
     float _shadowCullDistance2;
     float _shadowCullRadius;
-    RenderContextBatch* _drawBatch;
-    DrawCategory _drawCategory;
-    HZBData* _hzb = nullptr;
-    bool _checkHZB = true;
-    int _lastHZBId = -1;
-    int _lastHZBFrame = -1;
+    bool _markCulled;
 
     void DrawActorsJob(int32 i);
 

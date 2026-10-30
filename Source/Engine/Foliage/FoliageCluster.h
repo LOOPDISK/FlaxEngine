@@ -37,7 +37,6 @@ public:
     /// Flag used by clusters that are not typical oct-tree nodes but have no volume (eg. lots of instances placed on top of each other).
     /// </summary>
     int32 IsMinor : 1;
-    int32 WasCulled : 1;
 
     /// <summary>
     /// The child clusters. If any element is valid then all are created.

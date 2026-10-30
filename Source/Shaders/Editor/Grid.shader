@@ -26,7 +26,6 @@ struct ModelInput
 struct VertexOutput
 {
     float4 Position : SV_Position;
-    float2 TexCoord : TEXCOORD0;
     float3 WorldPosition : TEXCOORD1;
 };
 
@@ -34,7 +33,6 @@ struct VertexOutput
 struct PixelInput
 {
     float4 Position : SV_Position;
-    noperspective float2 TexCoord : TEXCOORD0;
     float3 WorldPosition : TEXCOORD1;
 };
 
@@ -44,6 +42,7 @@ META_VS_IN_ELEMENT(POSITION, 0, R32G32B32_FLOAT, 0, ALIGN, PER_VERTEX, 0, true)
 VertexOutput VS_Grid(ModelInput input)
 {
     VertexOutput output;
+    input.Position.xyz += float3(ViewPos.x, 0, ViewPos.z);
     output.WorldPosition = input.Position.xyz + ViewOrigin;
     float3 geoPosition = input.Position.xyz - float3(0, ViewOrigin.y, 0);
     output.Position = mul(float4(geoPosition, 1), ViewProjectionMatrix);

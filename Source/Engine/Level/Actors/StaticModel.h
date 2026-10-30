@@ -4,7 +4,6 @@
 
 #include "ModelInstanceActor.h"
 #include "Engine/Content/Assets/Model.h"
-#include "Engine/Renderer/DrawCall.h"
 #include "Engine/Renderer/Lightmaps.h"
 
 /// <summary>
@@ -15,15 +14,14 @@ class FLAXENGINE_API StaticModel : public ModelInstanceActor, IAssetReference
 {
     DECLARE_SCENE_OBJECT(StaticModel);
 private:
-    GeometryDrawStateData _drawState;
     float _scaleInLightmap;
     float _boundsScale;
+    DrawPass _drawModes = DrawPass::Default;
     char _lodBias;
     char _forcedLod;
     bool _vertexColorsDirty;
     byte _vertexColorsCount;
     int8 _sortOrder;
-    DrawPass _drawModes = DrawPass::Default;
     Array<Color32> _vertexColorsData[MODEL_MAX_LODS];
     GPUBuffer* _vertexColorsBuffer[MODEL_MAX_LODS];
     Model* _residencyChangedModel = nullptr;
@@ -171,7 +169,6 @@ private:
 public:
     // [ModelInstanceActor]
     bool HasContentLoaded() const override;
-    void Draw(RenderContext& renderContext) override;
     void Draw(RenderContextBatch& renderContextBatch) override;
     bool IntersectsItself(const Ray& ray, Real& distance, Vector3& normal) override;
     void Serialize(SerializeStream& stream, const void* otherObj) override;
@@ -181,7 +178,9 @@ public:
     ModelBase* GetModel() override;
     bool IntersectsEntry(int32 entryIndex, const Ray& ray, Real& distance, Vector3& normal) override;
     bool IntersectsEntry(const Ray& ray, Real& distance, Vector3& normal, int32& entryIndex) override;
+PRAGMA_DISABLE_DEPRECATION_WARNINGS;
     bool GetMeshData(const MeshReference& ref, MeshBufferType type, BytesContainer& result, int32& count, GPUVertexLayout** layout) const override;
+PRAGMA_ENABLE_DEPRECATION_WARNINGS;
     MeshBase* GetMesh(const MeshReference& ref) const override;
     MeshDeformation* GetMeshDeformation() const override;
     void UpdateBounds() override;

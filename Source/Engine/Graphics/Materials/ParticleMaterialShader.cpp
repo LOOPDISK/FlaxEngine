@@ -10,7 +10,7 @@
 #include "Engine/Graphics/GPUContext.h"
 #include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Graphics/GPULimits.h"
-#include "Engine/Graphics/RenderTask.h"
+#include "Engine/Graphics/RenderContext.h"
 #include "Engine/Graphics/Shaders/GPUShader.h"
 #include "Engine/Graphics/Shaders/GPUConstantBuffer.h"
 #include "Engine/Particles/Graph/CPU/ParticleEmitterGraph.CPU.h"
@@ -37,11 +37,6 @@ PACK_STRUCT(struct ParticleMaterialShaderData {
     uint32 RibbonSegmentCount;
     Matrix3x4 WorldMatrixInverseTransposed;
     });
-
-DrawPass ParticleMaterialShader::GetDrawModes() const
-{
-    return _drawModes;
-}
 
 void ParticleMaterialShader::Bind(BindParameters& params)
 {
@@ -121,9 +116,7 @@ void ParticleMaterialShader::Bind(BindParameters& params)
     }
 
     // Select pipeline state based on current pass and render mode
-    bool wireframe = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::Wireframe) || view.Mode == ViewMode::Wireframe;
-    const bool isParticleDepthPass = view.Pass == DrawPass::Depth || view.Pass == DrawPass::WeaponDepth;
-    CullMode cullMode = isParticleDepthPass ? CullMode::TwoSided : _info.CullMode;
+    CullMode cullMode = view.Pass == DrawPass::Depth || view.Pass == DrawPass::WeaponDepth ? CullMode::TwoSided : _info.CullMode;
     PipelineStateCache* psCache = nullptr;
     switch (drawCall.Particle.Module->TypeID)
     {
@@ -163,7 +156,7 @@ void ParticleMaterialShader::Bind(BindParameters& params)
     }
     }
     ASSERT(psCache);
-    GPUPipelineState* state = psCache->GetPS(cullMode, wireframe);
+    GPUPipelineState* state = psCache->GetPS(this, cullMode);
 
     // Bind constants
     if (_cb)
@@ -189,47 +182,54 @@ void ParticleMaterialShader::Unload()
 
 bool ParticleMaterialShader::Load()
 {
-    // Use WeaponDepth instead of Depth for weapon FOV override materials (no world shadow casting)
-    const bool useWeaponFOV = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride);
-    const DrawPass depthPass = useWeaponFOV ? DrawPass::WeaponDepth : DrawPass::Depth;
-    _drawModes = depthPass | DrawPass::Forward | DrawPass::QuadOverdraw;
-    GPUPipelineState::Description psDesc = GPUPipelineState::Description::Default;
-    psDesc.DepthEnable = (_info.FeaturesFlags & MaterialFeaturesFlags::DisableDepthTest) == MaterialFeaturesFlags::None;
-    psDesc.DepthWriteEnable = (_info.FeaturesFlags & MaterialFeaturesFlags::DisableDepthWrite) == MaterialFeaturesFlags::None;
+    // Weapon FOV materials write WeaponDepth instead of Depth (no world shadow casting)
+    const DrawPass depthPass = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::WeaponFOVOverride) ? DrawPass::WeaponDepth : DrawPass::Depth;
+    _drawModes = depthPass | DrawPass::Forward | DrawPass::Wireframe;
+    auto psDesc = GPUPipelineState::Description::Default;
+    psDesc.DepthEnable = EnumHasNoneFlags(_info.FeaturesFlags, MaterialFeaturesFlags::DisableDepthTest);
+    psDesc.DepthWriteEnable = EnumHasNoneFlags(_info.FeaturesFlags, MaterialFeaturesFlags::DisableDepthWrite);
+    psDesc.Wireframe = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::Wireframe);
+    psDesc.CullMode = _info.CullMode;
 
     auto vsSprite = _shader->GetVS("VS_Sprite");
     auto vsMesh = _shader->GetVS("VS_Model");
     auto vsRibbon = _shader->GetVS("VS_Ribbon");
+#define INIT_CACHE(type) \
+    psDesc.VS = vsSprite; \
+    _cacheSprite.type.Init(psDesc); \
+    psDesc.VS = vsMesh; \
+    _cacheModel.type.Init(psDesc); \
+    psDesc.VS = vsRibbon; \
+    _cacheRibbon.type.Init(psDesc)
 
-#if USE_EDITOR
+#if GPU_ENABLE_DEVELOPMENT
     if (_shader->HasShader("PS_QuadOverdraw"))
     {
         // Quad Overdraw
+        _drawModes |= DrawPass::QuadOverdraw;
         psDesc.PS = _shader->GetPS("PS_QuadOverdraw");
-        psDesc.VS = vsSprite;
-        _cacheSprite.QuadOverdraw.Init(psDesc);
-        psDesc.VS = vsMesh;
-        _cacheModel.QuadOverdraw.Init(psDesc);
-        psDesc.VS = vsRibbon;
-        _cacheRibbon.QuadOverdraw.Init(psDesc);
+        INIT_CACHE(QuadOverdraw);
     }
+
+    // Wireframe
+    psDesc.Wireframe = true;
+    psDesc.DepthWriteEnable = false;
+    psDesc.BlendMode = BlendingMode::AlphaBlend;
+    psDesc.PS = GPUDevice::Instance->QuadShader->GetPS("PS_Wireframe");
+    INIT_CACHE(Wireframe);
+    psDesc.DepthWriteEnable = EnumHasNoneFlags(_info.FeaturesFlags, MaterialFeaturesFlags::DisableDepthWrite);
+    psDesc.Wireframe = EnumHasAnyFlags(_info.FeaturesFlags, MaterialFeaturesFlags::Wireframe);
 #endif
 
     // Check if use transparent distortion pass
     if (_shader->HasShader("PS_Distortion"))
     {
-        _drawModes |= DrawPass::Distortion;
-
         // Accumulate Distortion Pass
+        _drawModes |= DrawPass::Distortion;
         psDesc.PS = _shader->GetPS("PS_Distortion");
         psDesc.BlendMode = BlendingMode::Add;
         psDesc.DepthWriteEnable = false;
-        psDesc.VS = vsSprite;
-        _cacheSprite.Distortion.Init(psDesc);
-        psDesc.VS = vsMesh;
-        _cacheModel.Distortion.Init(psDesc);
-        psDesc.VS = vsRibbon;
-        _cacheRibbon.Distortion.Init(psDesc);
+        INIT_CACHE(Distortion);
     }
 
     // Forward Pass
@@ -248,12 +248,7 @@ bool ParticleMaterialShader::Load()
         psDesc.BlendMode = BlendingMode::Multiply;
         break;
     }
-    psDesc.VS = vsSprite;
-    _cacheSprite.Default.Init(psDesc);
-    psDesc.VS = vsMesh;
-    _cacheModel.Default.Init(psDesc);
-    psDesc.VS = vsRibbon;
-    _cacheRibbon.Default.Init(psDesc);
+    INIT_CACHE(Default);
 
     // Depth Pass
     psDesc = GPUPipelineState::Description::Default;
@@ -261,15 +256,15 @@ bool ParticleMaterialShader::Load()
     psDesc.DepthClipEnable = false;
     psDesc.BlendMode.RenderTargetWriteMask = BlendingMode::ColorWrite::None;
     psDesc.PS = _shader->GetPS("PS_Depth");
-    psDesc.VS = vsSprite;
-    _cacheSprite.Depth.Init(psDesc);
-    psDesc.VS = vsMesh;
-    _cacheModel.Depth.Init(psDesc);
-    psDesc.VS = vsRibbon;
-    _cacheRibbon.Depth.Init(psDesc);
+    INIT_CACHE(Depth);
 
     // Lazy initialization
     _cacheVolumetricFog.Desc.PS = nullptr;
+
+#if PLATFORM_PS5
+    // Fix shader binding issues on forward shading materials on PS5
+    _drawModes = DrawPass::None;
+#endif
 
     return false;
 }

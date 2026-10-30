@@ -41,7 +41,7 @@ namespace FlaxEditor.Viewport
         private readonly DragActorType<DragDropEventArgs> _dragActorType;
         private readonly DragScriptItems<DragDropEventArgs> _dragScriptItem;
 
-        private StaticModel _previewStaticModel;
+        private ModelInstanceActor _previewModel;
         private int _previewModelEntryIndex;
         private BrushSurface _previewBrushSurface;
 
@@ -56,16 +56,16 @@ namespace FlaxEditor.Viewport
 
         internal void ClearDragEffects()
         {
-            _previewStaticModel = null;
+            _previewModel = null;
             _previewModelEntryIndex = -1;
             _previewBrushSurface = new BrushSurface();
         }
 
         internal void CollectDrawCalls(ViewportDebugDrawData debugDrawData, ref RenderContext renderContext)
         {
-            if (_previewStaticModel)
-                debugDrawData.HighlightModel(_previewStaticModel, _previewModelEntryIndex);
-            if (_previewBrushSurface.Brush != null)
+            if (_previewModel)
+                debugDrawData.HighlightModel(_previewModel, _previewModelEntryIndex);
+            if (_previewBrushSurface.Brush)
                 debugDrawData.HighlightBrushSurface(_previewBrushSurface);
         }
 
@@ -120,21 +120,38 @@ namespace FlaxEditor.Viewport
             if (_dragAssets.HasValidDrag && _dragAssets.Objects[0].IsOfType<MaterialBase>())
             {
                 GetHitLocation(ref location, out var hit, out _, out _);
-                ClearDragEffects();
                 var material = FlaxEngine.Content.LoadAsync<MaterialBase>(_dragAssets.Objects[0].ID);
-                if (material.IsDecal)
+                if (material && material.IsDecal)
+                {
+                    ClearDragEffects();
                     return;
+                }
 
+                // TODO: refactor this to be handled by ActorNode itself for generic actor highlights
                 if (hit is StaticModelNode staticModelNode)
                 {
-                    _previewStaticModel = (StaticModel)staticModelNode.Actor;
+                    _previewModel = (StaticModel)staticModelNode.Actor;
                     var ray = _viewport.ConvertMouseToRay(ref location);
-                    _previewStaticModel.IntersectsEntry(ref ray, out _, out _, out _previewModelEntryIndex);
+                    _previewModel.IntersectsEntry(ref ray, out _, out _, out _previewModelEntryIndex);
+                }
+                else if (hit is AnimatedModelNode animatedModelNode)
+                {
+                    _previewModel = (AnimatedModel)animatedModelNode.Actor;
+                    var ray = _viewport.ConvertMouseToRay(ref location);
+                    _previewModel.IntersectsEntry(ref ray, out _, out _, out _previewModelEntryIndex);
                 }
                 else if (hit is BoxBrushNode.SideLinkNode brushSurfaceNode)
                 {
                     _previewBrushSurface = brushSurfaceNode.Surface;
                 }
+                else
+                {
+                    ClearDragEffects();
+                }
+            }
+            else
+            {
+                ClearDragEffects();
             }
         }
 
@@ -169,13 +186,13 @@ namespace FlaxEditor.Viewport
 
         private Vector3 PostProcessSpawnedActorLocation(Actor actor, ref Vector3 hitLocation)
         {
-            // Refresh actor position to ensure that cached bounds are valid
+            // Refresh actor position to ensure that cached bounds are valid (in Actor::OnTransformChanged)
             actor.Position = Vector3.One;
             actor.Position = Vector3.Zero;
 
             // Place the object
             //var location = hitLocation - (box.Size.Length * 0.5f) * ViewDirection;
-            var editorBounds = actor.EditorBoxChildren;
+            var editorBounds = actor.EditorBoundingBoxWithChildren;
             var bottomToCenter = actor.Position.Y - editorBounds.Minimum.Y;
             var location = hitLocation + new Vector3(0, bottomToCenter, 0);
 
@@ -241,14 +258,25 @@ namespace FlaxEditor.Viewport
                     };
                     Spawn(actor, ref hitLocation, ref hitNormal);
                 }
+                // TODO: refactor this to be handled by ActorNode itself for generic actor highlights
                 else if (hit is StaticModelNode staticModelNode)
                 {
-                    var staticModel = (StaticModel)staticModelNode.Actor;
+                    var actor = (StaticModel)staticModelNode.Actor;
                     var ray = _viewport.ConvertMouseToRay(ref location);
-                    if (staticModel.IntersectsEntry(ref ray, out _, out _, out var entryIndex))
+                    if (actor.IntersectsEntry(ref ray, out _, out _, out var entryIndex))
                     {
-                        using (new UndoBlock(_owner.Undo, staticModel, "Change material"))
-                            staticModel.SetMaterial(entryIndex, material);
+                        using (new UndoBlock(_owner.Undo, actor, "Change material"))
+                            actor.SetMaterial(entryIndex, material);
+                    }
+                }
+                else if (hit is AnimatedModelNode animatedModelNode)
+                {
+                    var actor = (AnimatedModel)animatedModelNode.Actor;
+                    var ray = _viewport.ConvertMouseToRay(ref location);
+                    if (actor.IntersectsEntry(ref ray, out _, out _, out var entryIndex))
+                    {
+                        using (new UndoBlock(_owner.Undo, actor, "Change material"))
+                            actor.SetMaterial(entryIndex, material);
                     }
                 }
                 else if (hit is BoxBrushNode.SideLinkNode brushSurfaceNode)

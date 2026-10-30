@@ -19,7 +19,6 @@
 #include "Engine/Core/Collections/CollectionPoolCache.h"
 #include "Engine/Core/Math/Double4x4.h"
 #include "Engine/Debug/Exceptions/JsonParseException.h"
-#include "Engine/Graphics/RenderTask.h"
 #include "Engine/Physics/Physics.h"
 #include "Engine/Profiler/ProfilerCPU.h"
 #include "Engine/Profiler/ProfilerMemory.h"
@@ -134,12 +133,12 @@ Actor::Actor(const SpawnParams& params)
 {
     _drawNoCulling = 0;
     _drawCategory = 0;
-    _cullType = 0;
+    _wasCulled = false;
 }
 
 SceneRendering* Actor::GetSceneRendering() const
 {
-    return &GetScene()->Rendering;
+    return _scene ? &_scene->Rendering : nullptr;
 }
 
 void Actor::SetSceneInHierarchy(Scene* scene)
@@ -686,7 +685,7 @@ void Actor::RemoveTag(const Tag& tag)
 
 bool Actor::WasCulled()
 {
-    return _cullType != 0; // 0 is not culled, 1 is frustum culled, 2 is HZB culled
+    return _wasCulled;
 }
 
 PRAGMA_DISABLE_DEPRECATION_WARNINGS
@@ -1492,9 +1491,14 @@ void Actor::OnLayerChanged()
 
 BoundingBox Actor::GetBoxWithChildren() const
 {
-    BoundingBox result = GetBox();
+    return GetBoundingBoxWithChildren();
+}
+
+BoundingBox Actor::GetBoundingBoxWithChildren() const
+{
+    BoundingBox result = GetBoundingBox();
     for (int32 i = 0; i < Children.Count(); i++)
-        BoundingBox::Merge(result, Children.Get()[i]->GetBoxWithChildren(), result);
+        BoundingBox::Merge(result, Children.Get()[i]->GetBoundingBoxWithChildren(), result);
     return result;
 }
 
@@ -1502,14 +1506,24 @@ BoundingBox Actor::GetBoxWithChildren() const
 
 BoundingBox Actor::GetEditorBox() const
 {
-    return GetBox();
+    return GetEditorBoundingBox();
+}
+
+BoundingBox Actor::GetEditorBoundingBox() const
+{
+    return GetBoundingBox();
 }
 
 BoundingBox Actor::GetEditorBoxChildren() const
 {
-    BoundingBox result = GetEditorBox();
+    return GetEditorBoundingBoxWithChildren();
+}
+
+BoundingBox Actor::GetEditorBoundingBoxWithChildren() const
+{
+    BoundingBox result = GetEditorBoundingBox();
     for (int32 i = 0; i < Children.Count(); i++)
-        BoundingBox::Merge(result, Children.Get()[i]->GetEditorBoxChildren(), result);
+        BoundingBox::Merge(result, Children.Get()[i]->GetEditorBoundingBoxWithChildren(), result);
     return result;
 }
 
@@ -1548,15 +1562,8 @@ void Actor::InitializeHierarchy()
         Children[i]->InitializeHierarchy();
 }
 
-void Actor::Draw(RenderContext& renderContext)
-{
-}
-
 void Actor::Draw(RenderContextBatch& renderContextBatch)
 {
-    // Default impl calls single-context
-    for (RenderContext& renderContext : renderContextBatch.Contexts)
-        Draw(renderContext);
 }
 
 #if USE_EDITOR

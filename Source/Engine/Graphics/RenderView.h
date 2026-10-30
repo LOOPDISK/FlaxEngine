@@ -146,6 +146,11 @@ public:
     API_FIELD() ViewMode Mode = ViewMode::Default;
 
     /// <summary>
+    /// The viewport rectangle. See ViewportRect on Camera to learn more.
+    /// </summary>
+    API_FIELD() Float4 ViewportRect = Float4(0, 0, 1, 1);
+
+    /// <summary>
     /// Maximum allowed shadows quality for this view
     /// </summary>
     API_FIELD() Quality MaxShadowsQuality = Quality::Ultra;
@@ -355,12 +360,6 @@ public:
 public:
     // Camera's View * Projection matrix
     FORCE_INLINE const Matrix& ViewProjection() const
-    {
-        return Frustum.GetMatrix();
-    }
-
-    // Camera's View * Projection matrix
-    FORCE_INLINE Matrix ViewProjection()
     {
         return Frustum.GetMatrix();
     }

@@ -8,9 +8,9 @@
 #include "Engine/Content/AssetReference.h"
 #include "Engine/Scripting/ScriptingObject.h"
 #include "TextLayoutOptions.h"
+#include "FontCharacterEntry.h"
 
 class FontAsset;
-struct FontTextureAtlasSlot;
 
 // The default DPI that engine is using
 #define DefaultDPI 96
@@ -119,110 +119,6 @@ struct TIsPODType<FontLineCache>
     enum { Value = true };
 };
 
-// Font glyph metrics:
-//
-//                       xmin                     xmax
-//                        |                         |
-//                        |<-------- width -------->|
-//                        |                         |
-//              |         +-------------------------+----------------- ymax
-//              |         |    ggggggggg   ggggg    |     ^        ^
-//              |         |   g:::::::::ggg::::g    |     |        |
-//              |         |  g:::::::::::::::::g    |     |        |
-//              |         | g::::::ggggg::::::gg    |     |        |
-//              |         | g:::::g     g:::::g     |     |        |
-//    offsetX  -|-------->| g:::::g     g:::::g     |  offsetY     |
-//              |         | g:::::g     g:::::g     |     |        |
-//              |         | g::::::g    g:::::g     |     |        |
-//              |         | g:::::::ggggg:::::g     |     |        |
-//              |         |  g::::::::::::::::g     |     |      height
-//              |         |   gg::::::::::::::g     |     |        |
-//  baseline ---*---------|---- gggggggg::::::g-----*--------      |
-//            / |         |             g:::::g     |              |
-//     origin   |         | gggggg      g:::::g     |              |
-//              |         | g:::::gg   gg:::::g     |              |
-//              |         |  g::::::ggg:::::::g     |              |
-//              |         |   gg:::::::::::::g      |              |
-//              |         |     ggg::::::ggg        |              |
-//              |         |         gggggg          |              v
-//              |         +-------------------------+----------------- ymin
-//              |                                   |
-//              |------------- advanceX ----------->|
-
-/// <summary>
-/// The cached font character entry (read for rendering and further processing).
-/// </summary>
-API_STRUCT(NoDefault) struct FLAXENGINE_API FontCharacterEntry
-{
-    DECLARE_SCRIPTING_TYPE_MINIMAL(FontCharacterEntry);
-
-    /// <summary>
-    /// The character represented by this entry.
-    /// </summary>
-    API_FIELD() Char Character;
-
-    /// <summary>
-    /// True if entry is valid, otherwise false.
-    /// </summary>
-    API_FIELD() bool IsValid = false;
-
-    /// <summary>
-    /// The index to a specific texture in the font cache.
-    /// </summary>
-    API_FIELD() byte TextureIndex;
-
-    /// <summary>
-    /// The left bearing expressed in integer pixels.
-    /// </summary>
-    API_FIELD() int16 OffsetX;
-
-    /// <summary>
-    /// The top bearing expressed in integer pixels.
-    /// </summary>
-    API_FIELD() int16 OffsetY;
-
-    /// <summary>
-    /// The amount to advance in X before drawing the next character in a string.
-    /// </summary>
-    API_FIELD() int16 AdvanceX;
-
-    /// <summary>
-    /// The distance from baseline to glyph top most point.
-    /// </summary>
-    API_FIELD() int16 BearingY;
-
-    /// <summary>
-    /// The height in pixels of the glyph.
-    /// </summary>
-    API_FIELD() int16 Height;
-
-    /// <summary>
-    /// The start location of the character in the texture (in texture coordinates space).
-    /// </summary>
-    API_FIELD() Float2 UV;
-
-    /// <summary>
-    /// The size the character in the texture (in texture coordinates space).
-    /// </summary>
-    API_FIELD() Float2 UVSize;
-
-    /// <summary>
-    /// The slot in texture atlas, containing the pixel data of the glyph.
-    /// </summary>
-    API_FIELD() const FontTextureAtlasSlot* Slot;
-
-    /// <summary>
-    /// The owner font.
-    /// </summary>
-    API_FIELD() const class Font* Font;
-};
-
-template<>
-struct TIsPODType<FontCharacterEntry>
-{
-    enum { Value = true };
-};
-
 /// <summary>
 /// Represents font object that can be using during text rendering (it uses Font Asset but with pre-cached data for chosen font properties).
 /// </summary>
@@ -239,7 +135,6 @@ private:
     int32 _descender;
     int32 _lineGap;
     bool _hasKerning;
-    Dictionary<Char, FontCharacterEntry> _characters;
     mutable Dictionary<uint32, int32> _kerningTable;
     Array <FontCharacterEntry, FixedAllocation<256>> _commonCharacters;
 
@@ -261,6 +156,18 @@ public:
     /// The active fallback fonts.
     /// </summary>
     API_FIELD() static Array<AssetReference<FontAsset>, HeapAllocation> FallbackFonts;
+
+    /// <summary>
+    /// Gets the global font scaling factor used to rasterize font glyphs at higher resolutions (eg. for high-DPI displays or UI scaling).
+    /// </summary>
+    API_PROPERTY() static float GetGlobalScale();
+
+    /// <summary>
+    /// Sets the global font scaling factor used to rasterize font glyphs at higher resolutions (eg. for high-DPI displays or UI scaling).
+    /// Calling this rebuilds the cached glyphs and metrics of every loaded font so text rendered afterwards stays crisp at the new scale.
+    /// </summary>
+    /// <param name="scale">The new font scale (must be greater than 0).</param>
+    API_FUNCTION() static void SetGlobalScale(float scale);
 
     /// <summary>
     /// Gets parent font asset that contains font family used by this font.
@@ -316,7 +223,7 @@ public:
     /// </summary>
     /// <param name="c">The character.</param>
     /// <param name="result">The output character entry.</param>
-    /// <param name="enableFallback">True if fallback to secondary font when the primary font doesn't contains this character.</param>
+    /// <param name="enableFallback">True if fallback to secondary font when the primary font doesn't contain this character.</param>
     void GetCharacter(Char c, FontCharacterEntry& result, bool enableFallback = true);
 
     /// <summary>
@@ -334,11 +241,18 @@ public:
     API_FUNCTION() void CacheText(const StringView& text);
 
     /// <summary>
-    /// Invalidates all cached dynamic font atlases using this font. Can be used to reload font characters after changing font asset options.
+    /// Refresh cached metrics and invalidates all cached characters (in atlases). Can be used after changing font asset options.
     /// </summary>
     API_FUNCTION() void Invalidate();
 
 public:
+    /// <summary>
+    /// Gets the scale factor that maps the rasterized font size to the actual rendered size.
+    /// </summary>
+    /// <param name="layoutScale">The layout scale.</param>
+    /// <returns>The scale factor.</returns>
+    float GetScale(float layoutScale) const;
+
     /// <summary>
     /// Processes text to get cached lines for rendering.
     /// </summary>

@@ -32,6 +32,7 @@ API_CLASS(Abstract) class FLAXENGINE_API Actor : public SceneObject
     friend SceneRendering;
     friend Prefab;
     friend PrefabInstanceData;
+    friend class RenderBuffers;
 protected:
     uint16 _isActive : 1;
     uint16 _isActiveInHierarchy : 1;
@@ -39,8 +40,8 @@ protected:
     uint16 _isEnabled : 1;
     uint16 _isHierarchyDirty : 1;
     uint16 _drawNoCulling : 1;
-    uint16 _cullType : 2;
     uint16 _drawCategory : 4;
+    bool _wasCulled; // Own byte, written from draw jobs
     byte _layer;
     StaticFlags _staticFlags;
     Transform _localTransform;
@@ -49,7 +50,7 @@ protected:
     BoundingBox _box;
     String _name;
     Scene* _scene;
-    PhysicsScene* _physicsScene;
+    PhysicsScene* _physicsScene; // TODO: move it into physics-related actors (coliders, rigidbodies, etc.)
 
 private:
     // Disable copying
@@ -162,7 +163,7 @@ public:
     API_FUNCTION() void RemoveTag(const Tag& tag);
 
     /// <summary>
-    /// True if this actor was visually occluded last frame, from being behind other objects or out of the viewing frustum. This only refers to drawing on the main render task.
+    /// True if this actor was outside the main view frustum last frame. This only refers to drawing on the main render task.
     /// </summary>
     API_PROPERTY() bool WasCulled();
 
@@ -695,35 +696,71 @@ public:
 public:
     /// <summary>
     /// Gets actor bounding sphere that defines 3D space intersecting with the actor (for determination of the visibility for actor).
+    /// [Deprecated in 1.13]
     /// </summary>
-    API_PROPERTY() FORCE_INLINE const BoundingSphere& GetSphere() const
+    API_PROPERTY() DEPRECATED("Use GetBoundingSphere instead.") FORCE_INLINE const BoundingSphere& GetSphere() const
+    {
+        return _sphere;
+    }
+    
+    /// <summary>
+    /// Gets actor bounding sphere that defines 3D space intersecting with the actor (for determination of the visibility for actor).
+    /// </summary>
+    API_PROPERTY() FORCE_INLINE const BoundingSphere& GetBoundingSphere() const
     {
         return _sphere;
     }
 
     /// <summary>
     /// Gets actor bounding box that defines 3D space intersecting with the actor (for determination of the visibility for actor).
+    /// [Deprecated in 1.13]
     /// </summary>
-    API_PROPERTY() FORCE_INLINE const BoundingBox& GetBox() const
+    API_PROPERTY() DEPRECATED("Use GetBoundingBox instead.") FORCE_INLINE const BoundingBox& GetBox() const
+    {
+        return _box;
+    }
+    
+    /// <summary>
+    /// Gets actor bounding box that defines 3D space intersecting with the actor (for determination of the visibility for actor).
+    /// </summary>
+    API_PROPERTY() FORCE_INLINE const BoundingBox& GetBoundingBox() const
     {
         return _box;
     }
 
     /// <summary>
     /// Gets actor bounding box of the actor including all child actors (children included in recursive way)
+    /// [Deprecated in 1.13]
     /// </summary>
-    API_PROPERTY() BoundingBox GetBoxWithChildren() const;
+    API_PROPERTY() DEPRECATED("Use GetBoundingBoxWithChildren instead.") BoundingBox GetBoxWithChildren() const;
+    
+    /// <summary>
+    /// Gets actor bounding box of the actor including all child actors (children included in recursive way)
+    /// </summary>
+    API_PROPERTY() BoundingBox GetBoundingBoxWithChildren() const;
 
 #if USE_EDITOR
     /// <summary>
     /// Gets actor bounding box (single actor, no children included) for editor tools.
+    /// [Deprecated in 1.13]
     /// </summary>
-    API_PROPERTY() virtual BoundingBox GetEditorBox() const;
+    API_PROPERTY() DEPRECATED("Use GetEditorBoundingBox instead.") virtual BoundingBox GetEditorBox() const;
+    
+    /// <summary>
+    /// Gets actor bounding box (single actor, no children included) for editor tools.
+    /// </summary>
+    API_PROPERTY() virtual BoundingBox GetEditorBoundingBox() const;
 
     /// <summary>
     /// Gets actor bounding box of the actor including all child actors for editor tools.
+    /// [Deprecated in 1.13]
     /// </summary>
-    API_PROPERTY() BoundingBox GetEditorBoxChildren() const;
+    API_PROPERTY() DEPRECATED("Use GetEditorBoundingBoxWithChildren instead.") BoundingBox GetEditorBoxChildren() const;
+    
+    /// <summary>
+    /// Gets actor bounding box of the actor including all child actors for editor tools.
+    /// </summary>
+    API_PROPERTY() BoundingBox GetEditorBoundingBoxWithChildren() const;
 #endif
 
     /// <summary>
@@ -743,13 +780,7 @@ public:
 
 public:
     /// <summary>
-    /// Draws this actor. Called by Scene Rendering service. This call is more optimized than generic Draw (eg. geometry is rendered during all pass types but other actors are drawn only during GBufferFill pass).
-    /// </summary>
-    /// <param name="renderContext">The rendering context.</param>
-    virtual void Draw(RenderContext& renderContext);
-
-    /// <summary>
-    /// Draws this actor. Called by Scene Rendering service. This call is more optimized than generic Draw (eg. geometry is rendered during all pass types but other actors are drawn only during GBufferFill pass).
+    /// Draws this actor. Called by Scene Rendering to collect draw calls from objects.
     /// </summary>
     /// <param name="renderContextBatch">The rendering context batch (eg, main view and shadow projections).</param>
     virtual void Draw(RenderContextBatch& renderContextBatch);
@@ -758,12 +789,12 @@ public:
     /// <summary>
     /// Draws debug shapes for the actor and all child scripts.
     /// </summary>
-    API_FUNCTION() virtual void OnDebugDraw();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnDebugDraw();
 
     /// <summary>
     /// Draws debug shapes for the selected actor and all child scripts.
     /// </summary>
-    API_FUNCTION() virtual void OnDebugDrawSelected();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnDebugDrawSelected();
 #endif
 
 public:
@@ -804,7 +835,7 @@ public:
     /// Tries to find the actor of the given type in this actor hierarchy (checks this actor and all children hierarchy).
     /// </summary>
     /// <param name="type">Type of the actor to search for. Includes any actors derived from the type. Supports interface types.</param>
-    /// <param name="activeOnly">Finds only a active actor.</param>
+    /// <param name="activeOnly">Finds only an active actor.</param>
     /// <returns>Actor instance if found, null otherwise.</returns>
     API_FUNCTION() Actor* FindActor(API_PARAM(Attributes="TypeReference(typeof(Actor))") const MClass* type, bool activeOnly = false) const;
 
@@ -828,33 +859,36 @@ public:
     /// <summary>
     /// Tries to find the actor of the given type in this actor hierarchy (checks this actor and all children hierarchy).
     /// </summary>
+    /// <param name="activeOnly">Finds only an active actor.</param>
     /// <returns>Actor instance if found, null otherwise.</returns>
     template<typename T>
-    FORCE_INLINE T* FindActor() const
+    FORCE_INLINE T* FindActor(bool activeOnly = false) const
     {
-        return (T*)FindActor(T::GetStaticClass());
+        return (T*)FindActor(T::GetStaticClass(), activeOnly);
     }
 
     /// <summary>
     /// Tries to find the actor of the given type and name in this actor hierarchy (checks this actor and all children hierarchy).
     /// </summary>
     /// <param name="name">The name of the actor.</param>
+    /// <param name="activeOnly">Finds only an active actor.</param>
     /// <returns>Actor instance if found, null otherwise.</returns>
     template<typename T>
-    FORCE_INLINE T* FindActor(const StringView& name) const
+    FORCE_INLINE T* FindActor(const StringView& name, bool activeOnly = false) const
     {
-        return (T*)FindActor(T::GetStaticClass(), name);
+        return (T*)FindActor(T::GetStaticClass(), name, activeOnly);
     }
 
     /// <summary>
     /// Tries to find the actor of the given type and tag in this actor hierarchy (checks this actor and all children hierarchy).
     /// </summary>
     /// <param name="tag">The tag of the actor to search for.</param>
+    /// <param name="activeOnly">Finds only an active actor.</param>
     /// <returns>Actor instance if found, null otherwise.</returns>
     template<typename T>
-    FORCE_INLINE T* FindActor(const Tag& tag) const
+    FORCE_INLINE T* FindActor(const Tag& tag, bool activeOnly = false) const
     {
-        return (T*)FindActor(T::GetStaticClass(), tag);
+        return (T*)FindActor(T::GetStaticClass(), tag, activeOnly);
     }
 
     /// <summary>
@@ -1026,64 +1060,64 @@ public:
     /// Serializes the actor object to the Json string. Serialized are only this actor properties but no child actors nor scripts. Serializes references to the other objects in a proper way using IDs.
     /// </summary>
     /// <returns>The Json container with serialized actor data.</returns>
-    API_FUNCTION() String ToJson();
+    API_FUNCTION(Attributes="NoAnimate") String ToJson();
 
     /// <summary>
     /// Deserializes the actor object to the Json string. Deserialized are only this actor properties but no child actors nor scripts. 
     /// </summary>
     /// <param name="json">The serialized actor data (state).</param>
-    API_FUNCTION() void FromJson(const StringAnsiView& json);
+    API_FUNCTION(Attributes="NoAnimate") void FromJson(const StringAnsiView& json);
 
     /// <summary>
     /// Clones actor including all scripts and any child actors (whole scene tree). Objects are duplicated via serialization (any transient/non-saved state is ignored).
     /// </summary>
-    API_FUNCTION() Actor* Clone();
+    API_FUNCTION(Attributes="NoAnimate") Actor* Clone();
 
 public:
     /// <summary>
     /// Called when actor gets added to game systems. Occurs on BeginPlay event or when actor gets activated in hierarchy. Use this event to register object to other game system (eg. audio).
     /// </summary>
-    API_FUNCTION() virtual void OnEnable();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnEnable();
 
     /// <summary>
     /// Called when actor gets removed from game systems. Occurs on EndPlay event or when actor gets inactivated in hierarchy. Use this event to unregister object from other game system (eg. audio).
     /// </summary>
-    API_FUNCTION() virtual void OnDisable();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnDisable();
 
     /// <summary>
     /// Called when actor parent gets changed.
     /// </summary>
-    API_FUNCTION() virtual void OnParentChanged();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnParentChanged();
 
     /// <summary>
     /// Called when actor transform gets changed.
     /// </summary>
-    API_FUNCTION() virtual void OnTransformChanged();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnTransformChanged();
 
     /// <summary>
     /// Called when actor active state gets changed.
     /// </summary>
-    API_FUNCTION() virtual void OnActiveChanged();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnActiveChanged();
 
     /// <summary>
     /// Called when actor active in tree state gets changed.
     /// </summary>
-    API_FUNCTION() virtual void OnActiveInTreeChanged();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnActiveInTreeChanged();
 
     /// <summary>
     /// Called when order in parent children array gets changed.
     /// </summary>
-    API_FUNCTION() virtual void OnOrderInParentChanged();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnOrderInParentChanged();
 
     /// <summary>
     /// Called when actor static flag gets changed.
     /// </summary>
-    API_FUNCTION() virtual void OnStaticFlagsChanged();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnStaticFlagsChanged();
 
     /// <summary>
     /// Called when layer gets changed.
     /// </summary>
-    API_FUNCTION() virtual void OnLayerChanged();
+    API_FUNCTION(Attributes="NoAnimate") virtual void OnLayerChanged();
 
     /// <summary>
     /// Called when adding object to the game.

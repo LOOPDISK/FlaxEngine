@@ -70,8 +70,12 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float aspect)
     projectionMatrix[2][3] = 1.0f; // W component
     projectionMatrix[3][2] = ViewInfo.w * ViewFar; // Reconstruct M43: (-Near) * Far = (-Far*Near)/(Far-Near)
     float4 result = mul(viewPosition, projectionMatrix);
-    // Scale depth to draw on top of world geometry (compress weapon depth to [0, 0.01] NDC range)
+    // Compress weapon depth into 1% of the NDC range at the near plane to draw on top of world geometry
+#if REVERSE_Z
+    result.z = lerp(result.w, result.z, 0.01);
+#else
     result.z *= 0.01;
+#endif
     return result;
 }
 
@@ -95,8 +99,12 @@ float4 ApplyWeaponFOVOverride(float3 worldPosition, float fov, float aspect, flo
 
     // Apply custom projection
     float4 result = mul(viewPosition, weaponProjectionMatrix);
-    // Scale depth to draw on top of world geometry (compress weapon depth to [0, 0.01] NDC range)
+    // Compress weapon depth into 1% of the NDC range at the near plane to draw on top of world geometry
+#if REVERSE_Z
+    result.z = lerp(result.w, result.z, 0.01);
+#else
     result.z *= 0.01;
+#endif
     return result;
 }
 

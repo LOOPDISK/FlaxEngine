@@ -6,9 +6,9 @@
 #include "FoliageInstance.h"
 #include "FoliageCluster.h"
 #include "FoliageType.h"
+#include "Engine/Core/Math/BoundingFrustum.h"
 #include "Engine/Core/Memory/ArenaAllocation.h"
 #include "Engine/Level/Actor.h"
-#include "Engine/Renderer/HierarchialZBufferPass.h"
 
 /// <summary>
 /// Represents a foliage actor that contains a set of instanced meshes.
@@ -20,6 +20,7 @@ API_CLASS() class FLAXENGINE_API Foliage final : public Actor
 private:
     bool _disableFoliageTypeEvents;
     int32 _sceneRenderingKey = -1;
+    Vector3 _cachedDrawWorldOrigin = Vector3::Zero;
 
 public:
     /// <summary>
@@ -158,26 +159,32 @@ public:
     API_PROPERTY() static void SetGlobalDensityScale(float value);
 
 private:
-    Float3 _mainViewPosition;
-    float _shadowCullDistance2;
-    float _shadowCullRadius;
-    HZBData* _hzb = nullptr;
-    bool _checkHZB = true;
-    int _lastHZBId = -1;
-    int _lastHZBFrame = -1;
+    Float3 _mainViewPosition = Float3::Zero;
+    float _shadowCullDistance2 = 0.0f;
+    float _shadowCullRadius = 0.0f;
 
-    bool CheckVisibility(FoliageCluster* cluster, const BoundingSphere& bounds) const;
-    bool CheckVisibility(FoliageInstance& instance, const BoundingSphere& bounds) const;
     void AddToCluster(ChunkedArray<FoliageCluster, FOLIAGE_CLUSTER_CHUNKS_SIZE>& clusters, FoliageCluster* cluster, FoliageInstance& instance);
+
     struct DrawContext
     {
         RenderContext& RenderContext;
-        const RenderView& LodView;
-        const FoliageType& FoliageType;
+        Model* FoliageTypeModel;
         Vector3 ViewOrigin;
-        float MinObjectPixelSizeSq;
         float ViewScreenSizeSq;
+        Float3 LodViewOrigin;
+        float MinObjectPixelSizeSq;
+        Float3 LodViewPosition;
+        int32 MinLOD, MaxLOD;
+        BoundingFrustum CullingFrustum;
+        SceneRendering* Scene;
+        bool IsMainContext;
+
+        FORCE_INLINE int32 ClampLODIndex(int32 index) const
+        {
+            return index < MinLOD ? MinLOD : index < MaxLOD ? index : MaxLOD;
+        }
     };
+
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE && FOLIAGE_USE_DRAW_CALLS_BATCHING
     struct DrawKey
     {
@@ -201,11 +208,11 @@ private:
 
     typedef Array<struct DrawCall, InlinedAllocation<8>> DrawCallsList;
     typedef Dictionary<DrawKey, struct BatchedDrawCall, ConcurrentArenaAllocation> BatchedDrawCalls;
-    void DrawInstance(DrawContext& context, FoliageInstance& instance, Model* model, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
-    void DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCallsList* drawCallsLists, BatchedDrawCalls& result, bool skipOcclusionCheck) const;
+    void DrawInstance(DrawContext& context, FoliageInstance& instance, int32 lod, float lodDitherFactor, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
+    void DrawCluster(DrawContext& context, FoliageCluster* cluster, DrawCallsList* drawCallsLists, BatchedDrawCalls& result) const;
     void DrawType(RenderContext& renderContext, const FoliageType& type, DrawCallsList* drawCallsLists, bool isMainContext);
 #else
-    void DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::DrawInfo& draw, bool skipOcclusionCheck);
+    void DrawCluster(DrawContext& context, FoliageCluster* cluster, Mesh::DrawInfo& draw);
     void DrawType(RenderContext& renderContext, const FoliageType& type, Mesh::DrawInfo& draw, bool isMainContext);
 #endif
 #if !FOLIAGE_USE_SINGLE_QUAD_TREE
@@ -215,7 +222,9 @@ private:
     RenderContextBatch* _renderContextBatch;
 #endif
 
-    void InitType(const RenderView& view, FoliageType& type);
+    void PreDraw(const RenderView& view);
+    void InitType(const RenderView& view, int32 typeIndex);
+    void UpdateBounds();
 
 public:
     /// <summary>
@@ -228,9 +237,14 @@ public:
     /// <returns>True whether the two objects intersected, otherwise false.</returns>
     API_FUNCTION() bool Intersects(API_PARAM(Ref) const Ray& ray, API_PARAM(Out) Real& distance, API_PARAM(Out) Vector3& normal, API_PARAM(Out) int32& instanceIndex);
 
+private:
+#if USE_EDITOR
+    // Debug filter to draw only specific foliage type (in editor).
+    API_FIELD(Internal) int32 _drawFoliageType = -1;
+#endif
+
 public:
     // [Actor]
-    void Draw(RenderContext& renderContext) override;
     void Draw(RenderContextBatch& renderContextBatch) override;
     bool IntersectsItself(const Ray& ray, Real& distance, Vector3& normal) override;
     void Serialize(SerializeStream& stream, const void* otherObj) override;

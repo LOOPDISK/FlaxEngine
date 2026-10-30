@@ -76,6 +76,11 @@ namespace FlaxEditor.Surface
         /// The footer rectangle (local space).
         /// </summary>
         protected Rectangle _footerRect;
+        
+        /// <summary>
+        /// The last mouse down position.
+        /// </summary>
+        protected Float2 _mouseDownMousePosition;
 
         /// <summary>
         /// The node archetype.
@@ -163,8 +168,6 @@ namespace FlaxEditor.Surface
         /// </summary>
         protected virtual Color ArchetypeColor => GroupArchetype.Color;
 
-        private Float2 mouseDownMousePosition;
-
         /// <summary>
         /// Calculates the size of the node including header, footer, and margins.
         /// </summary>
@@ -248,7 +251,7 @@ namespace FlaxEditor.Surface
                 else if (child is SurfaceNodeElementControl elementControl)
                 {
                     leftWidth = Mathf.Max(leftWidth, elementControl.Width + 8f);
-                    leftHeight = Mathf.Max(leftHeight, elementControl.Height);
+                    leftHeight = Mathf.Max(leftHeight, elementControl.Bottom - Constants.NodeMarginY - Constants.NodeHeaderHeight);
                 }
                 // Other controls in the node
                 else if (child is Control control)
@@ -1166,10 +1169,9 @@ namespace FlaxEditor.Surface
             if (base.OnMouseDown(location, button))
                 return true;
 
+            _mouseDownMousePosition = location;
             if (button == MouseButton.Left && (Archetype.Flags & NodeFlags.NoCloseButton) == 0 && _closeButtonRect.Contains(ref location))
                 return true;
-            if (button == MouseButton.Right)
-                mouseDownMousePosition = Input.Mouse.Position;
 
             return false;
         }
@@ -1180,18 +1182,22 @@ namespace FlaxEditor.Surface
             if (base.OnMouseUp(location, button))
                 return true;
 
-            // Close/ delete
-            bool canDelete = !Surface.IsConnecting && !Surface.WasSelecting && !Surface.WasMovingSelection;
-            if (button == MouseButton.Left && canDelete && (Archetype.Flags & NodeFlags.NoCloseButton) == 0 && _closeButtonRect.Contains(ref location))
+            if (button == MouseButton.Left)
             {
-                Surface.Delete(this);
-                return true;
+                // Close/delete
+                bool canDelete = !Surface.IsConnecting && !Surface.WasSelecting && !Surface.WasMovingSelection;
+                if (canDelete && (Archetype.Flags & NodeFlags.NoCloseButton) == 0 &&
+                    _closeButtonRect.Contains(ref location) && _closeButtonRect.Contains(ref _mouseDownMousePosition))
+                {
+                    Surface.Delete(this);
+                    return true;
+                }
             }
 
             // Secondary Context Menu
             if (button == MouseButton.Right)
             {
-                float distance = Float2.Distance(mouseDownMousePosition, Input.Mouse.Position);
+                float distance = Float2.Distance(_mouseDownMousePosition, location);
                 if (distance > 2.5f)
                     return true;
 

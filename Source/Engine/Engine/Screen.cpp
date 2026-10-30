@@ -20,6 +20,7 @@ namespace
     Nullable<bool> Fullscreen;
     Nullable<Float2> Size;
     bool CursorVisible = true;
+    CursorType CachedCursorType = CursorType::Default;
     CursorLockMode CursorLock = CursorLockMode::None;
     CursorLockMode PendingCursorLock = CursorLockMode::None;
     bool LastGameViewportFocus = false;
@@ -107,10 +108,17 @@ void Screen::SetCursorVisible(const bool value)
 #else
 	const auto win = Engine::MainWindow;
 #endif
+    if (!value && win)
+    {
+        // Cache cursor used before hiding it to restore it later (eg. if game uses image cursor and hides it for a while)
+        CachedCursorType = win->GetCursor();
+        if (CachedCursorType == CursorType::Hidden)
+            CachedCursorType = CursorType::Default;
+    }
     if (win && Engine::HasGameViewportFocus())
-        win->SetCursor(value ? CursorType::Default : CursorType::Hidden);
+        win->SetCursor(value ? CachedCursorType : CursorType::Hidden);
     else if (win)
-        win->SetCursor(CursorType::Default);
+        win->SetCursor(CachedCursorType);
     CursorVisible = value;
 }
 
@@ -209,8 +217,6 @@ void Screen::SetGameWindowMode(GameWindowMode windowMode)
     switch (windowMode)
     {
     case GameWindowMode::Windowed:
-        if (GetIsFullscreen())
-            SetIsFullscreen(false);
         win->SetBorderless(false, false);
         break;
     case GameWindowMode::Fullscreen:
@@ -271,7 +277,11 @@ void ScreenService::Draw()
 		auto win = Engine::MainWindow;
 		if (win)
 		{
-			win->SetClientSize(Size.GetValue());
+            Float2 sizeDelta = Size.GetValue() - win->GetClientSize();
+            Rectangle newBiunds(win->GetClientPosition(), Size.GetValue());
+            if (!win->IsMaximized())
+                newBiunds -= sizeDelta * 0.5f;
+            win->SetClientBounds(newBiunds);
 		}
 
 		Size.Reset();
