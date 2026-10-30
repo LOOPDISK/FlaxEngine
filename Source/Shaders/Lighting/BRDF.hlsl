@@ -84,6 +84,14 @@ float3 F_Schlick(float3 f0, float3 f90, float VoH)
 	return f90 * fc + (1 - fc) * f0;
 }
 
+#define SPECULAR_GRAZING_GATE_K 3.0
+float SpecularGrazingGate(float roughness)
+{
+
+    float a2 = Square(Square(roughness));
+    return saturate(1.0 - SPECULAR_GRAZING_GATE_K * a2 / max(1.0 - a2, 1e-4));
+}
+
 #define REFLECTION_CAPTURE_NUM_MIPS 7
 // Allow going down to mip 0 (1x1 pixel) for fully diffuse/chalky look
 #define REFLECTION_CAPTURE_ROUGHEST_MIP 0 
@@ -119,14 +127,14 @@ float3 EnvBRDFApprox(float3 specularColor, float roughness, float NoV)
     half4 r = roughness * c0 + c1;
     half a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
     half2 ab = half2(-1.04, 1.04) * a004 + r.zw;
-    return specularColor * ab.x + saturate(50.0 * specularColor.g) * ab.y;
+    return specularColor * ab.x + SpecularGrazingGate(roughness) * saturate(50.0 * specularColor.g) * ab.y;
 }
 
 // Importance sampled preintegrated G * F
 float3 EnvBRDF(Texture2D preIntegratedGF, float3 specularColor, float roughness, float NoV)
 {
     float2 ab = preIntegratedGF.SampleLevel(SamplerLinearClamp, float2(NoV, roughness), 0).rg;
-    return specularColor * ab.x + saturate(50.0 * specularColor.g) * ab.y;
+    return specularColor * ab.x + SpecularGrazingGate(roughness) * saturate(50.0 * specularColor.g) * ab.y;
 }
 
 float RoughnessToSpecularPower(float roughness)

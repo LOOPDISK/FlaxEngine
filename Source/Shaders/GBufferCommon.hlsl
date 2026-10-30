@@ -50,6 +50,13 @@ bool IsSubsurfaceMode(int shadingModel)
     return shadingModel == SHADING_MODEL_SUBSURFACE || shadingModel == SHADING_MODEL_FOLIAGE;
 }
 
+// Matte look
+#define MATTE_AMOUNT 0.6
+float ApplyMatteRoughness(float roughness)
+{
+    return lerp(roughness, 1.0, MATTE_AMOUNT);
+}
+
 float3 GetDiffuseColor(float3 color, float metalness)
 {
     return color * (1.0 - metalness);
