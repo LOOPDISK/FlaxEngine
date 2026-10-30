@@ -213,7 +213,9 @@ namespace FlaxEngine.Utilities
                 // Return false if start of new html tag is detected.
                 if (Peek() == '<')
                     return false;
-                
+
+                var startPos = _pos;
+
                 if (Peek() == '/')
                 {
                     // Handle trailing forward slash
@@ -249,6 +251,10 @@ namespace FlaxEngine.Utilities
                 }
 
                 if (EOF)
+                    return false;
+
+                // Infinite loop detection - unexpected chars in a tag like <a_> or <a!> are infinite loops
+                if (startPos == _pos)
                     return false;
             }
 
