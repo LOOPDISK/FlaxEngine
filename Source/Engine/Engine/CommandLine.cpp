@@ -140,7 +140,8 @@ bool CommandLine::Parse(const StringView& commandLine, Array<Arg>& args)
             i++;
         if (i == length)
             break;
-        bool hasArgPrefix = commandLine[i] == '-' || commandLine[i] == '/';
+        // FIXME - upstream hardcodes / here which breaks linux absolute paths as command line args
+        bool hasArgPrefix = commandLine[i] == '-'; // || commandLine[i] == '/';
         if (hasArgPrefix)
             i++;
 
